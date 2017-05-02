@@ -111,11 +111,11 @@ def breakpoint(main, configs,
 
 
 def calltrace(main, configs,
-               policies,
-               instance_id,
-               test_id,
-               data_root,
-               quick):
+              policies,
+              instance_id,
+              test_id,
+              data_root,
+              quick):
     gdb = main.cc + "gdb"
     orgfiles = {}
     done = {}
@@ -159,6 +159,47 @@ def calltrace(main, configs,
     main_cfgs["calltrace_done"] = lambda s: done[s.stagename]
     return [("interactive", cmd),
             ("set_config", main_cfgs)] + done_commands + [("targets", targets)]
+
+
+def enforce(main, configs,
+            policies,
+            instance_id,
+            test_id,
+            data_root,
+            quick):
+    gdb = main.cc + "gdb"
+    enforce_src = os.path.join(main.test_suite_path, "enforcement", "enforce.py")
+    stagenames = [s.stagename for s in policies.iterkeys()]
+    log = os.path.join(data_root, "enforce.log")
+    done = os.path.join(data_root, "enforce.completed")
+    stagesetters = " ".join(["-ex 'enforce substages %s %s'" % (s.stagename, v)
+                             for (s, v) in policies.iteritems()])
+    additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
+
+    cmd = "%s %s -ex 'python execfile(\"%s\")' %s " % (gdb, additional_cmds, enforce_src,
+                                                       stagesetters)
+    cmd += "-ex 'enforce test_instance %s' " % instance_id
+    cmd += "-ex 'enforce test_trace %s' " % test_id
+    cmd += "-ex 'enforce log %s'" % log
+    cmd += "-ex 'enforce until %s'" % stagenames[-1]
+    cmd += "-ex 'enforce stages %s'" % " ".join(stagenames)
+    cmd += "-ex 'enforce kill' -ex 'enforce go' -ex 'q'"
+
+    deps = []
+    targets = [log, done]
+    done_commands = [("command", "touch %s" % done)]
+    main_cfgs = {}
+    for s in policies.iterkeys():
+        deps.extend([main.get_config("staticdb", s),
+                     main.get_config("staticdb_done", s),
+                     main.get_config("policy_db", s),
+                     main.get_config("policy_db_done", s)])
+
+    main_cfgs["enforce_log"] = log
+    main_cfgs["enforce_done"] = done
+
+    return [("interactive", cmd),
+            ("set_config", main_cfgs)] + done_commands + [("targets", targets), ("file_dep", deps)]
 
 
 def watchpoint(main, configs,
@@ -227,12 +268,13 @@ def bbxmframac(main, boot_config,
     framac = os.path.join(host_software_config.root, host_software_config.binary)
     cmds = []
     patch_dir = os.path.join(data_root, "patches")
+    callstacks = {}
     cmds.append(("command", "mkdir -p %s" % patch_dir))
     for stage in policies.iterkeys():
         if not stage.stagename == 'spl':
             raise Exception("does not support stage %s" % stage.stagename)
         else:
-            callstacks = os.path.join(data_root, "callstacks.txt")
+            callstacks[stage.stagemae] = os.path.join(data_root, "callstacks.txt")
             out = os.path.join(data_root, "framac-stdout.txt")
             policy_id = policies[stage]
             args = "--stage %s -e -u -b %s -c %s -t %s -T %s -I %s -P %s " % (stage.stagename,
@@ -244,4 +286,5 @@ def bbxmframac(main, boot_config,
                                                                               policy_id)
             cmd = "%s %s" % (framac, args)
             cmds.append(("command", cmd))
-    return cmds
+    configs = {"framac_callstacks", lambda s: callstacks[s.stagename]}
+    return [("set_config", configs)] + cmds

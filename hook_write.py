@@ -25,9 +25,9 @@ import time
 
 import os
 import sys
-path = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.join(path, ".."))
+path = gdb.os.getcwd()
 sys.path.append(path)
+# sys.path.append(os.path.join(path, ".."))
 version = os.path.join(path, ".python-version")
 if os.path.exists(version):
     with open(version, 'r') as pv:

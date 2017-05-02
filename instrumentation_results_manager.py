@@ -255,6 +255,8 @@ class ResultsLoader(object):
 class PostTraceLoader(ResultsLoader):
     _processes_types = {'consolidate_writes': {'fn':
                                                "_histogram",},
+                        'policy_check': {'fn':
+                                         "_policy_check",},
                         'process_watchpoints': {"fn":
                                                 "_watchpoints",
                                                 "traces": ["watchpoint"]}}
@@ -296,7 +298,6 @@ class PostTraceLoader(ResultsLoader):
         for (k, v) in self._processes_types.iteritems():
             if "traces" in v.iterkeys() and self.tracename not in v["traces"]:
                 continue
-
             if k not in self._processes_types.iterkeys():
                 continue
             proc = getattr(self, v["fn"])
@@ -359,6 +360,46 @@ class PostTraceLoader(ResultsLoader):
             a = ActionListTask([Do(s, outfile)],
                                deps, [outfile], name)
             tasks.append(a)
+        return tasks
+
+    def _policy_check(self, name):
+        tasks = []
+        tp_db = {}
+        deps = []
+        fns = {}
+        el_file = {}
+        tp_db_done = {}
+
+        class Do():
+            def __init__(self, s):
+                self.s = s
+
+            def __call__(self):
+                db_info.create(self.s, "policy_trace_db")
+                #db_info.get(self.s).generate_write_range_file(self.o)
+
+        for s in Main.get_config("stages_with_policies"):
+            n = s.stagename
+            tp_db[n] = self._test_path("policy-tracedb-%s.h5" % n)
+            tp_db_done[n] = self._test_path("policy-tracedb-%s.completed" % n)
+            el_file[n] = self._test_path("substages-%s.el" % n)
+            fns[n] = self._test_path("%s_fn_lists" % n)
+            tasks.append(self._mkdir(fns[n]))
+            if "framac" not in self.tracename:
+                deps = [Main.get_config("calltrace_db", s)]
+            else:
+                deps = [Main.get_config('framac_callstacks', s)]
+            print deps
+            tasks.append(ActionListTask([Do(s),
+                                         "touch %s" % tp_db_done[n]],
+                                        deps,
+                                        [tp_db_done[n], tp_db[n], el_file[n]],
+                                        "postprocess_trace_policy"))
+
+        Main.set_config("policy_trace_db", lambda s: tp_db[s.stagename])
+        Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
+        Main.set_config("policy_trace_done", lambda s: tp_db_done[s.stagename])
+        Main.set_config("policy_trace_fnlist_dir", lambda s: fns[s.stagename])
         return tasks
 
 
@@ -508,6 +549,7 @@ trace: {}
                                           self._test_path(),
                                           self.quick)
         tasks.append(self._process_handler(trace_output, "tracing_method")[0])
+
         return tasks
 
     def _process_handler(self, handler_tasks, name):
@@ -788,7 +830,7 @@ class PolicyTaskLoader(ResultsLoader):
         self._add_tasks()
 
     def _policy_root(self, rel=""):
-        return os.path.join(self.instance_dir, 'policies')
+        return os.path.join(self.instance_dir, 'policies', rel)
 
     def _full_path(self, stage, rel=""):
         return os.path.join(self._policy_root(), stage.stagename, rel)
@@ -823,6 +865,20 @@ class PolicyTaskLoader(ResultsLoader):
                 substagedatadir = os.path.join(policystagedir, policy_entry)
                 s_policy = os.path.join(substagedatadir, policy_file_name)
                 s_regions = os.path.join(substagedatadir, regions_file_name)
+            elif policy_entry is None:
+                # choose a default
+                policy_dir = self._full_path(s)
+                # choose any file in dir
+                choices = glob.glob(policy_dir + "/*")
+                for c in choices:
+                    d = os.path.basename(c)
+                    if d.startswith("."):
+                        continue
+                    s_policy = path.isfile(os.path.join(c, pname))
+                    s_regions = path.isfile(os.path.join(c, rname))
+                    if os.path.isdir(c) and os.path.isfile(s_policy) and \
+                       os.path.isfile(r_policy):
+                        break
             else:
                 s_policy = policy_entry[0]  # self.policies[n][0]
                 s_regions = policy_entry[1]  # self.policies[n][1]

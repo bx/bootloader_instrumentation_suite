@@ -37,7 +37,7 @@ import fnmatch
 import argparse
 import sys
 import re
-import utils
+import testsuite_utils as utils
 import os
 from sortedcontainers import SortedList
 from config import Main

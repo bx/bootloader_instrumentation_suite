@@ -22,7 +22,6 @@
 
 import config
 import pytable_utils
-import utils
 import substage
 import intervaltree
 import tables
@@ -183,7 +182,6 @@ class AddrSpaceInfo():
         vtab = self.h5file.create_table(self.h5group, tablename,
                                         VarEntry, "")
         self.var_table[sname] = vtab
-        #test_cfg = Main.testcfg_mgr.current_test_cfg_instance
         elf = Main.get_config("stage_elf", stage)
         cmd = "%snm -n -S %s" % (cc, elf)
         f = StringIO.StringIO(Main.shell.run_cmd(cmd))

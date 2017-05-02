@@ -59,7 +59,6 @@ class TaskManager():
                   if v.stagename in enabled_stages]
             Main.set_config('enabled_stages', ss)
 
-        Main.set_config('policies', {s: {} for s in Main.get_config('enabled_stages')})
         if create_test:
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
@@ -69,7 +68,6 @@ class TaskManager():
                                                                             self.test_id,
                                                                             enabled_stages,
                                                                             create_test)
-
         for stage in Main.get_config('enabled_stages'):
             stage.elf = Main.get_config('stage_elf', stage)
             stage.image = Main.get_config('stage_image', stage)

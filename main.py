@@ -26,6 +26,7 @@ from config import Main
 
 import argparse
 import IPython
+import glob
 import os
 import run_cmd
 import sys
@@ -176,10 +177,10 @@ if __name__ == '__main__':
 
     class SubstageNameAction(argparse.Action):
         def __init__(self, option_strings, dest, **kwargs):
-            self.stages = list(Main.get_bootloader_cfg().supported_stages.itervalues())
-            self.stagenames = [s.stagename for s in self.stages]
+            stages = list(Main.get_bootloader_cfg().supported_stages.itervalues())
+            self.stagenames = [s.stagename for s in stages]
             self.nargs = 2
-            defaults = []
+            defaults = {'spl': None}
             kwargs['default'] = defaults
             super(SubstageNameAction, self).__init__(option_strings, dest, **kwargs)
 
@@ -190,8 +191,8 @@ if __name__ == '__main__':
                 raise argparse.ArgumentError(self,
                                              "%s not a valid stage, must be one of %s" %
                                              (stagename, str(self.stagenames)))
-            # files = getattr(namespace, self.dest)
             getattr(namespace, self.dest)[stagename] = substages_name
+
 
     cmds.add_argument('-I', '--importpolicy',
                       help="Stage name, path to file containing proposed substages, "

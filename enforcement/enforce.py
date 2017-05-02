@@ -26,7 +26,7 @@ import argparse
 import sys
 import os
 import signal
-path = os.path.dirname(os.path.realpath(__file__))
+path = gdb.os.getcwd()
 sys.path.append(os.path.join(path, ".."))
 sys.path.append(path)
 version = os.path.join(path, ".python-version")
@@ -140,14 +140,13 @@ class Enforce(gdb_tools.GDBBootController):
         global allowed_writes
         for s in [_s for _s in self._stages.itervalues() if _s.stage in self.stage_order]:
             name = s.stage.stagename
-            st = self._stages[name]
-            policy = Main.get_config("policy_file", s)
-            ss = substage.substages_entrypoints(policy)
-            i = db_info.policydb(st)
+            policy = Main.get_config("policy_file", s.stage)
+            ss = substage.SubstagesInfo.substages_entrypoints(policy)
+            i = db_info.get(s.stage)
             allowed_writes[name] = {}
 
             for n in range(0, len(ss)):
-                allowed_writes[name][n] = i.allowed_writes(n)
+                allowed_writes[name][n] = i.allowed_substage_writes(n)
 
     def write_stophook(self, bp, ret):
         return self.longwrite_stophook(bp, ret)
