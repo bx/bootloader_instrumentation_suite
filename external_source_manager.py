@@ -158,7 +158,9 @@ class CodeTaskList():
         if do_build:
             self.tasks = [CodeTaskClean(cfg), CodeTaskConfig(cfg), self.build]
         else:
+            print "uptodate"
             self.tasks = [self.build]
+            self.build.uptodate = [True]
 
     def has_nothing_to_commit(self):
         return self.git.has_nothing_to_commit() if self.git else True
@@ -187,14 +189,14 @@ class CodeTaskList():
 
 class SourceLoader():
     def __init__(self, do_build, bootloader_only=False):
-        do_build = do_build
+        self.do_build = do_build
         ss = Main.config_class_lookup("Software")
         bootloader = Main.get_bootloader_cfg()
         if bootloader_only:
-            self.code_tasks = [CodeTaskList(s, do_build)
+            self.code_tasks = [CodeTaskList(s, self.do_build)
                                for s in ss if s.name == bootloader.software]
         else:
-            self.code_tasks = [CodeTaskList(s, do_build)
+            self.code_tasks = [CodeTaskList(s, self.do_build)
                                for s in ss
                                if hasattr(s, "build_required") and s.build_required]
 
@@ -203,5 +205,6 @@ class SourceLoader():
         for c in self.code_tasks:
             name = "task_%s" % c.basename
             tl = c.list_tasks
-            l.append((name, tl))
+            if self.do_build:
+                l.append((name, tl))
         return l

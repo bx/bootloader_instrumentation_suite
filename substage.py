@@ -29,8 +29,6 @@ import numpy
 import tables
 import intervaltree
 import pytable_utils
-import software
-import utils
 import run_cmd
 import pickle
 from collections import Iterable
@@ -132,13 +130,13 @@ class SubstagesInfo():
 
     def __init__(self, stage,
                  intervaltype=SUBSTAGEONLY):
-        self.h5files = {}
+        self.h5file = None
         self.h5mmap = None
-        self.h5groups = {}
+        self.h5group = None
         self.h5mmapgroup = None
-        self.trace_intervals_tables = {}
-        self.contents_tables = {}
-        self.unresolved_interval_tables = {}
+        self.trace_intervals_table = None
+        self.contents_table = None
+        self.unresolved_interval_table = None
         self.interval_type = intervaltype
         self.stage = stage
         self.substage_mmap_info_table = None
@@ -149,8 +147,8 @@ class SubstagesInfo():
         self.substage_file_path = Main.get_config("policy_file", self.stage)
         self.mmap_file = Main.get_config("regions_file", self.stage)
 
-    def groupname(self, hw):
-        return "%s_%s_%s" % (hw.tracename, self.interval_type, self.stage.stagename)
+    def groupname(self):
+        return "%s_%s" % (self.interval_type, self.stage.stagename)
 
     def mmapgroupname(self):
         return "%s_mmap" % self.stage.stagename
@@ -159,13 +157,9 @@ class SubstagesInfo():
         self.open_dbs(new_policy, new_trace)
         self.populate_substage_policy_tables()
         if new_trace:
-            #for h in Main.get_config('enabled_hardware'):
-            #    if h.tracename not in self.supported_hw_names:
-            #        continue
-            #    self.write_substages_file(h)
-            #    self.populate_contents_table(h)
-            #    self.populate_write_interval_table(h)
-            pass
+            self.write_substages_file()
+            self.populate_contents_table()
+            self.populate_write_interval_table()
 
     def get_intervals_for_substage(self, substage, intervals):
         stage_intervals = intervals[substage]
@@ -192,9 +186,8 @@ class SubstagesInfo():
             i.merge_overlaps()
         return divided_intervals
 
-    def get_intervals(self, hw):
-        name = hw.tracename
-        table = self.trace_intervals_tables[name]
+    def get_intervals(self):
+        table = self.trace_intervals_table
         stages = self.substage_numbers()
         results = {i: [] for i in stages}
         divided_intervals = self.divide_intervals(stages, table)
@@ -203,10 +196,7 @@ class SubstagesInfo():
         return divided_intervals  # results
 
     def print_all_intervals(self):
-        return
-        for s in self.supported_hw:
-            if s.tracename in self.contents_tables.iterkeys():
-                self.print_intervals(s)
+        self.print_intervals()
 
     def lookup_symbol_interval(self, name, num):
         (startaddr, endaddr) = db_info.get(self.stage).mmap_var_loc(name)
@@ -249,13 +239,14 @@ class SubstagesInfo():
                 fd.write("\n".join(results[i]))
                 fd.write("\n")
 
-    def write_substages_file(self, hw):
+    def write_substages_file(self):
         stage = self.stage
         substages = self._substages_entrypoints()
         substagesname = self.substages_name()
-        if 'FramaC' not in hw.tracename:
-            path = self.substages_instance.instance_substages_el_file()
-            calltrace_path = software.registered_managers['calltrace'].get_org_file_path(stage)
+        tracename = Main.get_config("trace_trace")
+        if 'framac' not in tracename:
+            path = Main.get_config("policy_trace_el", self.stage)
+            calltrace_path = Main.get_config("calltrace_db", self.stage)
             substage_linenos = [0]
             for s in substages:
                 if s == "_start":
@@ -281,16 +272,16 @@ class SubstagesInfo():
         else:
             return int(out.split(":")[0])
 
-    def get_raw_files(self, hw, noprepare):
+    def get_raw_files(self, noprepare):
         stage = self.stage
         substages = self._substages_entrypoints()
         name = self.substages_name()
-        substageresultsdir = self.substages_instance.testcase_fnlist_dir()
-
-        if 'FramaC' not in hw.tracename:
-            calltrace_path = software.registered_managers['calltrace'].get_org_file_path(stage)
+        substageresultsdir = Main.get_config("policy_trace_fnlist_dir", self.stage)
+        tracename = Main.get_config("trace_trace")
+        if 'framac' not in tracename:
+            calltrace_path = Main.get_config("calltrace_db", self.stage)
             if not noprepare:
-                el_path = self.substages_instance.instance_substages_el_file()
+                el_path = Main.get_config("policy_trace_el", self.stage)
                 pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
                                          (calltrace_path,
                                           el_path,
@@ -310,16 +301,16 @@ class SubstagesInfo():
         table.cols.substagenum.create_index(kind="full")
         table.flush()
 
-    def populate_contents_table(self, hw):
-        name = hw.tracename
+    def populate_contents_table(self):
         stage = self.stage
         fns = self._substages_entrypoints()
         substagesnamename = self.substages_name()
         substageresultsdir = self.substages_instance.testcase_fnlist_dir()
-        if 'FramaC' in name:
+        tracename = Main.get_config("trace_trace")
+        if 'framac' in tracename:
             substages = range(0, len(fns))
-            row = self.contents_tables[name].row
-            tracefile = software.registered_managers['frama_c'].get_call_output(self.stage)
+            row = self.contents_table.row
+            tracefile = Main.get_config("framac_callstacks", self.stage)
             if os.path.exists(tracefile):
                 results = self.parse_frama_c_call_trace_stages(tracefile, self.substage_file_path)
                 for s in substages:
@@ -328,17 +319,17 @@ class SubstagesInfo():
                         row["functionname"] = f
                         row.append()
         else:
-            raws = self.get_raw_files(hw, False)
+            raws = self.get_raw_files(False)
             for (num, f) in raws.iteritems():
                 fopen = open(f, "r")
                 contents = fopen.read()
-                row = self.contents_tables[name].row
+                row = self.contents_table.row
                 for n in contents.split():
                     row["substagenum"] = num
                     row["functionname"] = n
                     row.append()
                 fopen.close()
-        self._finish_table(self.contents_tables[name])
+        self._finish_table(self.contents_table)
 
     def close_dbs(self, flush_only=False):
         if self.h5mmap is None:
@@ -346,13 +337,10 @@ class SubstagesInfo():
         self.h5mmap.flush()
         if not flush_only:
             self.h5mmap.close()
-        return
-        for k in self.supported_hw:
-            k = k.tracename
-            if k in self.h5files.iterkeys():
-                self.h5files[k].flush()
-                if not flush_only:
-                    self.h5files[k].close()
+        if self.h5file:
+            self.h5file.flush()
+            if not flush_only:
+                self.h5file.close()
 
     def calculate_trace_intervals(self, substages, interval_table, staticdb,
                                   writestable):
@@ -363,37 +351,38 @@ class SubstagesInfo():
         starts = {}
         num = 0
         substages.sort()
-        substage_entries = {num: self.fun_info(fns[num + 1], staticdb)
+        substage_entries = {num: self.fun_info(fns[num + 1])
                             for num in range(0, len(fns) - 1)}
-        for r in writestable.read_sorted('index'):
-            pc = r['pc']
-            if num < len(fns) - 1:
-                # check if we found the entrypoint to the next stage
-                (lopc, hipc) = substage_entries[num + 1]
-                if (lopc <= pc) and (pc < hipc):
-                    num += 1
-            if num in substages:
-                start = r['dest']
-                end = start + pytable_utils.get_rows(staticdb.writestable,
-                                                     'pc == %d' %
-                                                     r['pc'])[0]['writesize']
+        intervals = db_info.write_interval_info(tracename,
+                                                substages,
+                                                substage_entries)
 
-                intervals[num].add(intervaltree.Interval(start, end))
+        # for r in writestable.read_sorted('index'):
+        #     pc = r['pc']
+        #     if num < len(fns) - 1:
+        #         # check if we found the entrypoint to the next stage
+        #         (lopc, hipc) = substage_entries[num + 1]
+        #         if (lopc <= pc) and (pc < hipc):
+        #             num += 1
+        #     if num in substages:
+        #         start = r['dest']
+        #         end = start + pytable_utils.get_rows(staticdb.writestable,
+        #                                              'pc == %d' %
+        #                                              r['pc'])[0]['writesize']
+
         for i in intervals.iteritems():
             i.merge_overlaps()
 
         return intervals
 
-    def fun_info(self, fun, staticdb):
-        res = pytable_utils.get_rows(staticdb.funcstable, 'fname == b"%s"' % fun)
+    def fun_info(self, fun):
+        res = db_info.function_locations(fun)
         if len(res) == 0:
             return utils.get_symbol_location_start_end(fun, self.stage)
         else:
-            res = res[0]
-            return (res['startaddr'], res['endaddr'])
+            return res[0]
 
-    def calculate_framac_intervals(self, substages, interval_table, staticdb,
-                                   trace_table):
+    def calculate_framac_intervals(self, substages):
 
         intervals = {n: intervaltree.IntervalTree() for n in substages}
         for num in substages:
@@ -401,65 +390,33 @@ class SubstagesInfo():
                                             'substagenum == %s' % num):
                 # lookup writes performed by this function
                 f = r['functionname']
-                (lopc, hipc) = self.fun_info(f, staticdb)
-                res = list(pytable_utils.get_rows(trace_table,
-                                                  '(%d <= writepc) & (writepc < %d)' % (lopc,
-                                                                                        hipc)))
-                intervals[num] += intervaltree.IntervalTree([intervaltree.Interval(r['dstlo'],
-                                                                                   r['dsthi'])
+                (lopc, hipc) = self.fun_info(f)
+                res = db_info.write_interval_info(tracename, lopc, hipc)
+                intervals[num] += intervaltree.IntervalTree([intervaltree.Interval(r[0],
+                                                                                   r[1])
                                                              for r in res])
 
         return intervals
 
-    def calculate_intervals(self, hw, substages):
-        frama_c = "FramaC" in hw.tracename
-        test_cfg = Main.testcfg_mgr.current_test_cfg_instance
-        test_trace = test_cfg.current_test_trace
-        tracetable = test_trace.get_trace_db_obj(self.stage, hw)
-        writesearch = test_cfg.get_static_db_obj(self.stage)
+    def calculate_intervals(self, substages):
+        tracename = Main.get_config("trace_trace")
+        frama_c = "framac" in tracename
         if frama_c:
-            frama_table = tracetable.writerangetable_consolidated
-        else:
-            writetable = tracetable.writestable
-        hwname = hw.tracename
-        stable = self.contents_tables[hwname]
-        if frama_c:
-            intervals = self.calculate_framac_intervals(substages, stable,
-                                                        writesearch, frama_table)
+            intervals = self.calculate_framac_intervals(substages, stable)
 
         else:
-            intervals = self.calculate_trace_intervals(substages, stable,
-                                                       writesearch, writetable)
+            intervals = self.calculate_trace_intervals(substages, stable)
         return intervals
 
-    def write_intervals_to_database(self, interval, table):
-        r = table.row
-        for (num, iset) in interval.iteritems():
-            for i in iset:
-                lo = i.begin
-                hi = i.end
-                r['minaddr'] = lo
-                r['maxaddr'] = hi
-                r['substagenum'] = num
-                r.append()
-        table.flush()
-        try:
-            table.cols.substagenum.create_index(kind='full')
-            table.cols.minaddr.create_index(kind='full')
-            table.cols.maxaddr.create_index(kind='full')
-            table.flush()
-        except ValueError:
-            pass
 
-    def populate_write_interval_table(self, hw):
+    def populate_write_interval_table(self):
         substages = self.substage_numbers()
         if len(substages) <= 1:
-            print "No substages defined, not populating write interval table for %s %s" % (hw.tracename, self.stage)
+            print "No substages defined, not populating write interval table for %s" % (self.stage)
             return
-        hwname = hw.tracename
-        intervals = self.calculate_intervals(hw, substages)
+        intervals = self.calculate_intervals(substages)
         self.write_intervals_to_database(intervals,
-                                         self.trace_intervals_tables[hwname])
+                                         self.trace_intervals_table)
 
     def populate_substage_policy_tables(self):
         mmap_info = substages_parser.MmapFileParser(self.mmap_file)
@@ -678,9 +635,8 @@ class SubstagesInfo():
         addr_table.cols.endaddr.create_index(kind="full")
         addr_table.flush()
 
-    def print_intervals(self, hw):
-        name = hw.tracename
-        table = self.trace_intervals_tables[name]
+    def print_intervals(self):
+        table = self.trace_intervals_table
         substages = self.substage_numbers()
         for num in substages:
             print "%s intervals for substage %d" % (name, num)
@@ -693,32 +649,21 @@ class SubstagesInfo():
         tracemode = "w" if new_trace or new_policy else "r"
         policymode = "w" if new_policy else "r"
         if new_trace:
-            for h in Main.get_config('enabled_hardware'):
-                hwname = h.tracename
-                #if hwname not in self.supported_hw_names:
-                #    continue
-                db_path = self.substages_instance.substage_db_results_path(h)
-                self.h5files[hwname] = tables.open_file(db_path, mode=tracemode,
-                                                        title="%s substage info" %
-                                                        self.stage.stagename)
-                groupname = self.groupname(h)
-                if not tracemode == "r":
-                    self.h5groups[hwname] = self.h5files[hwname].create_group("/", groupname, "")
-                    self.contents_tables[hwname] = self.h5files[hwname].create_table(
-                        self.h5groups[hwname],
-                        'substagecontents',
-                        SubstageContents,
-                        "substage contents")
-                    self.trace_intervals_tables[hwname] = self.h5files[hwname].create_table(
-                        self.h5groups[hwname],
-                        '%s_writeintervals' % hwname,
-                        SubstageWriteIntervals,
-                        "")
-                else:
-                    self.h5groups[hwname] = self.h5files[hwname].get_node('/%s' % groupname)
-                    self.contents_tables[hwname] = self.h5groups[hwname].substagecontents
-                    self.trace_intervals_tables[hwname] = getattr(self.h5groups[hwname],
-                                                                  '%s_writeintervals' % hwname)
+            trace_db = Main.get_config("policy_trace_db", self.stage)
+            self.h5file = tables.open_file(trace_db, mode=tracemode,
+                                           title="%s substage info" %
+                                           self.stage.stagename)
+            groupname = self.groupname()
+            if not tracemode == "r":
+                self.h5group = self.h5file.create_group("/", groupname, "")
+                self.contents_table = self.h5file.create_table(
+                    self.h5group, 'substagecontents', SubstageContents, "substage contents")
+                self.trace_intervals_table = self.h5file.create_table(
+                    self.h5group, 'writeintervals', SubstageWriteIntervals, "")
+            else:
+                    self.h5group = self.h5file.get_node('/%s' % groupname)
+                    self.contents_table = self.h5group.substagecontents
+                    self.trace_intervals_table = getattr(self.h5group, 'writeintervals')
         mmap_db_path = Main.get_config("policy_db", self.stage)
         self.h5mmap = tables.open_file(mmap_db_path, mode=policymode,
                                        title="%s substage mmap info"
@@ -754,7 +699,6 @@ class SubstagesInfo():
     def allowed_writes(self, substage):
         n = substage
         query = "(substagenum == %d) & (writable == True)" % (n)
-        #print query
         drs = self.substage_region_policy_table.where(query)
         iis = intervaltree.IntervalTree()
         for region in drs:

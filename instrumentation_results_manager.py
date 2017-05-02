@@ -74,12 +74,13 @@ class DelTargetAction(PythonAction):
 _manager_singleton = None
 
 
-def task_manager(test_id=None):
+def task_manager(test_id=None, run_task=True):
     class TestTaskManager(object):
-        def __init__(self, test_id):
+        def __init__(self, test_id, run_task=True):
             self.ALL_GROUPS = 0
             self.test_id = test_id
             self.tasks = {}
+            self.run_task = run_task
 
         def add_tasks(self, task_list, subgroup):
             l = self.tasks.get(subgroup, [])
@@ -94,7 +95,6 @@ def task_manager(test_id=None):
 
                 def list_tasks(self):
                     return self.obj._list_tasks(self.subgroup)
-
             ts = []
             for k in self.tasks.iterkeys():
                 ts.append(("task_%s_subgroup" % self.build_name(k),
@@ -109,16 +109,20 @@ def task_manager(test_id=None):
                 vallists = [t for t in self.tasks.itervalues()]
                 task_lists = [item for sublist in vallists for item in sublist]
                 alldeps = []
-                for (subgroup, tasks) in self.tasks.iteritems():
-                    for t in tasks:
-                        alldeps.append(self.task_name(t, subgroup))
+                if self.run_task:
+                    for (subgroup, tasks) in self.tasks.iteritems():
+                        for t in tasks:
+                            alldeps.append(self.task_name(t, subgroup))
                 yield {
                     'basename': "all_subroups",
                     'name': None,
                     'task_dep': alldeps,
                 }
             else:
+                if not self.run_task:
+                    yield {}
                 for inst in self.tasks[subgroup]:
+                    print "%s:%s:dep %s" % (subgroup, inst.name, inst.file_dep)
                     r = {
                         'basename': self.task_name(inst, subgroup),
                         'name': self.test_id,
@@ -142,7 +146,7 @@ def task_manager(test_id=None):
     if not _manager_singleton:
         if test_id is None:
             raise Exception("test_id must be defined")
-        _manager_singleton = TestTaskManager(test_id)
+        _manager_singleton = TestTaskManager(test_id, run_task)
     return _manager_singleton
 
 
@@ -165,14 +169,21 @@ class CopyFileTask(TestTask):
     def uptodate(self):
         return os.path.exists(self.dst)
 
-    def __init__(self, src, dst, name):
+    def __init__(self, src, dst, name, run_task):
         super(CopyFileTask, self).__init__(name)
         self.src = src
         self.dst = dst
         self.other = {'uptodate': [(self.uptodate, )]}
-        self.file_dep = [self.src]
-        self.actions = ["cp %s %s" % (self.src, self.dst)]
+        if run_task:
+            self.file_dep = [self.src]
+        else:
+            self.file_dep = []
+        if run_task:
+            self.actions = ["cp %s %s" % (self.src, self.dst)]
+        else:
+            self.actions = ["touch %s" % self.dst]
         self.targets = [self.dst]
+        print "copy file %s" % self.__dict__
 
 
 class MkdirTask(TestTask):
@@ -222,11 +233,12 @@ class ActionListTask(TestTask):
 
 
 class ResultsLoader(object):
-    def __init__(self, test_id, subgroup):
+    def __init__(self, test_id, subgroup, run_task=True):
         self.test_id = test_id
         self.subgroup = subgroup
         self.task_adders = []
         self.task_manager = task_manager(test_id)
+        self.run_task = run_task
 
     def get_build_name(self):
         return self.task_manager.build_name(self.subgroup)
@@ -236,9 +248,9 @@ class ResultsLoader(object):
             t = i()
             self.task_manager.add_tasks(t, self.subgroup)
 
-    def _copy_file(self, path, dst, name=None):
+    def _copy_file(self, path, dst, name=None, run_task=True):
         name = path if name is None else name
-        return CopyFileTask(path, dst, name)
+        return CopyFileTask(path, dst, name, run_task)
 
     def _mkdir(self, path, name=None):
         name = path if name is None else name
@@ -255,6 +267,8 @@ class ResultsLoader(object):
 class PostTraceLoader(ResultsLoader):
     _processes_types = {'consolidate_writes': {'fn':
                                                "_histogram",},
+                        'policy_check': {'fn':
+                                         "_policy_check",},
                         'process_watchpoints': {"fn":
                                                 "_watchpoints",
                                                 "traces": ["watchpoint"]}}
@@ -268,8 +282,7 @@ class PostTraceLoader(ResultsLoader):
         self.name = Main.get_config("trace_name")
         self.stages = Main.get_config("trace_stages")
         self.hw = Main.get_config("trace_hw")
-        self.tracename = Main.get_config("trace_trace")
-        self.tracetyp = Main.get_config("trace_type")
+        self.tracenames = Main.get_config("trace_traces")
         self.processes = list(set(processes))
         self.task_adders = [self._setup_tasks,
                             self._process_tasks]
@@ -285,7 +298,8 @@ class PostTraceLoader(ResultsLoader):
         tasks = []
         targets = []
         for (k, v) in self._processes_types.iteritems():
-            if "traces" in v.iterkeys() and self.tracename not in v["traces"]:
+            if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
+                                                           self.tracenames)):
                 continue
             tasks.append(self._mkdir(self._process_path(k)))
         return tasks
@@ -294,9 +308,9 @@ class PostTraceLoader(ResultsLoader):
         tasks = []
         uptodate = {"uptodate": [True]}
         for (k, v) in self._processes_types.iteritems():
-            if "traces" in v.iterkeys() and self.tracename not in v["traces"]:
+            if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
+                                                           self.tracenames)):
                 continue
-
             if k not in self._processes_types.iterkeys():
                 continue
             proc = getattr(self, v["fn"])
@@ -309,9 +323,7 @@ class PostTraceLoader(ResultsLoader):
 
     def _watchpoints(self, name):
         tasks = []
-        deps = []
         raw_output = Main.get_config("trace_events_output")
-        deps.append(raw_output)
         target = []
         test_db = {}
         test_db_done = {}
@@ -361,6 +373,47 @@ class PostTraceLoader(ResultsLoader):
             tasks.append(a)
         return tasks
 
+    def _policy_check(self, name):
+        tasks = []
+        tp_db = {}
+        deps = []
+        fns = {}
+        el_file = {}
+        tp_db_done = {}
+
+        class Do():
+            def __init__(self, s):
+                self.s = s
+
+            def __call__(self):
+                db_info.create(self.s, "policy_trace_db")
+                #db_info.get(self.s).generate_write_range_file(self.o)
+
+        for s in Main.get_config("stages_with_policies"):
+            if s not in self.stages:
+                continue
+            n = s.stagename
+            tp_db[n] = self._process_path(name, "policy-tracedb-%s.h5" % n)
+            tp_db_done[n] = self._process_path(name, "policy-tracedb-%s.completed" % n)
+            el_file[n] = self._process_path(name, "substages-%s.el" % n)
+            fns[n] = self._process_path(name, "%s_fn_lists" % n)
+            tasks.append(self._mkdir(fns[n]))
+            if "framac" not in self.tracenames:
+                deps = [Main.get_config("calltrace_db", s)]
+            else:
+                deps = [Main.get_config('framac_callstacks', s)]
+            tasks.append(ActionListTask([Do(s),
+                                         "touch %s" % tp_db_done[n]],
+                                        deps,
+                                        [tp_db_done[n], tp_db[n], el_file[n]],
+                                        "%s_postprocess_trace_policy" % (n)))
+
+        Main.set_config("policy_trace_db", lambda s: tp_db[s.stagename])
+        Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
+        Main.set_config("policy_trace_done", lambda s: tp_db_done[s.stagename])
+        Main.set_config("policy_trace_fnlist_dir", lambda s: fns[s.stagename])
+        return tasks
+
 
 class TraceTaskLoader(ResultsLoader):
     def __init__(self, instrumentation_task, trace_name, create, quick):
@@ -377,23 +430,23 @@ class TraceTaskLoader(ResultsLoader):
         if create:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
-            self.tracename = instrumentation_task['trace']
+            self.tracenames = instrumentation_task['traces']
         else:
             with open(self.config_path, 'r') as f:
                 settings = yaml.load(f)
                 self.stagenames = settings['stages']
                 self.hwname = settings['hw']
-                self.tracename = settings['trace']
+                self.tracenames = settings['traces']
         self.hw = Main.get_hardwareclass_config().hardware_type_cfgs[self.hwname]
         self.stages = [Main.stage_from_name(s) for s in self.stagenames]
         self.name = "%s.%s.%s" % (self.hwname,
-                                  self.tracename, "-".join(self.stagenames))
+                                  "-".join(self.tracenames), "-".join(self.stagenames))
         self.namefile = self._test_path(self.name)
 
         Main.set_config("trace_name", self.name)
         Main.set_config("trace_stages", self.stages)
         Main.set_config("trace_hw", self.hw)
-        Main.set_config("trace_trace", self.tracename)
+        Main.set_config("trace_traces", self.tracenames)
         Main.set_config("trace_id", self.trace_id)
         self.task_adders = [self._setup_tasks, self._collect_data]
         self._add_tasks()
@@ -440,10 +493,10 @@ class TraceTaskLoader(ResultsLoader):
         contents = """
 stages: [{}]
 hw: {}
-trace: {}
+traces: [{}]
 """
         filecontents = contents.format(", ".join(self.stagenames), self.hwname,
-                                       self.tracename)
+                                       ", ".join(self.tracenames))
 
         def write(f, c):
             with open(f, "w") as fconfig:
@@ -461,100 +514,159 @@ trace: {}
 
     def _writes(self):
         tasks = []
-        test_db = {}
-        test_db_done = {}
-        #for s in self.stages:
-        #    n = s.stagename
-        #    deps = []
-        #    test_db[n] = self._test_path("tracedb-%s.h5" % n)
-        #    test_db_done[n] = self._test_path("tracedb-%s.completed" % n)
-        #    Main.set_config('trace_db', lambda s: test_db[s.stagename])
-        #    Main.set_config('trace_db_done', lambda s: test_db_done[s.stagename])
         Main.set_config('trace_stages', self.stages)
         tasks.extend(self._collect_writes_data())
         return tasks
 
     def _collect_data(self):
-        tasks = []
+        gdb_commands = []
+        done_commands = []
+        done_targets = []
+        gdb_file_dep = []
+        gdb_targets = []
+        gdb_tasks = []
         handler_path = os.path.join(Main.hw_info_path, Main.hardwareclass, Main.task_handlers)
-
         sys.path.append(os.path.dirname(handler_path))
         name = re.sub(".py", "", os.path.basename(handler_path))
         mod = importlib.import_module(name)
-        handler = getattr(mod, self.hw.task_handler)
-        stages_with_policies = Main.get_config("stages_with_policies")
-        policies = {s: Main.get_config("policy_name", s) for s in stages_with_policies}
-        test_id = Main.get_config("test_instance_id")
-        handler_tasks = handler(Main, Main.get_bootloader_cfg(),
-                                policies,
-                                self.hw,
-                                Main.object_config_lookup("Software", self.hw.host_software),
-                                test_id,
-                                self.trace_id,
-                                self._test_path(),
-                                self.tracename,
-                                self.quick)
+        if "watchpoint" in self.tracenames and len(self.tracenames) > 1:
+            raise Exception("watchpoints cannot be combined with breakpoint-type traces")
+        config = {}
+        if hasattr(mod, self.hwname):
+            handler = getattr(mod, self.hwname)
+            stages_with_policies = Main.get_config("stages_with_policies")
+            policies = {s: Main.get_config("policy_name", s) for s in stages_with_policies}
+            test_id = Main.get_config("test_instance_id")
+            handler_tasks = handler(Main, Main.get_bootloader_cfg(),
+                                    self.stages,
+                                    policies,
+                                    self.hw,
+                                    Main.object_config_lookup("Software",
+                                                              self.hw.host_software),
+                                    test_id,
+                                    self.trace_id,
+                                    self._test_path(),
+                                    "watchpoint" in self.tracenames,
+                                    self.quick)
 
-        (newtask, config) = self._process_handler(handler_tasks, "tracing_handler")
-        newtask.file_dep.extend([Main.get_config("test_config_file"), self.namefile])
-        tasks.append(newtask)
-        trace_task_handler = getattr(mod, self.tracename)
+            (newtask, c, g, gdep,
+             gtargets, d, dtargets) = self._process_handler(handler_tasks,
+                                                            "hardware_handler", True)
+            newtask.file_dep.extend([Main.get_config("test_config_file")])
+            print "hardware dep %s" % newtask.file_dep
+            config.update(c)
+            # ignore any gdb/done commands/deps/targets
+            hwtaskname = newtask.name
+        for tracename in self.hw.tracing_methods:
+            if not hasattr(mod, tracename):
+                continue
+            trace_task_handler = getattr(mod, tracename)
+            trace_output = trace_task_handler(Main,
+                                              config,
+                                              self.stages,
+                                              policies,
+                                              test_id,
+                                              self.trace_id,
+                                              self._test_path(),
+                                              self.quick)
+            (ttask, c, g, gdep,
+             gtargets, d,
+             dtargets) = self._process_handler(trace_output,
+                                               "tracing_hardware_handler-%s" % tracename,
+                                               tracename in self.tracenames)
+            config.update(c)
+            if tracename in self.tracenames:
+                if g:
+                    if gdb_commands:
+                        gdb_commands.extend(g[1:])
+                    else:
+                        gdb_commands = g
+                    gdb_tasks.append(newtask)
+                    done_commands.extend(d)
+                    gdb_file_dep.extend(gdep)
+                    gdb_targets.extend(gtargets)
+                    done_targets.extend(dtargets)
+                else:
+                    newtask.actions.extend(d)
+                    newtask.targets.extend(dtargets)
+                    newtask = self.merge_tasks(newtask, ttask)
+
+        if gdb_commands:
+            gdb = " ".join(gdb_commands)
+            gdb += " -ex 'c' -ex 'monitor quit' -ex 'q'"
+            print "gdb cmd: %s" % gdb
+            c = CmdTask([Interactive(gdb)] + done_commands,
+                        gdb_file_dep,
+                        gdb_targets + done_targets, "gdb_tracing")
+            newtask = self.merge_tasks(newtask, c)
         sys.path.pop()
-        trace_output = trace_task_handler(Main,
-                                          config,
-                                          policies,
-                                          test_id,
-                                          self.trace_id,
-                                          self._test_path(),
-                                          self.quick)
-        tasks.append(self._process_handler(trace_output, "tracing_method")[0])
-        return tasks
+        print newtask.__dict__
 
-    def _process_handler(self, handler_tasks, name):
+        return [newtask]
+
+    def merge_tasks(self, t1, t2):
+        for i in ["file_dep", "actions", "targets"]:
+            getattr(t1, i).extend(getattr(t2, i))
+        t1.other.update(t2.other)
+        return t1
+
+    def _process_handler(self, handler_tasks, name, save):
         deps = []
         targets = []
         actions = []
         configs = {}
-        print "-------%s--------------" % name
+        gdb_commands = []
+        done_commands = []
+        gdb_targets = []
+        gdb_file_dep = []
+        done_targets = []
         for (n, c) in handler_tasks:
+            a = None
             if n == "long_running":
                 a = LongRunning(c)
-                print c
             elif n == "interactive":
                 a = Interactive(c)
-                print c
             elif n == "set_config":
                 for (k, v) in c.iteritems():
                     Main.set_config(k, v)
-                continue
             elif n == "command":
                 a = c
-                print c
             elif n == "configs":
                 configs.update(c)
-                continue
             elif n == "targets":
                 targets.extend(c)
-                continue
+            elif n == "gdb_commands":
+                gdb_commands.extend(c)
             elif n == "file_dep":
                 deps.extend(c)
-                continue
+            elif n == "done_commands":
+                done_commands.extend(c)
+            elif n == "gdb_targets":
+                gdb_targets.extend(c)
+            elif n == "done_targets":
+                done_targets.extend(c)
+            elif n == "gdb_file_dep":
+                gdb_file_dep.extend(c)
+            else:
+                raise Exception("unknown hardware trace handler tag '%s' (%s)" % (n, c))
+            if a:
+                actions.append(a)
 
-            actions.append(a)
-        for a in actions:
-            print a
         task = ActionListTask(actions, deps,
                               targets, name)
-        print "---------------------"
-        return (task, configs)
+        return (task, configs, gdb_commands,
+                gdb_file_dep,
+                gdb_targets, done_commands, done_targets)
 
 
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
                  enabled_stages,
-                 create):
-        super(InstrumentationTaskLoader, self).__init__(test_id, "instance")
+                 create,
+                 run_tasks):
+        super(InstrumentationTaskLoader, self).__init__(test_id, "instance", run_tasks)
         self.create = create
+        self.run_tasks = run_tasks
         self.bootloader = Main.get_bootloader_cfg()
         self.test_data_path = Main.test_data_path
         self.bootloader_path = boot_task.root_dir
@@ -562,6 +674,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         self.boot_stages = Main.config_class_lookup("Bootstages")
         self.hardwareclass = Main.get_hardwareclass_config()
         self.test_id = test_id
+        print "test id: %s, run tasks %s" % (test_id, run_tasks)
         hwname = Main.get_hardwareclass_config().name
         bootname = Main.get_bootloader_cfg().software
         hdir = os.path.join(Main.hw_info_path, hwname)
@@ -746,7 +859,8 @@ class InstrumentationTaskLoader(ResultsLoader):
         Main.set_config("stage_image", lambda s: imgdst[s.stagename])
         tocpy = bootelfs + bootimages
         tasks.extend([self._copy_file(i,
-                                      os.path.join(dstdir, os.path.basename(i)))
+                                      os.path.join(dstdir, os.path.basename(i)),
+                                      run_task=self.run_tasks)
                       for i in tocpy])
         sdtarget = os.path.join(dstdir, "sd.img")
         sdskeleton = self.hardwareclass.sdskeleton
@@ -772,23 +886,26 @@ class InstrumentationTaskLoader(ResultsLoader):
                        deps,
                        [sdtarget],
                        "sd_card_image")
+        if not self.run_tasks:
+            mksd.uptodate = [True]
         tasks.append(mksd)
         return tasks
 
 
 class PolicyTaskLoader(ResultsLoader):
-    def __init__(self, policies, import_policies):
+    def __init__(self, policies, import_policies, update_existing):
         test_id = Main.get_config("test_instance_id")
         test_ = Main.get_config("test_instance_id")
         super(PolicyTaskLoader, self).__init__(test_id, "policy")
         self.policies = policies
+        self.update_existing = update_existing
         self.import_policies = import_policies
         self.instance_dir = Main.get_config("test_instance_root")
         self.task_adders = [self._policy_tasks]
         self._add_tasks()
 
     def _policy_root(self, rel=""):
-        return os.path.join(self.instance_dir, 'policies')
+        return os.path.join(self.instance_dir, 'policies', rel)
 
     def _full_path(self, stage, rel=""):
         return os.path.join(self._policy_root(), stage.stagename, rel)
@@ -823,6 +940,20 @@ class PolicyTaskLoader(ResultsLoader):
                 substagedatadir = os.path.join(policystagedir, policy_entry)
                 s_policy = os.path.join(substagedatadir, policy_file_name)
                 s_regions = os.path.join(substagedatadir, regions_file_name)
+            elif policy_entry is None:
+                # choose a default
+                policy_dir = self._full_path(s)
+                # choose any file in dir
+                choices = glob.glob(policy_dir + "/*")
+                for c in choices:
+                    d = os.path.basename(c)
+                    if d.startswith("."):
+                        continue
+                    s_policy = path.isfile(os.path.join(c, pname))
+                    s_regions = path.isfile(os.path.join(c, rname))
+                    if os.path.isdir(c) and os.path.isfile(s_policy) and \
+                       os.path.isfile(r_policy):
+                        break
             else:
                 s_policy = policy_entry[0]  # self.policies[n][0]
                 s_regions = policy_entry[1]  # self.policies[n][1]
@@ -833,14 +964,15 @@ class PolicyTaskLoader(ResultsLoader):
             regions[n] = os.path.join(datadir, regions_file_name)
             dbs_done[n] = os.path.join(datadir, "policy-%s.completed" % n)
             dbs[n] = os.path.join(datadir, "policy-%s.h5" % n)
-
             if self.import_policies:
                 if not MkdirTask.exists(datadir):
                     tasks.append(self._mkdir(datadir, "%s_data" % n))
                 tasks.append(self._copy_file(s_policy,
-                                             policies[n], "%s_policy" % n))
+                                             policies[n], "%s_policy" % n,
+                                             run_task=self.update_existing))
                 tasks.append(self._copy_file(s_regions,
-                                             regions[n], "%s_regions" % n))
+                                             regions[n], "%s_regions" % n,
+                                             run_task=self.update_existing))
         Main.set_config("policy_file", lambda s: policies[s.stagename])
         Main.set_config("regions_file", lambda s: regions[s.stagename])
         Main.set_config("policy_name", lambda s: names[s.stagename])

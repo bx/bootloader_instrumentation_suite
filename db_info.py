@@ -28,6 +28,7 @@ import atexit
 import substage
 import database
 import re
+import intervaltree
 
 _singletons = {}
 _mmapdb = None
@@ -65,6 +66,8 @@ def create(*args, **kwargs):
         obj._sdb.create()
     elif typ == "policydb":
         obj._pdb.create()
+    elif typ == "policytracedb":
+        obj._pdb._create(trace=True)
     elif typ == "mmapdb":
         obj._mdb.create()
     elif typ == "tracedb":
@@ -109,7 +112,7 @@ class DBObj():
 
 
 class PolicyDB(DBObj):
-    def _open(self):
+    def _open(self, append=False):
         self._db = substage.SubstagesInfo(self.stage)
         self._db.open_dbs(False, False)
 
@@ -120,9 +123,9 @@ class PolicyDB(DBObj):
         if self._db:
             self._db.close_dbs(True)
 
-    def _create(self):
+    def _create(self, trace=True):
         self._db = substage.SubstagesInfo(self.stage)
-        self._db.create_dbs(True, False)
+        self._db.create_dbs(True, trace)
 
 
 class MMapDB(DBObj):
@@ -315,6 +318,64 @@ class DBInfo():
     def flush_tracedb(self):
         if self._tdb:
             self._tdb.flush()
+
+    def allowed_substage_writes(self, substage):
+        return self._pdb.db.allowed_writes(substage)
+
+    def _get_writestable(self, hwname):
+        if "framac" in hwname:
+            return self._tdb.db.writerangetable_consolidated
+        else:
+            return self._tdb.db.writestable
+
+    def function_locations(self, name):
+        return [(r['startaddr'], r['endaddr'])
+                for r in pytable_utils.get_rows(self._sdb.db.funcstable, 'fname == b"%s"' % name)]
+
+    def write_interval_info(self, hwname, pclo=None, pchi=None,
+                            substage_names=[], substage_entries={}):
+        wt = self._get_writestable(hwname)
+        if "framac" in hwname:
+            return [(r['destlo'], r['desthi']) for r in
+                    pytable_utils.get_rows('(%d <= writepc) & (writepc < %d)' % (pclo, pchi))]
+        else:
+            fns = substage_entries
+            substages = substage_names
+            intervals = {n: intervaltree.IntervalTree() for n in substages}
+            num = 0
+            intervals = []
+            for r in wt.read_sorted('index'):
+                pc = r['pc']
+                if num < len(fns) - 1:
+                    # check if we found the entrypoint to the next stage
+                    (lopc, hipc) = substage_entries[num + 1]
+                    if (lopc <= pc) and (pc < hipc):
+                        num += 1
+                if num in substages:
+                    start = r['dest']
+                    end = start + pytable_utils.get_rows(wt, 'pc == %d' %
+                                                         r['pc'])[0]['writesize']
+                intervals[num].add(intervaltree.Interval(start, end))
+            return intervals
+
+    def write_trace_intervals(self, interval, table):
+        r = table.row
+        for (num, iset) in interval.iteritems():
+            for i in iset:
+                lo = i.begin
+                hi = i.end
+                r['minaddr'] = lo
+                r['maxaddr'] = hi
+                r['substagenum'] = num
+                r.append()
+        table.flush()
+        try:
+            table.cols.substagenum.create_index(kind='full')
+            table.cols.minaddr.create_index(kind='full')
+            table.cols.maxaddr.create_index(kind='full')
+            table.flush()
+        except ValueError:
+            pass
 
 
 def close():

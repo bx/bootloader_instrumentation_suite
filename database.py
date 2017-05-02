@@ -236,7 +236,26 @@ class TraceTable():
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         self.outname = outfile
         if create:
-            self.h5file = tables.open_file(self.outname, mode="w",
+            m = "w"
+        self.writestable = None
+        if not create:
+            if write:
+                self.h5file = tables.open_file(self.outname, mode="a",
+                                               title="QEMU tracing information")
+            else:
+                self.h5file = tables.open_file(self.outname, mode="r",
+                                               title="QEMU tracing information")
+            try:
+                self.writestable = self.get_group().writes
+                self.nwrites = self.writestable.nrows
+            except tables.exceptions.NoSuchNodeError:
+                # go ahead and create table
+                m = "a"
+                self.h5file.close()
+
+        if self.writestable is None:
+            print "Creating"
+            self.h5file = tables.open_file(self.outname, mode=m,
                                            title="QEMU tracing information")
             group = self.h5file.create_group("/", self.stagename,
                                              "Memory write information")
@@ -250,15 +269,6 @@ class TraceTable():
 
             self.writestable.flush()
             self.nwrites = 0
-        else:
-            if write:
-                self.h5file = tables.open_file(self.outname, mode="a",
-                                               title="QEMU tracing information")
-            else:
-                self.h5file = tables.open_file(self.outname, mode="r",
-                                               title="QEMU tracing information")
-            self.writestable = self.get_group().writes
-            self.nwrites = self.writestable.nrows
 
         self.ws = db_info.get(self.stage)._sdb.db
 
@@ -355,7 +365,6 @@ class TraceTable():
             self.h5file.close()
         except:
             pass
-
 
     def get_group(self):
         return self.h5file.get_node("/"+self.stagename)
