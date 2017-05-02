@@ -28,6 +28,7 @@ import time
 import os
 import pathlib
 from doit.action import CmdAction
+from doit.tools import LongRunning
 import git_mgr
 
 
@@ -110,8 +111,8 @@ class CodeTaskClean(CodeTask):
     def __init__(self, cfg):
         super(CodeTaskClean, self).__init__('do_clean', cfg)
         self.actions = [(self.save_timestamp,),
-                        CmdAction(self.format_command(self.gf("clean")),
-                                  cwd=self.root_dir, save_out='cleaned')]
+                        LongRunning(self.format_command(self.gf("clean")),
+                                    cwd=self.root_dir, save_out='cleaned')]
         self.uptodate = [run_once]
 
 
@@ -123,7 +124,7 @@ class CodeTaskConfig(CodeTask):
         self.actions = [(self.save_timestamp,),
                         CmdAction(self.format_command(self.gf('build_prepare')),
                                   cwd=self.root_dir, save_out='configured')]
-        self.uptodate = [task_ran("clean")]
+        # self.uptodate = [task_ran("clean")]
 
 
 class CodeTaskBuild(CodeTask):
@@ -145,9 +146,10 @@ class CodeTaskBuild(CodeTask):
 
 
 class CodeTaskList():
-    def __init__(self, cfg, do_build):
+    def __init__(self, cfg, always_uptodate):
         self.build_cfg = cfg
         self.basename = cfg.name
+        self.always_uptodate = always_uptodate
         self.root_dir = self.build_cfg.root
         if os.path.isdir(os.path.join(self.root_dir, ".git")):
             self.git = git_mgr.GitManager(self.root_dir)
@@ -155,10 +157,11 @@ class CodeTaskList():
             self.git = None
 
         self.build = CodeTaskBuild(cfg)
-        if do_build:
-            self.tasks = [CodeTaskClean(cfg), CodeTaskConfig(cfg), self.build]
-        else:
-            self.tasks = [self.build]
+        self.tasks = [CodeTaskClean(cfg), CodeTaskConfig(cfg), self.build]
+
+        if always_uptodate:
+            for t in self.tasks:
+                t.uptodate = [True]
 
     def has_nothing_to_commit(self):
         return self.git.has_nothing_to_commit() if self.git else True
@@ -171,10 +174,11 @@ class CodeTaskList():
         if self.git:
             head = self.git.get_head()
             head = head.translate(None, "/")
-            gitinfo = "%s.%s" % (head, self.git.get_commit())
-            return gitinfo
+            sha = self.git.get_commit()
+            gitinfo = "%s.%s" % (head, sha)
+            return (gitinfo, sha)
         else:
-            return None
+            return (None, None)#, None)
 
     def list_tasks(self):
         yield {
@@ -186,22 +190,35 @@ class CodeTaskList():
 
 
 class SourceLoader():
-    def __init__(self, do_build, bootloader_only=False):
-        do_build = do_build
+    def __init__(self, print_build, do_build):
+        # bootloader_only = len(do_build) == 0
+        self.print_build = print_build
+        self.do_build = do_build
+        self.builds = list(set(do_build + print_build))
         ss = Main.config_class_lookup("Software")
         bootloader = Main.get_bootloader_cfg()
-        if bootloader_only:
-            self.code_tasks = [CodeTaskList(s, do_build)
-                               for s in ss if s.name == bootloader.software]
-        else:
-            self.code_tasks = [CodeTaskList(s, do_build)
-                               for s in ss
-                               if hasattr(s, "build_required") and s.build_required]
+
+        self.code_tasks = [CodeTaskList(s, s.name not in self.do_build)
+                           for s in ss
+                           if hasattr(s, "build_required")
+                           and s.build_required
+                           and (s.name in self.builds)]
+        # always need the bootloader
+        if bootloader.software not in self.builds:
+            self.code_tasks.extend(CodeTaskList(s,
+                                                s.name not in self.do_build)
+                                   for s in ss if s.name == bootloader.software)
+        for c in self.code_tasks:
+            if c.basename in self.do_build:
+                for t in c.tasks:
+                    t.uptodate = [False]
 
     def list_tasks(self):
         l = []
         for c in self.code_tasks:
-            name = "task_%s" % c.basename
-            tl = c.list_tasks
-            l.append((name, tl))
+            # only if in bulid list
+            if c.basename in self.builds:
+                name = "task_%s" % c.basename
+                tl = c.list_tasks
+                l.append((name, tl))
         return l

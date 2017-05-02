@@ -30,6 +30,7 @@ import re
 import functools
 import shutil
 import glob
+import atexit
 path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(path, ".."))
 sys.path.append(path)
@@ -38,12 +39,19 @@ if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
+patches = {}
+
+from doit.action import CmdAction
 from config import Main
 import labeltool
 import database
-import utils
 import doit_manager
 import db_info
+import pure_utils
+import tempfile
+
+cc = None
+elf = None
 
 
 class PreprocessorDirective():
@@ -87,6 +95,10 @@ class PreprocessorDirective():
 class PreprocessedFileProcessor():
     def __init__(self, preprocessed_file, stage):
         self.stage = stage
+        global cc
+        global elf
+        self.cc = cc
+        self.elf = elf
         self.path = preprocessed_file
         self.included_files = set()
         self.directives = []
@@ -153,6 +165,9 @@ class PreprocessedFileProcessor():
                 index = line.index("( typeof")
             lastindex = self.match_paren(line, index)
             out = line[:index] + line[(index+lastindex+1):]
+            global patches
+            n = patches.get("typeof", 0)
+            patches["typeof"] = n + 1
             return self.typeof_patch(out, i+1)
         else:
             return line
@@ -177,7 +192,7 @@ class PreprocessedFileProcessor():
         inf = open(self.path, "r")
         fixinfo.sort(key=lambda (lineno, fixfunction, label):
                      lineno)
-        print fixinfo
+        # print fixinfo
         curlineno = 0
         for l in inf.readlines():
             curlineno += 1
@@ -266,6 +281,7 @@ class PreprocessedFileProcessor():
         new_line = "%s %s[(%s * sizeof(%s)) + 63]  __attribute__((aligned(8)));\n" % \
                    (res.group(3), res.group(1),  res.group(2), res.group(3))
         return new_line
+
     def gpio_bank_patch(self,line, label):
         return "static const struct gpio_bank gpio_bank_am33xx[] __attribute__((aligned(8)))= {\n"
 
@@ -304,7 +320,7 @@ class PreprocessedFileProcessor():
         except:
             last = line.index(";")
 
-        value = utils.get_symbol_location(label.name, self.stage)
+        value = pure_utils.get_symbol_location(self.cc, self.elf, label.name, self.stage)
         l = "%s = 0x%x;\n" % (line[:last], value)
         return l
 
@@ -340,19 +356,26 @@ class PreprocessedFileProcessor():
     def gd_patch(self, line):
         # addr of gd should be the top of .data section, so lookup where this section is
         line = line.strip()
+        global patches
         if self._data_loc == -1:
-            (self._data_loc, end) = utils.get_section_location(".data", self.stage)
+            (self._data_loc, end) = pure_utils.get_section_location(self.cc, self.elf, ".data")
         if ("frama_c_tweaks" not in self.path) and \
            (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
+            n = patches.get("gd", 0)
+            patches["gd"] = n + 1
             return "gd_t *gd; //@ volatile gd reads read_gd writes write_gd;\n"
         elif ("frama_c_tweaks" in self.path) and \
              (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
+            n = patches.get("gd", 0)
+            patches["gd"] = n + 1
             return "gd_t *gd = 0x%x; //@ volatile gd reads read_gd writes write_gd;\n" % \
                 self._data_loc
         else:
             return line+"\n"
 
     def usbmaxp_patch(self, line, label):
+        # print line
+        # print label
         return "\treturn &epd->wMaxPacketSize;\n"
 
     def noreturn_patch(self, line, label):
@@ -661,78 +684,22 @@ class PreprocessedFileProcessor():
                 continue
 
             name_to_patch_functions = {
-                "strcmp": self.strcmp_patch,
-                "memcmp": self.memcmp_patch,
-                "idx": self.idx_patch,
-                "min": self.min_patch,
-                "mmc_stat_read_patch": self.mmc_stat_read_patch,
-                "empty_block": self.empty_block,
-                "memalign": self.memalign_patch,
-                "memalign_return": self.memalign_return_patch,
-                "serial_putc": self.serial_putc,
-                # "update_gd": self.update_gd_patch,
-                # "gd_to_gdptr": self.gd_to_gdptr,
-                # "update_gd_ptr": self.update_gd_ptr_patch,
-                "number": self.number_patch,
-                "put_dec_trunc": self.put_dec_trunc_patch,
-                "delete_line": self.delete_line,
-                "delete_line_all": self.delete_line_all,
-                "void_to_int": self.void_int_patch,
-                "val": self.val_patch,
-                "cpuid": self.cpuid_patch,
-                "boot_device": self.bootdevice_patch,
-                "align_buffer": self.alignbuffer_malloc_patch,  # self.alignbuffer_patch,
-                "align_buffer_malloc": self.alignbuffer_malloc_patch,
-                "align_decl": self.align_decl_patch,
-                "align_buffer_dos": self.alignbufferdos_patch,
-                "mmc_device": self.mmcdevice_patch,
+                #"align_buffer": self.alignbuffer_malloc_patch,  # self.alignbuffer_patch,
+                # "align_buffer_dos": self.alignbufferdos_patch,
+                #"align_decl": self.align_decl_patch,
                 "chunksize": self.chunksz_patch,
-                "return_mmc": self.mmcdevice_patch,
-                "create_mmc": self.createmmc_patch,
-                "part": self.part_patch,
-                "assume_aligned": self.assume_aligned_patch,
-                "beagle_revision": self.revision_patch,
-                "createmmccheck": self.createmmccheck_patch,
-                "declare_mmc": self.declaremmc_patch,
-                "i2c_adap_start": self.i2cadapstart_patch,
+                "cpuid": self.cpuid_patch,
+                "delete_line": self.delete_line,
                 "i2c_adap_max": self.i2cadapmax_patch,
+                "i2c_adap_start": self.i2cadapstart_patch,
                 "i2c_init_bus": self.i2cinitbus_patch,
-                "usb_maxp": self.usbmaxp_patch,
-                "tolower": self.tolower_patch,
-                "va": self.va_patch,
-                "m_mmc": self.mmmc_patch,
-                "mangle_name": self.mangle_name,
+                "malloc_zero": self.malloc_zero_patch,
+                "memalign": self.memalign_patch,
                 "noreturn": self.noreturn_patch,
                 "return_zero": self.returnzero_patch,
-                "cast_ulong": self.cast_ulong_patch,
-                "compare_s": self.compare_s_patch,
-                "return_one": self.returnone_patch,
-                "malloc_zero": self.malloc_zero_patch,
-                "blksz": self.blksz_patch,
-                "mmc_capacity": self.capacity_patch,
-                "list_for_each": self.list_for_each_patch,
-                # "mmc_initialized": self.mmc_initialize_patch,
-                "list_entry": self.list_entry_patch,
-                "buffer_cast": self.buffer_cast_patch,
-                "mmcscr": self.mmcscr_patch,
                 "sdr_cs_offset": self.sdr_cs_offset_patch,
-                "deletebe32_line": self.be32_patch,
-                "le64u64": self.le64u64_patch,
-                "le32u32": self.le32u32_patch,
-                "u64le64": self.u64le64_patch,
-                "u32le32": self.u32le32_patch,
-                "pte": self.pte_patch,
-                "func": self.func_patch,
-                "ext_csd_u8": self.ext_csd_u8_patch,
-                "mmcread": self.mmcread_patch,
-                "mmcvolatile": self.mmcvolatile_patch,
-                #"declare_boot_params": self.declarebootparams_patch,
-                "use_boot_params": self.usebootparams_patch,
-                "gpio": self.gpio_patch,
-                "gpio_bank": self.gpio_bank_patch,
-                "get_unaligned_le32": self.unalignedle32_patch,
-                # when enablened, framac val analysis takes days to run, so disabling for now
-                # "dos_extended": self.dosextended_patch,
+                "val": self.val_patch,
+                "void_to_int": self.void_int_patch,
             }
             fixfn = self._no_patch
             if l.value == "ADDR_PATCH":
@@ -742,6 +709,9 @@ class PreprocessedFileProcessor():
             if l.value == "SUBPATCH":
                 fixfn = self.re_patch
             elif l.name.lower() in name_to_patch_functions.keys():
+                global patches
+                n = patches.get(l.name.lower(), 0)
+                patches[l.name.lower()] = n + 1
                 fixfn = name_to_patch_functions[l.name.lower()]
             fixinfo.append((pplineno, fixfn, l))
         self._do_fix_file(fixinfo, outfile)
@@ -790,24 +760,20 @@ class PreprocessedFiles():
                    "console.i"]
 
     @classmethod
-    def instances(cls, stage, quick=False):
-        if quick:
-            files = cls.quick_files
-        else:
-            files = cls.files
-        fs = map(lambda s: os.path.join(Main.get_bootloader_root(), s), files)
+    def instances(cls, stage, root=Main.get_bootloader_root(), quick=False):
+        # if quick:
+        #    files = cls.quick_files
+        #else:
+        files = cls.files
+        fs = map(lambda s: os.path.join(root, s), files)
         fs = map(functools.partial(PreprocessedFileInstance, stage=stage), fs)
         return fs
-
-
-def get_line_addr(line, start):
-    return 0
 
 
 class FramaCDstPluginManager():
     def __init__(self, stage, labels=None, execute=False, quick=False, more=False, verbose=False,
                  patchdest=Main.get_bootloader_root(),
-                 patch_symlink='%s/u-boot-frama-c' % os.getenv("HOME"), backupdir='',
+                 patch_symlink='', backupdir='',
                  calltracefile=None, tee=None):
         self.frama_c = "frama-c"
         self.quick = quick
@@ -815,6 +781,11 @@ class FramaCDstPluginManager():
         self.stage = stage
         self.verbose = verbose
         self.patchdest = patchdest
+        if len(patch_symlink) == 0:
+            patch_symlink = tempfile.mkdtemp()
+            os.system("rm -r %s" % patch_symlink)
+            if self.execute:
+                atexit.register(lambda: os.system("rm %s" % patch_symlink))
         self.shortdest = patch_symlink
         self.backupdir = backupdir
         self.tee = tee
@@ -855,10 +826,11 @@ class FramaCDstPluginManager():
             self.frama_c_args += " -dst-more"
         self.results = {}
         if labels is None:
-            self.labels = [l for l in labeltool.SrcLabelTool.label_search(labeltool.FramaCLabel)
-                           if l.stagename == self.stage.stagename]
+            self.labels = [l for l in Main.get_config('labels')[labeltool.FramaCLabel]
+                           if (l.stagename == self.stage.stagename)]
         else:
-            self.labels = [l for l in labels if l.stagename == self.stage.stagename]
+            self.labels = [l for l in labels[labeltool.FramaCLabel]
+                           if l.stagename == self.stage.stagename]
         self.entrypoints = []
         self.preprocessed_files = []
 
@@ -887,7 +859,9 @@ class FramaCDstPluginManager():
 
     def execute_frama_c(self, main):
         if not os.path.islink(self.shortdest):
-            os.link(self.shortdest, self.patchdest)
+            print self.shortdest
+            print self.patchdest
+            os.symlink(self.patchdest, self.shortdest)
         if len(self.backupdir) > 0:
             if not os.path.isdir(self.backupdir):
                 os.mkdirs(self.backupdir)
@@ -927,7 +901,6 @@ class FramaCDstPluginManager():
                         self.entrypoints.append(l)
                 elif l.is_patch_value():
                     patch_labels.append(l)
-
         outfile = "%s-%s.i" % (f.pp_path[:-2], "patched")
         f.patch(patch_labels, outfile)
         f.pp_path = outfile
@@ -942,8 +915,8 @@ class FramaCDstPluginManager():
             for r in results:
                 db_info.get(self.stage).add_range_dsts_entry(r)
             print '-----------'
-            db_info.get(self.stage).print_range_dsts_info()
-            db_info.get(self.stage).consoladate_trace_write_table()
+            # db_info.get(self.stage).print_range_dsts_info()
+            db_info.get(self.stage).consolidate_trace_write_table()
             db_info.get(self.stage).flush_tracedb()
 
     def print_results(self):
@@ -962,7 +935,7 @@ class FramaCDstPluginManager():
         res = fnre.search(line)
         if res is not None:
             return res.group(1)
-        return "?"
+        raise Exception("cannot determine entrypoint from label %s" % (l, line))
 
     def process_entrypoints(self):
         for e in self.entrypoints:
@@ -1032,36 +1005,61 @@ if __name__ == "__main__":
                         help="Instead of running frama_c populate static analysis"
                         " database directly from this file (which should contain frama_c "
                         "dst plugin output)")
+    parser.add_argument('-S', '--standalone', action='store_true', default=False,
+                        help="Don't pull configuration data from instrumentation suite")
 
     args = parser.parse_args()
-    labels = labeltool.SrcLabelTool.label_search(labeltool.FramaCLabel)
 
     s = Main.stage_from_name(args.stage)
     if s is None:
         raise Exception("no such stage named %s" % args.stage)
-    d = doit_manager.TaskManager(False, False, [args.stage],
-                                 {args.stage: args.policy_id},
-                                 False, {}, args.test_id, False, [])
+    cc = Main.cc
+    if not args.standalone:
+        d = doit_manager.TaskManager(False, False, [args.stage],
+                                     {args.stage: args.policy_id},
+                                     False, {}, args.test_id, False, [],
+                                     hook=True)
+        labels = Main.get_config("labels")
+        root = Main.get_config("source_tree_copy")
+        builder = d.build([Main.get_bootloader_cfg().software], False)[0]
+        origdir = os.getcwd()
+        os.chdir(root)
+
+        for t in builder.tasks:
+            for action in t.list_tasks()['actions']:
+                if isinstance(action, CmdAction):
+                    do = action.expand_action()
+                    os.system(do)
+        os.chdir(origdir)
+        elf = Main.get_config("stage_elf", s)
+
+    else:
+        root = Main.get_bootloader_root()
+        labels = labeltool.get_all_labels(root)
+        s.post_build_setup()
+        elf = s.elf
+
     if args.update:
         args.execute = True
 
     if args.patchbkup and not os.path.isdir(args.patchbkup):
         os.makedirs(args.patchbkup)
-
     fc = FramaCDstPluginManager(s, labels=labels, execute=args.execute,
                                 quick=args.quick, more=args.more,
-                                verbose=args.verbose, patchdest=Main.get_bootloader_root(),
-                                #patch_symlink='%s/u-boot-frama-c' % (os.getenv("HOME")),
+                                verbose=args.verbose,
+                                patchdest=root,
                                 backupdir=args.patchbkup,
                                 calltracefile=args.calltracefile, tee=args.tee)
-
     if len(args.input) > 0:
         fc.import_results_from_file(args.input)
         fc.update_db()
     else:
-        files = PreprocessedFiles.instances(s, args.quick)
+        files = PreprocessedFiles.instances(s, root, args.quick)
         fc.process_dsts(files)
-        if args.update:
-            fc.update_db()
-        else:
-            fc.print_results()
+        for p in sorted(list(patches.keys())):
+            print "%s: %s" % (p, patches[p])
+        if args.update or args.execute:
+            if args.update:
+                fc.update_db()
+            else:
+                fc.print_results()

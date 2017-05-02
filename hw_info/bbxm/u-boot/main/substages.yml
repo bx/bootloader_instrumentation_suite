@@ -1,20 +1,19 @@
 _start:
   substage_type : "bookkeeping"
+  new_regions: ["ROM", "RAM", "SRAM0", "Registers", "missing_control_padconf0", "missing_control_padconf1", "missing_protection_mech_0"]
 lowlevel_init:
   substage_type: "bookkeeping"
   reclassified_regions:
-    RAM.spl.main_stack: "none"
+    RAM.spl.main_stack: "readonly"
     RAM.rest: "stack"
 cpy_clk_code:
-  substage_type: "subsequent_substage_copy"
-  processed_regions: ["RAM.cpy_clk_code"]
+  substage_type: "loading"
 lowlevel_init_finish:
   substage_type: "bookkeeping"
   reclassified_regions:
-    RAM.cpy_clk_code: "text"
+    RAM.cpy_clk_code: "readonly"
 board_init_f_mem:
-  substage_type: "subsequent_substage_setup"
-  processed_regions: ["RAM.spl.main_gd"]
+  substage_type: "patching"
   comment: "stack set by _main before board_init_f_mem"
 board_init_f_mem_finish:
   substage_type: "bookkeeping"
@@ -30,38 +29,37 @@ board_init_f:
 _main_finish:
   type: "bookkeeping"
   reclassified_regions:
-    RAM.spl.main_stack: "none"
-    RAM.rest: "none"
+    RAM.spl.main_stack: "readonly"
+    RAM.rest: "readonly"
     SRAM1.stack: "stack"
     SRAM1.irq_stack: "stack"
     SRAM1.new_gd: "bookkeeping"
     SRAM1.gd: "bookkeeping"
-    SRAM1.heap: "bookkeeping"    
+    SRAM1.heap: "bookkeeping"
+  new_regions: ["SRAM1.stack", "SRAM1.irq_stack", "SRAM1.new_gd", "SRAM1.gd", "SRAM1.heap", "SRAM1.uboot_image"]
+  undefined_regions: ["SRAM0.rest"]
 relocate_code:
-  type: "subsequent_substage_setup"
-  processed_regions: ["SRAM1.uboot_image.text", "SRAM1.uboot_image.rodata", "SRAM1.uboot_image.rwdata"]
+  type: "loading"
 here:
-  type: "subsequent_substage_setup"
+  type: "loading"
   comment: "relocate_vectors"
   reclassified_regions:
-    SRAM1.uboot_image.text: "text"
-    SRAM1.uboot_image.rodata: "text"
+    SRAM1.uboot_image.text: "readonly"
+    SRAM1.uboot_image.rodata: "readonly"
     SRAM1.uboot_image.rwdata: "bookkeeping"
-    SRAM0.main_image.rodata: "none"
-    SRAM0.main_image.rwdata: "none"
-    SRAM0.main_image.rest: "none"
-    SRAM0.reldyn: "none"
-    SRAM0.mainbss: "none"
-    SRAM0.rest: "none"    
+    SRAM0.main_image.rodata: "readonly"
+    SRAM0.main_image.rwdata: "readonly"
+    SRAM0.main_image.rest: "readonly"
+    SRAM0.reldyn: "readonly"
+    SRAM0.mainbss: "readonly"
 clear_bss:
-  type: "subsequent_substage_setup"
-  processed_regions: ["SRAM1.uboot_image.mainbss"]
+  type: "loading"
 board_init_r:
   type: "bookkeeping"
   comment: "file: common/board_r.c"
+  new_regions: ["SRAM1.subsequent_stage_image"]
   reclassified_regions:
     SRAM1.uboot_image.mainbss: "bookkeeping"
-    SRAM1.subsequent_stage_image: "bookkeeping"
 
 # initr_malloc -> SRAM1.heap (and zeros it out)
 # initr_env

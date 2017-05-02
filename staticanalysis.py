@@ -50,7 +50,6 @@ class InstructionAnalyzer():
         if cache:
             self.cache[pc] = i
         return i
-    #[i for i in ins][0]  # there should be only 1 disassembled instruction
 
     def is_instr_memstore(self, ins):
         return self.is_mne_memstore(ins.mnemonic)
@@ -385,7 +384,7 @@ class SkipEntry(tables.IsDescription):
     disasm = tables.StringCol(256)
     thumb = tables.BoolCol()
     resumepc = tables.UInt32Col()
-
+    isfunction = tables.BoolCol()
 
 class LongWriteDescriptorGenerator():
     def __init__(self, name, dregs, calcregs, subreg, writetype, interval, inplace, table):
@@ -550,7 +549,6 @@ class LongWriteDescriptor():
 class RelocDescriptor():
     def __init__(self, name, relocbegin,
                  relocrdy, cpystart, cpyend, reldst, stage, delorig, symname="", mod=0xffffffff):
-
         self.name = name
         self.symname = symname
         self.begin = relocbegin
@@ -570,7 +568,7 @@ class RelocDescriptor():
         self._calculate_addresses()
 
     def lookup_label_addr(self, label):
-        lineno = WriteSearch.get_real_lineno(label, True, self.stage)
+        lineno = WriteSearch.get_real_lineno(label, False, self.stage)
         loc = "%s:%d" % (label.filename, lineno)
         return utils.get_line_addr(loc, True, self.stage)
 
@@ -585,23 +583,19 @@ class RelocDescriptor():
             if item is None:  # then lookup label
                 l = WriteSearch.find_label(labeltool.RelocLabel, value.upper(),
                                            self.stage, self.name)
+
                 if l is not None:
                     setattr(self, value+"addr", self.lookup_label_addr(l))
                 else:
-                    raise Exception("cannot find label value %s stage %s name %s" % (value, self.stage.stagename, self.name))
+                    raise Exception("cannot find label value "
+                                    "%s stage %s name %s" % (value,
+                                                             self.stage.stagename,
+                                                             self.name))
             else:
                 setattr(self, value+"addr", item)
 
     def get_row_information(self):
         # DST, CPYSTART, CPYEND, BEGIN, READY
-        # startaddr = utils.get_symbol_location("go_to_speed", stage, cc, uboot, elf)
-
-        #if self.relbeginaddr < 0:
-        #    self._calculate_addresses(stage)
-
-            # 'relocpc': utils.get_symbol_location("cpy_clk_code", cc, uboot, elf),
-            # 'startaddr': startaddr,
-            # 'size': (utils.get_symbol_location("lowlevel_init", cc, uboot, elf)) - startaddr,
         info = {
             'relocpc': self.readyaddr,
             'relmod': self.relmod,
@@ -633,6 +627,7 @@ class SkipDescriptorGenerator():
         start = ""
         end = ""
         elf = Main.get_config("stage_elf", self.stage)
+        isfunc = False
         for l in labels:
             if l.value == "START":
                 lineno = self.table._get_real_lineno(l, False)
@@ -641,6 +636,7 @@ class SkipDescriptorGenerator():
                 lineno = self.table._get_real_lineno(l, True)
                 end = "%s:%d" % (l.filename, lineno)
             elif l.value == "FUNC":
+                isfunc = True
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
                 startaddr = self.table._get_line_addr(start, True)
@@ -669,15 +665,28 @@ class SkipDescriptorGenerator():
             cmd = "%sgdb -ex 'disassemble/r 0x%x,+8' --batch --nh --nx  %s" % \
                   (self.table.cc, startaddr, elf)
             output = Main.shell.run_multiline_cmd(cmd)
+            if output == ['']:
+                print cmd
+                print l
+                raise Exception("failed to locate skip tags %s" % self.__dict__)
             ins = output[1].split('\t')[2]
             if (ins == 'push'):
                 # don't include push instruction
                 start = output[2].split('\t')
                 startaddr = int(start[0].split()[0], 16)
-            # disasm = " ".join((output[1].split('\t'))[2:])
-        row['pc'] = startaddr + self.adjuststart
-        row['resumepc'] = endaddr + self.adjustend
-        # row['disasm'] = disasm
+        if self.adjuststart:
+            print "sdjust start of %s from %x to %x" % (self.name, startaddr, startaddr + self.adjuststart)
+        s = startaddr + self.adjuststart
+        e = endaddr + self.adjustend
+        if e < s:
+            t = s
+            s = e
+            e = t
+        row['pc'] = s
+        if isfunc and (self.adjustend or self.adjuststart):
+            print "isfunc adj %s %s %s %s" % (isfunc, self.adjustend, self.adjuststart, name)
+        row['resumepc'] = e
+        row['isfunction'] = isfunc
         row['thumb'] = self.table.thumbranges.overlaps_point(row['pc'])
         return row
 
@@ -690,7 +699,7 @@ class ThumbRanges():
         thumb = intervaltree.IntervalTree()
         arm = intervaltree.IntervalTree()
         data = intervaltree.IntervalTree()
-        cmd = "%snm -S -n --special-syms %s" % (cc, elf)
+        cmd = "%snm -S -n --special-syms %s 2>/dev/null" % (cc, elf)
         output = subprocess.check_output(cmd, shell=True).split('\n')
         prev = None
         lo = 0
@@ -723,13 +732,22 @@ class ThumbRanges():
 
 
 class WriteSearch():
-    def __init__(self, createdb, stage, verbose=True, readonly=False, delete=False):
+    def __init__(self, createdb, stage, verbose=False, readonly=False, delete=False):
         self.cc = Main.cc
         self.verbose = verbose
 
         outfile = Main.get_config('staticdb', stage)
         self.stage = stage
         self.ia = InstructionAnalyzer()
+        self.relocstable = None
+        self.stageexits = None
+        self.writestable = None
+        self.smcstable = None
+        self.srcstable = None
+        self.funcstable = None
+        self.longwritestable = None
+        self.skipstable = None
+        self.verbose = verbose
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         if createdb:
             m = "w" if delete else "a"
@@ -741,15 +759,10 @@ class WriteSearch():
                                                   % stage.stagename)
         else:
             mo = "a"
-            if readonly:
-                mo = "r"
             self.h5file = tables.open_file(outfile, mode=mo,
                                            title="uboot %s bootloader static analysis"
                                            % stage.stagename)
             self.group = self.h5file.get_node("/staticanalysis")
-            self.open_all_tables()
-
-        # self.src_labels = WriteSearch._get_src_labels()
 
     @classmethod
     def _get_src_labels(cls):
@@ -763,8 +776,17 @@ class WriteSearch():
         self.srcstable = self.group.srcs
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
+
+        # try:
+        #     self.h5file.remove_node(self.group, "stageexits")
+        # except:
+        #     pass
+
+        # print "create exits table"
+        # self.create_stageexit_table()
+        # self.stageexits.flush()
+        # self.stageexits = self.group.stageexits
         self.skipstable = self.group.skips
-        #self.write_range_table = self.init_write_range_table()
 
     def print_relocs_table(self):
         for r in self.relocstable.iterrows():
@@ -780,15 +802,10 @@ class WriteSearch():
         except tables.exceptions.NoSuchNodeError:
             self.create_stageexit_table()
         try:
-            # self.group.relocs.remove()  # temporary for testing
             self.relocstable = self.group.relocs
         except tables.exceptions.NoSuchNodeError:
             self.create_relocs_table()
         try:
-            # self.group.writes.remove()
-            # self.group.smcs.remove()
-            # self.group.srcs.remove()
-            # self.group.funcs.remove()
             self.writestable = self.group.writes
             self.smcstable = self.group.smcs
             self.srcstable = self.group.srcs
@@ -796,18 +813,16 @@ class WriteSearch():
         except tables.exceptions.NoSuchNodeError:
             self.create_writes_table()
         try:
-            #self.group.longwrites.remove()
             self.longwritestable = self.group.longwrites
         except tables.exceptions.NoSuchNodeError:
             self.create_longwrites_table()
             rows = self.longwritestable.iterrows()
             map(lambda r: pytable_utils._print(self.longwrite_row_info(r)), rows)
+
         try:
-            # self.group.skips.remove()
             self.skipstable = self.group.skips
         except tables.exceptions.NoSuchNodeError:
             self.create_skip_table()
-        # self.write_range_table = self.init_write_range_table()
 
     def _setthumbranges(self):
         (self._thumbranges, self._armranges, self._dataranges) = Main.get_config("thumb_ranges",
@@ -860,27 +875,28 @@ class WriteSearch():
             SkipDescriptorGenerator("write_sdrc_timings0", self),
             SkipDescriptorGenerator("write_sdrc_timings1", self),
             SkipDescriptorGenerator("per_clocks_enable0", self),
-            SkipDescriptorGenerator("per_clocks_enable2", self),
+            SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
             SkipDescriptorGenerator("per_clocks_enable3", self),
+            SkipDescriptorGenerator("write_sdrc_timings", self),
+            #SkipDescriptorGenerator("mmc_init_stream", self),
             SkipDescriptorGenerator("mmc_init_stream0", self),
             SkipDescriptorGenerator("mmc_init_stream1", self),
-            # SkipDescriptorGenerator("mmc_init_stream2", self),
-            SkipDescriptorGenerator("mmc_init_setup0", self),
+            #SkipDescriptorGenerator("mmc_init_setup", self),
             SkipDescriptorGenerator("mmc_init_setup1", self),
-            SkipDescriptorGenerator("mmc_init_setup2", self),
-            SkipDescriptorGenerator("mmc_init_setup3", self),
-            SkipDescriptorGenerator("mmc_init_setup4", self),
             SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
+            # SkipDescriptorGenerator("mmc_send_cmd", self),
             SkipDescriptorGenerator("mmc_write_data0", self),
-            SkipDescriptorGenerator("mmc_write_data3", self),
             SkipDescriptorGenerator("mmc_write_data1", self),
-            SkipDescriptorGenerator("mmc_write_data2", self),
-            SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
-            SkipDescriptorGenerator("omap_hsmmc_send_cmd",
-                                    self, 0, -2),
             SkipDescriptorGenerator("mmc_read_data0", self),
-            SkipDescriptorGenerator("mmc_read_data1", self),
-            SkipDescriptorGenerator("mmc_read_data2", self),
+            SkipDescriptorGenerator("mmc_complete_op", self),
+            SkipDescriptorGenerator("mmc_write_data0", self),
+            SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
+            SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
+            SkipDescriptorGenerator("omap_hsmmc_send_cmd1", self),
+
+            #SkipDescriptorGenerator("mmc_read_data0", self),
+            #SkipDescriptorGenerator("mmc_read_data1", self),
+            #SkipDescriptorGenerator("mmc_read_data2", self),
         ]
 
         skipfuns = [
@@ -890,6 +906,7 @@ class WriteSearch():
             SkipDescriptorGenerator("__udelay", self),
             SkipDescriptorGenerator("_set_gpio_direction", self),
             SkipDescriptorGenerator("_get_gpio_direction", self),
+            SkipDescriptorGenerator("omap3_invalidate_l2_cache_secure", self),
             SkipDescriptorGenerator("_get_gpio_value", self),
             SkipDescriptorGenerator("get_sdr_cs_size", self),
             SkipDescriptorGenerator("get_sdr_cs_offset", self),
@@ -897,16 +914,12 @@ class WriteSearch():
             SkipDescriptorGenerator("get_cpu_id", self),
             SkipDescriptorGenerator("set_muxconf_regs", self),
             SkipDescriptorGenerator("get_osc_clk_speed", self),
+            SkipDescriptorGenerator("per_clocks_enable", self),
             SkipDescriptorGenerator("timer_init", self),
-            SkipDescriptorGenerator("mmc_board_init", self),
+            #SkipDescriptorGenerator("mmc_board_init", self),
             SkipDescriptorGenerator("go_to_speed", self),
         ]
-        # i'd rather avoid directly specifing ranges b/c they always
-        # change depending on the build
-        # skipranges = [
-        #             # (0x40207568,0x40207570) # not sure what this is for
-        # but we may need this later
-        #              ]
+
         if self.stage.stagename == 'spl':  # we may need to add more ranges in the main bootloader
             skiplines.extend([  # identify_nand_chip
                 SkipDescriptorGenerator("identify_nand_chip0", self),
@@ -926,9 +939,9 @@ class WriteSearch():
             info = s.get_row_information()
             for (k, v) in info.iteritems():
                 r[k] = v
-
             if self.verbose:
-                print "skip %s (%x,%x)" % (s.name, r['pc'], r['resumepc'])
+                print "skip %s (%x,%x) isfunc %s" % (s.name, r['pc'],
+                                                   r['resumepc'], r['isfunction'])
             r.append()
         self.skipstable.flush()
         self.h5file.flush()
@@ -975,7 +988,7 @@ class WriteSearch():
 
         if self.stage.stagename == "spl":
             skips = skips
-        else:
+        else: # strcpy doesn't work properly, disabling for now
             mainskips = [
                 LongWriteDescriptorGenerator("memmove", [], ["r2"],
                                              "", 'count', 1, False, self),
@@ -1028,14 +1041,16 @@ class WriteSearch():
         res = cls.find_labels(lclass, value, stage, name)
         if not (len(res) == 1):
             raise Exception("Found 0 or +1 labels of class=%s, value=%s, stage=%s, name=%s"
-                            % (lclass.__name__, value, stage, name))
+                            % (lclass.__name__, value, stage.stagename, name))
         return res[0]
 
     @classmethod
     def find_labels(cls, lclass, value, stage, name):
         all_labels = cls._get_src_labels()
-        labels = all_labels[lclass]
         results = []
+        if lclass not in all_labels.iterkeys():
+            return []
+        labels = all_labels[lclass]
         for l in labels:
             if ((stage is None) or (l.stagename == stage.stagename)) \
                and ((len(name) == 0) or (l.name == name)) \
@@ -1056,12 +1071,7 @@ class WriteSearch():
         # its a bit complicated to calculated the address to which
         # code is being copied, hopefully this works for different builds
         # line = "arch/arm/cpu/armv7/omap3/lowlevel_init.S:181" #ldr	r1, =SRAM_CLK_CODE
-        # cmd = "%sgdb -ex 'info line %s' --batch --nh --nx  %s" %(cc, line, elf)
-        # output = cls.get_command_output(cmd)
-        # output = output[0]
-        # readdr = re.compile("starts at address (0x[0-9a-fA-F]{0,8})")
-        # readdr = readdr.search(output)
-        # addr = int(readdr.group(1),16)
+
         # now disassemble and lookup where the value we need is stored, in the commend
         cmd = "%sgdb -ex 'x/i 0x%x' --batch --nh --nx  %s" % (cc, dstaddr, elf)
         output = Main.shell.run_multiline_cmd(cmd)
@@ -1104,11 +1114,10 @@ class WriteSearch():
         self.stageexits = self.h5file.create_table(self.group, 'stageexits',
                                                    StageExitInfo, "stage exit info")
         sls = WriteSearch.find_labels(labeltool.StageinfoLabel, "EXIT", self.stage, "")
-
         r = self.stageexits.row
         print "creating stage exit table"
         for l in sls:
-            lineno = self._get_real_lineno(l, False)
+            lineno = self._get_real_lineno(l)
 
             loc = "%s:%d" % (l.filename, lineno)
             addr = utils.get_line_addr(loc, True, self.stage)
@@ -1146,29 +1155,31 @@ class WriteSearch():
     def closedb(self, flushonly=True):
         try:
             self.writestable.reindex_dirty()
+        except AttributeError:
+            pass
+        try:
             self.smcstable.reindex_dirty()
+        except AttributeError:
+            pass
+        try:
             self.srcstable.reindex_dirty()
+        except AttributeError:
+            pass
+        try:
             self.funcstable.reindex_dirty()
-            # self.write_range_table.table.reindex_dirty()
         except AttributeError:
             pass
         if flushonly:
             self.h5file.flush()
-            return
-        try:
-            self.h5file.flush()
-            # self._get_addr_info(0x80102a14)
-        except:
-            pass
-        self.h5file.close()
-        self.writestable = None
-        self.smcstable = None
-        self.srcstable = None
-        self.funcstable = None
-        # self.write_range_table = None
-        self.relocstable = None
-        self.longwritestable = None
-        self.stageexits = None
+        else:
+            self.h5file.close()
+            self.writestable = None
+            self.smcstable = None
+            self.srcstable = None
+            self.funcstable = None
+            self.relocstable = None
+            self.longwritestable = None
+            self.stageexits = None
 
     def _get_addr_info(self, addr):
         WriteSearch.get_addr_info(addr,
@@ -1233,7 +1244,7 @@ class WriteSearch():
             r['name'],
             r['startaddr'], r['startaddr'] + r['size'],
             r['startaddr'] + r['reloffset'],
-            r['relocpc'], r['relbegin'])
+            r['relbegin'], r['relocpc'])
 
     @classmethod
     def func_row_info(cls, r):
@@ -1278,7 +1289,7 @@ class WriteSearch():
         # now look at instructions
         elf = Main.get_config("stage_elf", self.stage)
 
-        cmd = "%sobjdump -D -w -j .text %s " % (self.cc, elf)
+        cmd = "%sobjdump -D -w -j .text %s 2>/dev/null" % (self.cc, elf)
         output = Main.shell.run_multiline_cmd(cmd)
         addr = re.compile("^[0-9a-fA-F]{8}:")
         # objdump doesnt print 'stl', but search for it just in case
@@ -1293,8 +1304,6 @@ class WriteSearch():
             dis = ''
             ins = ''
             fname = ''
-            # src = ''
-            # lineno = 0
             pc = 0
             thumb = False
             if (not addr.match(o)):
@@ -1326,11 +1335,11 @@ class WriteSearch():
                         words = [w.decode('hex')[::-1] for w in words]
                         # don't want it to wrip out any null bytes
                         ins = b"%s%s" % (words[0], words[1])
+                    inscheck = self.ia.disasm(ins, thumb, pc)
                     r['pc'] = pc
                     r['halt'] = True
 
                     # double check capstone is ok with this assembly
-                    inscheck = self.ia.disasm(ins, thumb, pc)
                     if not self.ia.is_mne_memstore(inscheck.mnemonic):
                         print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
                         print o
@@ -1357,7 +1366,8 @@ class WriteSearch():
                     smcr['thumb'] = thumb
                     insadded = True
                     smcr.append()
-
+                    if self.verbose:
+                        print "smc at 0x%x" % pc
                 if insadded:
                     s = self.srcstable.where("addr == 0x%x" % (pc))
                     try:

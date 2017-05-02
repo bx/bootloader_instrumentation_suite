@@ -24,28 +24,38 @@ import gdb
 import os
 import re
 path = gdb.os.getcwd()
+import sys
 sys.path.append(path)
 version = os.path.join(path, ".python-version")
 if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
-from config import Main
-import testsuite_utils as utils<
-import config
+import testsuite_utils as utils
 import gdb_tools
 
+
 open_log = None
+now = True
+
 
 class CloseLog():
     def __init__(self):
+        global now
+        if now:
+            self.do()
         pass
 
-    def __call__(self):
+    def do(self):
         global open_log
         if open_log is not None:
             open_log.close()
             open_log = None
+
+    def __call__(self):
+        global now
+        if not now:
+            self.do()
 
 
 class WriteResults():
@@ -57,7 +67,9 @@ class WriteResults():
         self.pc = pc
         self.entry = True if kind == "entry" else False
         self.minimal = minimal
-        #self.do()
+        global now
+        if now:
+            self.do()
 
     def do(self):
         global open_log
@@ -77,22 +89,32 @@ class WriteResults():
             gdb.write(outstr, gdb.STDOUT)
 
     def __call__(self):
-        self.do()
+        global now
+        if not now:
+            self.do()
 
 
 class CallExitBreak(gdb_tools.BootFinishBreakpoint):
+    plugin_name = "calltrace"
+
     def __init__(self, name, controller, stage, entry):
         self.name = name
         self.entry = entry
-        gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
+        self.plugin = controller.get_plugin(self.plugin_name)
+        self.controller = controller
+        try:
+            gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
+        except ValueError:
+            pass
 
     def out_of_scope(self):
         if self.entry.no_rec:
-            self.entry.breakpoint.enabled = True
-        print "exit breakpoint for %s out of scope" % self.name
+            self.controller.disable_breakpoint(self.entry, disable=False)
+        self.controller.gdb_print("exit breakpoint for %s out of scope\n" % self.name,
+                                  self.plugin.name)
 
-    def _stop(self):
-        c = self.controller
+    def _stop(self, bp, ret):
+        c = self.plugin
         c.depth -= 1
         gdb.post_event(WriteResults(c.depth,
                                     self.name, "exit", c.pc(),
@@ -100,18 +122,23 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
                                     c._minimal))
 
         if self.entry.no_rec:
-            self.entry.breakpoint.enabled = True
+            self.controller.disable_breakpoint(self.entry, disable=False)
         return False
 
 
 class CallEntryBreak(gdb_tools.BootBreak):
+    plugin_name = "calltrace"
+
     def __init__(self, name, controller, stage, no_rec):
         self.name = name
         self.no_rec = no_rec
+        self.stage = stage
+        self.plugin = controller.subcommand_parsers[self.plugin_name].plugin
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
         except gdb.error as e:
-            print e
+            self.gdb_print("%s\n" % e,
+                           self.plugin.name)
             return
         i = re.sub(':', '', i)
         self.fnloc = int(i, 0)
@@ -119,53 +146,58 @@ class CallEntryBreak(gdb_tools.BootBreak):
         self.line = re.sub(":",
                            "::",
                            utils.addr2line(self.fnloc,
-                                           stage)) if controller._sourceinfo else ""
+                                           stage)) if self.plugin._sourceinfo else ""
         gdb_tools.BootBreak.__init__(self, spec, controller, True, stage)
 
-    def _stop(self, ret):
-        c = self.controller
+    def _stop(self, bp, ret):
+        c = self.plugin
         gdb.post_event(WriteResults(c.depth,
                                     self.name, "entry", self.fnloc,
                                     self.line,
                                     c._minimal))
         c.depth += 1
-        CallExitBreak(self.name, c, self.stage, self)
-        if self.no_rec:
-            self.breakpoint.enabled = False
+        CallExitBreak(self.name, self.controller, self.stage, self)
+        if self.no_rec and self.breakpoint:
+            self.controller.disable_breakpoint(self, delete=False)
         return False
 
 
-class CallTrace(gdb_tools.GDBBootController):
+class CallTrace(gdb_tools.GDBPlugin):
     def __init__(self):
         self.depth = 0
-        self.quiet = False
         self._minimal = True
         self._sourceinfo = False
         self.results_written = False
         self.blacklisted = {}
         self.no_rec_funs = []
-        bp_hooks = {'StageEndBreak': self.stop_end}
-        gdb_tools.GDBBootController.__init__(self, "calltrace",
-                                             bp_hooks=bp_hooks,
-                                             stage_hook=self.setup_breakpoints,
-                                             exit_hook=self._gdb_exit,
-                                             disabled_breakpoints=[gdb_tools.WriteBreak,
-                                                                   gdb_tools.LongwriteBreak,
-                                                                   gdb_tools.EndLongwriteBreak,
-                                                                   gdb_tools.SubstageEntryBreak])
-        p = self.add_subcommand_parser("stage_log")
-        p.add_argument('stage')
-        p.add_argument('log')
-        p = self.add_subcommand_parser("blacklist")
-        p.add_argument('stage')
-        p.add_argument('fns', nargs='*')
-        p = self.add_subcommand_parser("no_recursion")
-        p.add_argument('recfns', nargs='*', default=[])
-        p = self.add_subcommand_parser("sourceinfo")
-        p.add_argument("enabled", nargs='?', default=True)
         self.stage_logs = {}
-        p = self.add_subcommand_parser("minimal")
-        p.add_argument("disabled", nargs='?', default=False)
+        bp_hooks = {'StageEndBreak': self.stop_end}
+
+        parser_options = [
+            gdb_tools.GDBPluginParser("stage_log", ["stage", "log"]),
+            gdb_tools.GDBPluginParser("blacklist",
+                                      ["stage",
+                                       gdb_tools.GDBPluginPargerArg("fns", nargs="*")]),
+            gdb_tools.GDBPluginParser("no_recursion",
+                                      [gdb_tools.GDBPluginPargerArg("recfns",
+                                                                    nargs="*", default=[])]),
+            gdb_tools.GDBPluginParser("sourceinfo",
+                                      [gdb_tools.GDBPluginPargerArg("enabled",
+                                                                    nargs="?", default=True)]),
+            gdb_tools.GDBPluginParser("minimal",
+                                      [gdb_tools.GDBPluginPargerArg("disabled", nargs="?",
+                                                                    default=False)]),
+
+            ]
+        gdb_tools.GDBPlugin.__init__(self, "calltrace",
+                                     bp_hooks=bp_hooks,
+                                     stage_hook=self.setup_breakpoints,
+                                     exit_hook=self._gdb_exit,
+                                     disabled_breakpoints=[gdb_tools.WriteBreak,
+                                                           gdb_tools.LongwriteBreak,
+                                                           gdb_tools.EndLongwriteBreak,
+                                                           gdb_tools.SubstageEntryBreak],
+                                     parser_args=parser_options)
 
     def no_recursion(self, args):
         self.no_rec_funs.extend(args.recfns)
@@ -189,9 +221,10 @@ class CallTrace(gdb_tools.GDBBootController):
         self.blacklisted[args.stage] = args.fns
 
     def pc(self):
-        return int(gdb.selected_frame().pc())
+        return self.controller.get_reg_value('pc')
 
-    def setup_breakpoints(self, stage):
+    def setup_breakpoints(self, startbreak, stage):
+        c = self.controller
         if not gdb.current_progspace().filename:
             gdb.execute("file %s" % stage.elf)
         sname = stage.stagename
@@ -207,30 +240,27 @@ class CallTrace(gdb_tools.GDBBootController):
             if (not hasblacklist) or (hasblacklist and
                                       (name not in self.blacklisted[stage.stagename])):
                 norec = name in self.no_rec_funs
-                c = CallEntryBreak(name, self, stage, norec)
+                CallEntryBreak(name, c, stage, norec)
 
-    def stop_end(self, bp, ret):
-        if bp is None:
-            print "quitting"
-        if bp is not None:
-            stage = self.current_stage
-            controller = bp.controller
-        else:
-            controller = self
-            stage = controller.current_stage
-        if controller.results_written:
+    def stop_end(self, bp, ret, c=None):
+        if bp is None and c is None:
+            c.gdb_print("quitting\n",
+                        self.name)
+        if c is None:
+            c = bp.controller
+
+        if self.results_written:
             return ret
         global open_log
         if open_log:
-            sname = controller.current_stage.stagename
-            print "results written to %s" % open_log
-            controller.results_written = True
+            c.gdb_print("results written to %s\n" % open_log.name, self.name)
+            self.results_written = True
             # use event to make sure log is closed after all write events
             gdb.post_event(CloseLog())
         return ret
 
     def _gdb_exit(self, event):
-        self.stop_end(None, True)
+        self.stop_end(None, True, self.controller)
 
 
-ct = CallTrace()
+plugin_config = CallTrace()

@@ -1,268 +1,149 @@
 regions:
   ROM:
-    default_perms: "rx"
-    type: "bookkeeping_readonly"
+    type: "readonly"
     addresses: [0x40000000, 0x4001C000]
-    include_children: True            
-    subregions:
-      exec_vectors:
-        name: "ROM Exception vectors"
-        type: "text"
-        subregions:
-           reset:
-             addresses: [0x40014000, 0x40014004]
-           undefined:
-             addresses: [0x40014004, 0x40014008]
-           swi:
-             name: "Software interrupt"
-             addresses: [0x40014008, 0x4001400c]
-           prefetch_abrt:
-             name: "prefetch abort"
-             addresses: [0x4001400c, 0x40014010]
-           data_abrt:
-             name: "data abort"
-             addresses: [0x40014010, 0x40014014]
-           unused:
-             addresses: [0x40014014, 0x40014018]
-           irq:
-             addresses: [0x40014018, 0x4001401c]
-           fiq:
-             addresses: [0x4001401c, 0x40014020]
-              
-      rom_crc:
-        name: "ROM CRC"
-        addresses: [0x40014020, 0x40014080]
-      dead_loops:
-        name: "Dead loops"
-        type: "text"
-        addresses: 'children'
-        subregions:
-          undefined:
-            name: "Undefined exception default handler"
-            addresses: [0x40014080, 0x40014084]
-          swi:
-            name: "SWI exception default handler"
-            addresses: [0x40014084, 0x40014088]
-          prefetch:
-            name: "Prefetch abort exception default handler"
-            addresses: [0x40014088, 0x4001408c]
-          data_abort:
-            name: "Data abort exception default handler"
-            addresses: [0x4001408C, 0x40014090]
-          unused:
-            name: "Unused exception default handler"
-            addresses: [0x40014090, 0x40014094]
-          irq:
-            name: "IRQ exception default handler"
-            addresses: [0x40014094, 0x40014098]
-          fiq:
-            name: "FIQ exception default handler"
-            addresses: [0x40014098, 0x4001409C]
-          validation_tests_pass:
-            name: "Validation tests Pass"
-            addresses: [0x4001409C, 0x400140a0]
-          validation_tests_fail:
-            name: "Validation tests Fail"
-            addresses: [0x400140A0, 0x400140A4]
-          boot_failed:
-            name: "Booting failed: No more booting devices"
-            addresses: [0x400140A4, 0x400140A8]
-          not_executed:
-            name: "Image not executed or returned"
-            addresses: [0x400140A8, 0x400140Ac]
-          
-      code:
-        type: "text"
-        name: "ROM code"
-        addresses: [0x40014100, 0x40014200]
-      code_and_data:
-        type: "bookkeeping_readonly"
-        name: "ROM code and data"
-        addresses: [0x40014200, 0x4001bffc]          
-      rom_code_version:
-        name: "ROM code version"
-        type: "bookkeeping_readonly"
-        addresses: [0x4001bffc, 0x4001bfff]
   RAM:
-    default_perms: "rwx"
     addresses: [0x40200000, 0x40210000]
+    include_children: True
+    type: "readonly"
     subregions:
+      rom_stack:
+        type: "stack"
+        addresses: ["ROM_STACK_START", "ROM_STACK_END"]
+        comment: manually calculated from test run      
       downloaded_image:
         name: "downloaded image"
-        addresses: [0x40200000, 0x4020FFB0]
-        include_children: False
+        addresses: ["ROM_STACK_END", 0x4020FFB0]
         subregions:
           downloaded_image_text:
-            default_perms: "rx"
-            type: "text"
+            type: "readonly"
             addresses: ["RAM.downloaded_image.start", ".text.end"]
           downloaded_image_data:
-            default_perms: "rw"
             type: "bookkeeping"
             addresses: [".text.end", "__image_copy_end"]
-            include_children: True
+          unused:
+            type: "readonly"
+            addresses: ["__image_copy_end", "SCRATCH_SPACE_ADDR"]
           scratch_space:
-            default_perms: "rw"
             type: "bookkeeping"            
-            include_children: True        
             addresses: ["SCRATCH_SPACE_ADDR", "OMAP5_SCRATCH_SPACE_END"]
           remainder:
-            type: "bookkeeping"
+            type: "readonly"
             addresses: ["OMAP5_SCRATCH_SPACE_END", 0x4020F000]
           public_stack:
             name: "Public stack"
-            type: "bookkeeping"
-            reclassifiable: True
+            type: "readonly"
+            include_children: True
             addresses: [0x4020F000, 0x4020FFB0]
             comments: "initial stack value set by rom in qemy misc/omap3_boot.c:148/165 to 0x4020fcb0 (and then decremented to fit several KB of data"
-            include_children: True
             subregions:
+              beginning:
+                type: "readonly"
+                addresses: [0x4020F000, 0x4020f840]
               cpy_clk_code:
-                type: "subsequent_substage"
-                include_children: True        
+                type: "future"
                 addresses: [0x4020f840, "0x4020f840 + lowlevel_init - cpy_clk_code"]
                 comment: "double-check end address, i thought it copies from go_to_speed"
-              stack_rest:
-                addresses: "remainder"
-                include_children: True
-            
-      rom_stack:
-        default_perms: "rw"
+              stack_rest0:
+                addresses: ["RAM.downloaded_image.public_stack.cpy_clk_code.end", 0x4020ff20]
+              stack_rest1:              
+                addresses: [ 0x4020ff20, "RAM.downloaded_image.end"]
+      rest0:
+        addresses: ["RAM.downloaded_image.end", 0x4020fffc]        
+        type: "readonly"        
+      rest1:
+        addresses: [0x4020fffc, RAM.end]
+        type: "readonly"
+
+  RAM1:
+    include_children: True
+    type: "readonly"
+    addresses: ["RAM.start", "RAM.end"]
+    subregions:
+      begin:
+        type: "readonly"
+        addresses: ["RAM.start", ".text.end"]
+      downloaded_image_data:
+        type: "bookkeeping"
+        addresses: [".text.end", "__image_copy_end"]
+      later_stack:
         type: "stack"
-        include_children: False
-        reclassifiable: True                
-        addresses: ["ROM_STACK_START", "ROM_STACK_END"]
-        comment: manually calculated from test run
-      rest:
-        addresses: "remainder"
-        type: "input_parameters"
-        include_children: True
-        reclassifiable: True
-        comment: "Eventually becomes the stack, ending at 0x4020fa10"
-        subregions:
-          tracing:
-            name: "tracing data"
-            addresses: [0x4020FFB0, 0x4020FFC8]
-            include_children: True
-            subregions:
-              tracing_vector_1:
-                name: "Current tracing vector, word 1"
-                addresses: [0x4020FFB0, 0x4020FFB4]
-              tracing_vector_2:
-                name: "4 Current tracing vector, word 2"
-                addresses: [0x4020FFB4, 0x4020FFB8]
-              rpm_rstst:
-                name: "Current copy of the PRM_RSTST register (reset addresses:reasons)"
-                addresses: [0x4020FFB8, 0x4020FFBC]
-              reset_vector_1:
-                name: "Cold reset run tracing vector, word 1"
-                addresses: [0x4020FFBC, 0x4020FFC0]
-              reset_vector_2:
-                name: "Cold reset run tracing vector, word 2"
-                addresses: [0x4020FFC0, 0x4020FFC4]
-          exception:
-            name: "RAM exception vectors"
-            type: "text"
-            addresses: [0x4020FFC8, 0x40210000]
-            include_children: True
-            subregions:            
-              undefined:
-                name: "Undefined"
-                contents: "PC = [0x4020FFE4]"
-                addresses: [0x4020FFC8, 0x4020FFCC]
-              swi:
-                name: "SWI"
-                contents: "PC = [0x4020FFE8]"
-                addresses: [0x4020FFCC, 0x4020FFD0]
-              prefetch_abrt:
-                name: "Prefetch abort"
-                contents: "PC = [0x4020FFEC]"
-                addresses: [0x4020FFD0, 0x4020FFD4]
-              data_abrt:
-                name: "Data abort"
-                contents: "PC = [0x4020FFF0]"
-                addresses: [0x4020FFD4, 0x4020FFD8]
-              unused:
-                name: "Unused"
-                contents: "PC = [0x4020FFF4]"
-                addresses: [0x4020FFD8, 0x4020FFDC]
-              irq:
-                name: "IRQ"
-                contents: "PC = [0x4020FFF8]"
-                addresses: [0x4020FFDC, 0x4020FFE0]
-              fiq:
-                name: "FIQ"
-                contents: "PC = [0x4020FFFC]"
-                addresses: [0x4020FFE0, 0x4020FFE4]
-              undefined_data:
-                name: "Undefined"
-                contents: "0x14080"
-                addresses: [0x4020FFE4, 0x4020FFE8]
-              swi_data:
-                name: "SWI"
-                contents: "0x14084"
-                addresses: [0x4020FFE8, 0x4020FFEC]
-              pretetch_abrt_data:
-                name: "Prefetch abort"
-                contents: "0x14088"
-                addresses: [0x4020FFEC, 0x4020FFF0]
-              data_abrt_data:
-                name: "Data abort"
-                contents: "0x1408C"
-                addresses: [0x4020FFF0, 0x4020FFF4]
-              unused_data:
-                name: "Unused"
-                contents: "0x14090"
-                addresses: [0x4020FFF4, 0x4020FFF8]
-              irq_data:
-                name: "Interrupt request (IRQ)"
-                contents: "0x14094"
-                addresses: [0x4020FFF8, 0x4020FFFC]
-              fiq_data:
-                name: "Fast interrupt request"
-                contents: "0x14098"
-                addresses: [0x4020FFFC, 0x40210000]
-                    
+        addresses: ["__image_copy_end", "0x4020f840 + lowlevel_init - cpy_clk_code"]
+      global_data:
+        type: "global"
+        addresses: ["0x4020f840 + lowlevel_init - cpy_clk_code",  0x4020ff20]
+      end:
+        type: "readonly"
+        addresses: [ 0x4020ff20, "RAM.end"]
+
+
   SRAM:
-    default_perms: "rwx"
-    type: "none"
+    type: "readonly"
     addresses: [0x80000000, 0xc0000000]
+    include_children: True
     subregions:
       bss:
         addresses: [0x80000000, 0x80030144]
-        include_children: True        
+        subregions:
+          sram_test:
+            type: "patching"
+            addresses: [[0x80000000, 0x80000008], [0x80000400, 0x80000404]]
+          bss_rest:
+            addresses: "remainder"
+      after_bss:
+          addresses: [0x80030144, "CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header"]
+          type: "readonly"
+      image_header:
+        name: "disk image's header"
+        type: "future"
+        addresses: ["CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header", "CONFIG_SYS_TEXT_BASE"]
       image:
         name: "Next stage's disk image"
-        addresses: [0x80100000, "0x80100000 + main.image_size"]
-        include_children: True
+        type: "future"        
+        addresses: ["CONFIG_SYS_TEXT_BASE", "CONFIG_SYS_TEXT_BASE + main.image_size"]
+      post_image:
+        addresses: ["CONFIG_SYS_TEXT_BASE + main.image_size", "CONFIG_SYS_SPL_MALLOC_START"]
       heap:
+        type: "readonly"
         addresses: ["CONFIG_SYS_SPL_MALLOC_START", "CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE"]
       nonbss:
-        addresses: "remainder"
-        include_children: True        
+        type: "readonly"        
+        addresses: ["CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE", 0xc0000000]
+        include_children: True
+        subregions:
+          sram_test:
+            type: "patching"      
+            addresses: [[0xA0000400, 0xA0000404], [0xA0000000, 0xA0000008]]
+          rest:
+            addresses: "remainder"
+
+
   Registers:
     csv: "regs.csv"
-    default_perms: "rw"
-    type: "registers"
+    type: "global"
     include_children: True
   missing_control_padconf0:
-    type: "registers"        
+    type: "global"        
     addresses: [0x48002150, 0x48002154]
     comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
   missing_control_padconf1:
-    type: "registers"
+    type: "global"
     addresses: [0x48002154, 0x48002158]    
     comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
   missing_protection_mech_0:
-    type: "registers"
+    type: "global"
     addresses: [0x68010060, 0x68010068]    
     comment: "address written to by boootloader (secure_unlock_mem) must not listed in am37x hardware reference"
+
 values:
+  SRAM_STACK: 0x4020fffc
   SCRATCH_SPACE_ADDR: 0x4020E000
-  OMAP5_SCRATCH_SPACE_END: 0x4020E029
-  ROM_STACK_START: 0x40205cb0
-  ROM_STACK_END: 0x40205f00
+  OMAP5_SCRATCH_SPACE_END: 0x4020E030
+  ROM_STACK_START: 0x40200000
+  ROM_STACK_END: 0x40200800
   CONFIG_SYS_SPL_MALLOC_START: 0x80208000
   CONFIG_SYS_SPL_MALLOC_SIZE: 0x100000
+  CONFIG_SYS_TEXT_BASE: 0x80100000
+  sizeof_struct_image_header: 64
 
 stagename: "spl"

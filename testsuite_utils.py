@@ -24,6 +24,7 @@
 from config import Main
 import re
 import os
+import pure_utils
 
 
 def addr2line(addr, stage):
@@ -45,7 +46,6 @@ def infoline(line, stage):
 def line2addrs(line, stage):
     output = infoline(line, stage)
     startat = output[0]
-    # print output
     assembly = False
     isataddr = None
     restart = None
@@ -230,65 +230,19 @@ def get_c_function_names(stage):
 def get_section_headers(stage):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    cmd = '%sreadelf -W -S %s 2>/dev/null' % (cc, elf)
-    output = Main.shell.run_multiline_cmd(cmd)
-    hexre = "[0-9a-fA-F]+"
-    secre = re.compile("\s+\[ ?(\d+)\]\s+(\.\w+)\s+(\w+)\s+(%s)\s+(%s)\s+(%s)\s+(\d\d)"
-                       "\s+([ \w][ \w])\s+(\d+)\s+(\d+)\s+(\d+)\s*$" % (hexre, hexre, hexre))
-    headers = []
-    for l in output:
-        matches = secre.search(l)
-        if matches:
-            h = {
-                "number": int(matches.group(1)),
-                "name": matches.group(2),
-                "type": matches.group(3),
-                "address": int(matches.group(4), 16),
-                "offset": int(matches.group(5), 16),
-                "size": int(matches.group(6), 16),
-                "es": int(matches.group(7)),
-                "flags": matches.group(8),
-                "link": int(matches.group(9)),
-                "info": int(matches.group(10)),
-                "align": int(matches.group(11))
-            }
-            headers.append(h)
-    return headers
+    return pure_utils.get_section_headers(cc, elf)
 
 
 def get_section_location(name, stage):
-    start = 0
-    end = 0
-
-    headers = get_section_headers(stage)
-    for h in headers:
-        if h['name'] == name:
-            start = h['address']
-            end = start+h['size']
-            return (start, end)
-    return (-1, -1)
+    cc = Main.cc
+    elf = Main.get_config("stage_elf", stage)
+    return pure_utils.get_section_location(cc, elf, name)
 
 
 def get_symbol_location(name, stage, debug=False, nm=False):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    if nm:
-        cmd = "%snm %s | grep '\s%s'$" % (cc, elf, name)
-    else:
-        cmd = "%sgdb -ex 'x/wx %s' --batch --nh --nx  %s 2>/dev/null" % (cc, name, elf)
-    if debug:
-        print cmd
-    output = Main.shell.run_multiline_cmd(cmd)
-    if debug:
-        print output
-    output = output[0]
-    output = output.strip()
-    value = re.compile("^0?x?([0-9a-fA-F]{1,8})")
-    revalue = value.search(output)
-    if revalue:
-        return int(revalue.group(1), 16)
-    else:
-        return -1
+    return pure_utils.get_symbol_location(cc, elf, name, debug, nm)
 
 
 def get_symbol_location_start_end(name, stage, debug=False):
@@ -311,9 +265,9 @@ def get_symbol_location_start_end(name, stage, debug=False):
 def get_line_addr(line, start, stage, debug=False):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s" % (cc,
-                                                                           Main.get_bootloader_root(),
-                                                                           line, elf)
+    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s 2>/dev/null" % (cc,
+                                                                                       Main.get_bootloader_root(),
+                                                                                       line, elf)
     if debug:
         print cmd
     output = Main.shell.run_multiline_cmd(cmd)
@@ -344,9 +298,9 @@ def get_line_addr(line, start, stage, debug=False):
 def get_line_addr2(line, stage, debug=False):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s" % (cc,
-                                                                           Main.get_bootloader_root(),
-                                                                           line, elf)
+    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s 2>/dev/null" % (cc,
+                                                                                       Main.get_bootloader_root(),
+                                                                                       line, elf)
     if debug:
         print cmd
     output = Main.shell.run_multiline_cmd(cmd)
@@ -373,11 +327,11 @@ def symbol_relocation_file(name, offset, stage, path=None, debug=False):
         path = tempfile.NamedTemporaryFile("rw").name
     elf = Main.get_config("stage_elf", stage)
     cc = Main.cc
-    cmd = "%sobjcopy  --extract-symbol -w -N \!%s --change-addresses=0x%x %s %s" % (cc,
-                                                                                    name,
-                                                                                    offset,
-                                                                                    elf,
-                                                                                    path)
+    cmd = "%sobjcopy  --extract-symbol -w -N \!%s --change-addresses=0x%x %s %s 2>/dev/null" % (cc,
+                                                                                                name,
+                                                                                                offset,
+                                                                                                elf,
+                                                                                                path)
     if debug:
         print cmd
     output = Main.shell.run_cmd(cmd)

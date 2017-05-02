@@ -104,6 +104,7 @@ class Main(ConfigObject):
 
     test_suite_dir = os.path.dirname(os.path.realpath(__file__))
     configs = {}
+    supported_tracing_methods = set()
 
     @classmethod
     def set_config(cls, key, value):
@@ -216,7 +217,10 @@ class HardwareClass(ConfigObject):
                 self.ram_range_names = []
             self.ram_ranges = intervaltree.IntervalTree(range_intervals)
             self.ram_ranges.merge_overlaps()
-            self.non_ram_ranges = self.phy_addr_range - self.ram_ranges
+            self.non_ram_ranges = self.phy_addr_range
+            for r in self.ram_ranges:
+                self.non_ram_ranges.chop(r.begin, r.end)
+                self.non_ram_ranges.remove_overlap(r)
 
 
 class HardwareConfig(ConfigObject):
@@ -228,6 +232,8 @@ class HardwareConfig(ConfigObject):
             if self.attr_exists("default_jtag"):
                 jtag = self.default_jtag
                 self.jtag_cfg = self.object_config_lookup("JtagConfig", jtag)
+            Main.supported_tracing_methods.update(self.tracing_methods)
+
 
 class Software(ConfigObject):
     required_fields = ["name", "root"]
@@ -316,6 +322,7 @@ class Bootstages(ConfigObject):
                 if not stage.post_build_setup_done:
                     stage.post_build_setup()
                 self.exitpc = stage.entrypoint
+
 
 path = os.path.dirname(os.path.realpath(__file__))
 config = os.path.join(os.path.expanduser("~"), ".bootsuite.yaml")

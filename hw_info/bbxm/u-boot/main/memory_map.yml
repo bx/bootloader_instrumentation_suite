@@ -1,40 +1,39 @@
 regions:
   ROM:
-    type: "text"
+    type: "readonly"
     addresses: [0x40000000, 0x4001C000]
-    include_children: True            
   RAM:
-    default_perms: "rwx"
     addresses: [0x40200000, 0x40210000]
     type: "bookkeeping"
+    include_children: True    
     subregions:
       top:
         addresses: [0x40200000, 0x4020f840]
       cpy_clk_code:
-        type: "subsequent_substage"
+        type: "future"
         addresses: [0x4020f840, "0x4020f840 + lowlevel_init - cpy_clk_code"]
         comment: "double-check end address, i thought it copies from go_to_speed"
       spl:
-        type: "none"        
+        type: "readonly" 
         addresses: ["0x4020f840 + lowlevel_init - cpy_clk_code", "CONFIG_SYS_INIT_SP_ADDR - 0x40"]
         subregions:
           main_heap:
-            type: "none"
+            type: "readonly"
             addresses: ["CONFIG_SYS_INIT_SP_ADDR - 0x40 - GD_SIZE - CONFIG_SYS_MALLOC_F_LEN", "CONFIG_SYS_INIT_SP_ADDR - 0x40 - GD_SIZE - 0x2"]
             #gd->malloc_base = 0x4020fa10
           main_gd:
-            type: "none"
+            type: "patching"
             addresses: ["CONFIG_SYS_INIT_SP_ADDR - 0x40 - GD_SIZE - 0x2", "CONFIG_SYS_INIT_SP_ADDR - 0x40 - 0x2"]
           main_stack:
-            type: "stack"            
+            type: "stack"          
             addresses: "remainder"             
       rest:
         addresses: "remainder"
         type: "stack"
   SRAM0:
-    default_perms: "rwx"
     type: "bookkeeping"
     addresses: [0x80000000, 0xc0000000]
+    include_children: True    
     subregions:
       main_image:
         addresses: [0x80100000, ".bss_start.start"]
@@ -52,12 +51,14 @@ regions:
       mainbss:
         addresses: ["__rel_dyn_end", "__bss_end"]      
       rest:
-        type: "none"
+        type: "readonly"
         addresses: "remainder"
   SRAM1:
-    type: "none"
+    type: "readonly"
+    include_children: True    
     subregions:
       subsequent_stage_image:
+        type: "future"
         addresses: [0x80000000,0x9d000000]
         comment: "an estimate for now"
       stack:
@@ -72,6 +73,8 @@ regions:
         addresses: [0x9ef40000, 0x9ff60000]
       uboot_image:
         addresses: [0x9ff60000, 0x9fff0000]
+        type: "future"
+        include_children: True
         subregions:
           text:
             addresses: "SRAM0.main_image.text.1_relocated"
@@ -88,19 +91,18 @@ regions:
   
   Registers:
     csv: "regs.csv"
-    default_perms: "rw"
-    type: "registers"
+    type: "global"
     include_children: True
   missing_control_padconf0:
-    type: "registers"        
+    type: "global"        
     addresses: [0x48002150, 0x48002154]
     comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
   missing_control_padconf1:
-    type: "registers"
+    type: "global"
     addresses: [0x48002154, 0x48002158]    
     comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
   missing_protection_mech_0:
-    type: "registers"
+    type: "global"
     addresses: [0x68010060, 0x68010068]    
     comment: "address written to by boootloader (secure_unlock_mem) must not listed in am37x hardware reference"
 values:
@@ -110,4 +112,5 @@ values:
   CONFIG_SYS_INIT_SP_ADDR: 0x4020ff20
   GD_SIZE: 0xd8
   CONFIG_SYS_MALLOC_F_LEN: 0x400  
+
 stagename: "main"

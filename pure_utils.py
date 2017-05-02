@@ -93,3 +93,63 @@ def get_min_max_pcs(cc, elf):
                 if hstop > hi:
                     hi = hstop
     return (lo, hi)
+
+
+def get_section_headers(cc, elf):
+    cmd = '%sreadelf -W -S %s 2>/dev/null' % (cc, elf)
+    output = shell.run_multiline_cmd(cmd)
+    hexre = "[0-9a-fA-F]+"
+    secre = re.compile("\s+\[ ?(\d+)\]\s+(\.\w+)\s+(\w+)\s+(%s)\s+(%s)\s+(%s)\s+(\d\d)"
+                       "\s+([ \w][ \w])\s+(\d+)\s+(\d+)\s+(\d+)\s*$" % (hexre, hexre, hexre))
+    headers = []
+    for l in output:
+        matches = secre.search(l)
+        if matches:
+            h = {
+                "number": int(matches.group(1)),
+                "name": matches.group(2),
+                "type": matches.group(3),
+                "address": int(matches.group(4), 16),
+                "offset": int(matches.group(5), 16),
+                "size": int(matches.group(6), 16),
+                "es": int(matches.group(7)),
+                "flags": matches.group(8),
+                "link": int(matches.group(9)),
+                "info": int(matches.group(10)),
+                "align": int(matches.group(11))
+            }
+            headers.append(h)
+    return headers
+
+
+def get_section_location(cc, elf, name):
+    start = 0
+    end = 0
+
+    headers = get_section_headers(cc, elf)
+    for h in headers:
+        if h['name'] == name:
+            start = h['address']
+            end = start+h['size']
+            return (start, end)
+    return (-1, -1)
+
+
+def get_symbol_location(cc, elf, name, debug=False, nm=False):
+    if nm:
+        cmd = "%snm %s | grep '\s%s'$" % (cc, elf, name)
+    else:
+        cmd = "%sgdb -ex 'x/wx %s' --batch --nh --nx  %s 2>/dev/null" % (cc, name, elf)
+    if debug:
+        print cmd
+    output = shell.run_multiline_cmd(cmd)
+    if debug:
+        print output
+    output = output[0]
+    output = output.strip()
+    value = re.compile("^0?x?([0-9a-fA-F]{1,8})")
+    revalue = value.search(output)
+    if revalue:
+        return int(revalue.group(1), 16)
+    else:
+        return -1

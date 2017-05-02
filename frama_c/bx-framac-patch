@@ -1,0 +1,40 @@
+diff -r --recursive ./a/src/kernel_services/ast_queries/cil.ml ./b/src/kernel_services/ast_queries/cil.ml
+317d316
+<    (* Kernel.feedback ~level:2 "attrs: %s" (List.fold_left (fun s a ->  s ^ "," ^ (attributeName a)) "" al); *)
+4418c4417
+<       | TComp (comp, _, a') -> f a'; 
+---
+>       | TComp (comp, _, a') -> f a';
+
+diff -r --recursive ./a/src/kernel_services/ast_queries/logic_typing.ml ./b/src/kernel_services/ast_queries/logic_typing.ml
+4009,4011c4009,4010
+<                   "incompatible type of '%s' with volatile reads declaration"
+<                   fct;
+<                       
+---
+>             "incompatible type of '%s' with volatile writes declaration"
+>             fct;
+4034c4033
+<                                       (* && Cil.typeHasAttributeDeep "volatile" ret *)
+---
+>             && Cil.typeHasAttributeDeep "volatile" ret
+4037,4049c4036
+<            checks_tsets_type fct ret_type (* tsets should have type: T *)
+<         | Some [_,arg1,_] ->
+<            Kernel.feedback ~level:2 "sdfsdf???? {%a}" Cil_datatype.Typ.pretty (typeOf_pointed arg1);
+<            Kernel.feedback ~level:2 "sdfsdf???? {%a}" Cil_datatype.Typ.pretty ret_type;
+<            Kernel.feedback ~level:2 "sdfsdf???? {%a}" Cil_datatype.Typ.pretty volatile_ret_type;
+<            Kernel.feedback ~level:2 "had attr volatile deeb %b" (Cil.typeHasAttributeDeep "volatile" ret);
+<            Kernel.feedback ~level:2 "had attr volatile %b" (Cil.typeHasAttribute "volatile" ret);           
+<            Kernel.feedback ~level:2 "sdfsdf???? eq ret type %b" (Cil_datatype.Typ.equal (typeOf_pointed arg1) ret_type);
+<            Kernel.feedback ~level:2 "sdfsdf???? arg1 ptr %b" (isPointerType arg1);
+<            Kernel.feedback ~level:2 "void %b" (isVoidType ret);
+<            Kernel.feedback ~level:2 "varg %b" is_varg_arg;          
+<            Kernel.feedback ~level:2 "sdfsdf???? eq volatile ret type %b" (Cil_datatype.Typ.equal (typeOf_pointed arg1) volatile_ret_type);                                     
+<            error ()
+---
+>           checks_tsets_type fct ret_type (* tsets should have type: T *)
+4080c4067
+<                                       (* && Cil.typeHasAttributeDeep "volatile" ret *)
+---
+>             && Cil.typeHasAttributeDeep "volatile" ret
