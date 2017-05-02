@@ -1,0 +1,136 @@
+Main:
+      root: '/home/user/boot'
+      test_data_path: 'bootloader_test_data3'
+      test_suite_path: 'src/bootloader_instrumentation_suite'
+      hw_info_path: "src/bootloader_instrumentation_suite/hw_info"
+      task_handlers: 'hw_trace_handlers.py'
+      cc: '/opt/gcc-linaro-5.2-2015.11-x86_64_arm-linux-gnueabihf/bin/arm-linux-gnueabihf-'
+      python: '/usr/bin/python2'
+      bootloader: u-boot-bbxm-verified
+      hardwareclass: bbxm
+
+HardwareClass:
+        name: bbxm        
+        sdskeleton: beagleboard-xm-orig.img
+        base_mem_map: am37x_base_memory_map.csv
+        tech_reference: am37x_technical_reference.pdf
+        types:
+            - bbxmqemu
+            - bbxmbaremetal
+            - bbxmframac
+        supported_bootloaders:
+            - u-boot-bbxm-verified
+            - u-boot-bbxm-orig
+        phy_addr_range:
+                     loaddr: 0x0
+                     hiaddr: 0xffffffff
+        ram_ranges:
+                -
+                  name: onchip
+                  loaddr: 0x40200000
+                  hiaddr: 0x40210000
+                -
+                  name: dram
+                  loaddr: 0x80000000
+                  hiaddr: 0xa0000000
+Bootloader:
+    -
+        name: u-boot-bbxm-verified
+        arch: arm
+        makecfg: bbxm_verified_defconfig
+        software: u-boot
+        stages:
+                - u-boot-spl
+                - u-boot-main                   
+    -
+        name: u-boot-bbxm-orig
+        arch: arm
+        makecfg: omap3_beagle_defconfig
+        software: u-boot
+        stages:
+                - u-boot-spl
+                - u-boot-main
+
+HardwareConfig:
+    -
+        name: bbxmqemu
+        task_handler: bbxmqemu
+        host_software: qemu
+        machinename: beaglexm
+        tracing_methods:
+                - watchpoint
+                - breakpoint
+                - calltrace
+                - enforce                
+    -
+        name: bbxmbaremetal
+        task_handler: bbxmbaremetal
+        default_jtag: flyswatter2
+        openocd_cfg: board/ti_beagleboard_xm.cfg
+        stepper_init: ocdinit2
+        host_software: openocd
+        tracing_methods:
+                - watchpoint
+                - breakpoint
+                - calltrace
+    -
+        name: bbxmframac
+        task_handler: bbxmframac
+        host_software: frama_c
+        tracing_methods:
+             - framac
+
+Software:
+    -
+        name: qemu
+        root: beagleboard-xm/debug/qemu/qemu-linaro
+        binary: arm-softmmu/qemu-system-arm
+        build_prepare: ./configure --python=/usr/bin/python2 --target-list=arm-softmmu,arm-linux-user  --enable-system --enable-trace-backends=simple --disable-werror
+        build_required: True
+    -
+         name: openocd
+         root: beagleboard-xm/debug/openocd/openocd-git
+         binary: src/openocd
+         build_prepare: ./configure --enable-ftdi
+         build_required: True
+    -
+         name: u-boot
+         root: implementations/embedded/u-boot/u-boot-bbxm-enhanced
+         config_type: Bootloader
+         config_name: u-boot-bbxm-verified
+         build_prepare: "make ARCH={arch} CROSS_COMPILE={cc} {makecfg}"
+         build_cmd: "make ARCH={arch} CROSS_COMPILE={cc}"
+         binary: [u-boot, spl/u-boot-spl]
+         build_required: True
+         compiler_name: gcc
+    -
+        name: frama_c
+        root: src/bootloader_instrumentation_suite/frama_c
+        binary: frama_c.py
+
+JtagConfig:
+       -
+          name: xds100v2
+          init_commands:
+                - init; ftdi_set_signal PWR_RST 1; jtag arp_init
+          cfg_path: interface/ftdi/xds100v2.cfg
+       -
+           name: flyswatter2
+           cfg_path: interface/ftdi/flyswatter2.cfg
+
+
+Bootstages:
+    -
+        name: u-boot-main
+        stagename: main
+        image: u-boot.img
+        elf: u-boot
+        exitpc: 0x80008000
+
+    -
+        name: u-boot-spl
+        stagename: spl
+        image: MLO
+        elf: spl/u-boot-spl
+        exitpc: u-boot-main
+

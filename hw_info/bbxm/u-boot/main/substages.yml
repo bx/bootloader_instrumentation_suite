@@ -1,0 +1,70 @@
+_start:
+  substage_type : "bookkeeping"
+lowlevel_init:
+  substage_type: "bookkeeping"
+  reclassified_regions:
+    RAM.spl.main_stack: "none"
+    RAM.rest: "stack"
+cpy_clk_code:
+  substage_type: "subsequent_substage_copy"
+  processed_regions: ["RAM.cpy_clk_code"]
+lowlevel_init_finish:
+  substage_type: "bookkeeping"
+  reclassified_regions:
+    RAM.cpy_clk_code: "text"
+board_init_f_mem:
+  substage_type: "subsequent_substage_setup"
+  processed_regions: ["RAM.spl.main_gd"]
+  comment: "stack set by _main before board_init_f_mem"
+board_init_f_mem_finish:
+  substage_type: "bookkeeping"
+  reclassified_regions:
+    RAM.spl.main_heap: "bookkeeping"
+    RAM.spl.main_gd: "bookkeeping"
+    RAM.spl.main_stack: "stack"
+board_init_f:
+  substage_type: "bookkeeping"
+# dram_init? is already init'd and being used
+# reserve_global_data, zeros out gd_t
+# setup_reloc, copies gd to new_gd  
+_main_finish:
+  type: "bookkeeping"
+  reclassified_regions:
+    RAM.spl.main_stack: "none"
+    RAM.rest: "none"
+    SRAM1.stack: "stack"
+    SRAM1.irq_stack: "stack"
+    SRAM1.new_gd: "bookkeeping"
+    SRAM1.gd: "bookkeeping"
+    SRAM1.heap: "bookkeeping"    
+relocate_code:
+  type: "subsequent_substage_setup"
+  processed_regions: ["SRAM1.uboot_image.text", "SRAM1.uboot_image.rodata", "SRAM1.uboot_image.rwdata"]
+here:
+  type: "subsequent_substage_setup"
+  comment: "relocate_vectors"
+  reclassified_regions:
+    SRAM1.uboot_image.text: "text"
+    SRAM1.uboot_image.rodata: "text"
+    SRAM1.uboot_image.rwdata: "bookkeeping"
+    SRAM0.main_image.rodata: "none"
+    SRAM0.main_image.rwdata: "none"
+    SRAM0.main_image.rest: "none"
+    SRAM0.reldyn: "none"
+    SRAM0.mainbss: "none"
+    SRAM0.rest: "none"    
+clear_bss:
+  type: "subsequent_substage_setup"
+  processed_regions: ["SRAM1.uboot_image.mainbss"]
+board_init_r:
+  type: "bookkeeping"
+  comment: "file: common/board_r.c"
+  reclassified_regions:
+    SRAM1.uboot_image.mainbss: "bookkeeping"
+    SRAM1.subsequent_stage_image: "bookkeeping"
+
+# initr_malloc -> SRAM1.heap (and zeros it out)
+# initr_env
+# jumptable_init
+# initr_enable_interrupts
+# autoboot_command

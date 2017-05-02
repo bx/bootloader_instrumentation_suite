@@ -1,0 +1,198 @@
+OVERVIEW
+
+NB: This README is super out-of-date and will eventually be updated
+
+This test suite helps you keep track of different versions of
+u-boot/build tools, static analysis of that build's binaries, and
+runtime trace results of running that binary on a given hardware
+configuration. For each u-boot/build configuration it keeps a database
+of information it statically gathered for each boot stage, boot stage
+images/ELF files, a prepared SD card image, and test results of
+runtime trace analyses.  If it detects changes in the u-boot source or
+build tools it will create a new set of test result directories with a
+new sdcard image and static analysis results.
+
+It stores the results in a directory tree in the following manner:
+
+/ -- each subdirectory of the test data root contains results for a different u-boot/compiler configuration
+/<test_config_instance> -- contains the results of a single bootloader configuration
+/<test_config_instance>/bootsuite.yaml -- contains a cached version of the configuration file (more on this file later)
+/<test_config_instance>/u-boot-<stage>-analysis.h5 -- static analyis information for a given stage stored in a pytables database
+/<test_config_instance>/images -- contains copies of the boot stage ELF and raw images for this configuration as well as the sdcard image
+/<test_config_instance>/trace-data -- contains reults from runtime analyses
+/<test_config_instance>/trace-data/<date_time> -- a runtime trace analysis instance
+/<test_config_instance>/trace-data/<date_time>/info.yamp -- information about this trace test instance
+/<test_config_instance>/trace-data/<date_time>/<hardware_instance> -- results for a given hardware instance (ie. QemuBreakpointTrace, QemuWatchpointTrace) and any cached configuration files, log files, etc for this test session
+/<test_config_instance>/trace-data/<date_time>/<hardware_instance>/<stage>-traces.h5 -- a database of dynamically gathered store operations ("trace database") for the given stage
+/<test_config_instance>/trace-data/<date_time>/<hardware_instance>/<stage>-trace-histogram.txt -- A human-readable summary of trace information gathered during this run formatted as:
+
+pc=<pc of write>/[<"virtual address" of write in ELF >file, pre-relocation>] (<name of function containing store instruction>) lr=<value of lr> (<name of function containing this lr address>) [<first address written to by this instruction>-<last address written to by this instruction>] (<size of a single write by this instruction in bytes>) <number of times this instruction was "consecutively invoked" (with respect to other write instructions) that wrote to this range> -- <disassembled store instruction>  -- <source code of store instruction>
+
+
+As you may have noticed, all results are kept in 2 types of pytables
+databases (any human-readable results are extracted from these
+databses).  To explore these databases, I would recommend opening each
+in a ipython shell and poking around.
+
+There is the static analysis database (defined in staticanalysis.py) which contains:
+a root group named "staticanalysis"
+within "/staticanalysis", 7 separate tables
+* "relocs" -- Manually generated relocation information (such as what ranges of addresses get relocated during stage and to where)
+* "writes" -- Lists every memory store instruction statically found in the binary's ".text" section. Includes information such as pc, if it's thumb, what registers we must read in order to calculate the destination of the write, how many bytes it writes
+* smcs -- Location of every "smc" instruction (needed for baremetal debugging so we don't try to step through ROM instructions)
+* srcs -- Information on a given instruction such as file/line number, disassmbly, address. 
+* funcs -- Information on a given function (name, start and end addr)
+* longwrites -- Manually generated information on looped writes so that we can generate tracing results of this loop without breaking or stepping through every loop iteration
+* skips -- Manually generated information on instruction ranges the baremetal debugger should "skip" (not step through)
+
+We create a separate one of these databases per boot stage.
+
+The second type of database is a trace table -- generated from runtime tracing information. This table is defined in database.py.
+It has 1 group, which is its stage name. This one group contains 2 tables:
+* "writes": an entry for each store instruction that occurs at runtime. Includes information such as pc (both as seen in ELF and perhaps a different relocated address), destination of write, size of write, lr, cpsr
+* "writerange": a summary of the write tables that consolodates information on sequential writes (of which the writehistogram is generated from)
+
+
+INSTALL
+(may not be complete, but will list new ones as they are found)
+
+* Patched version of captone -- git@gitlab.cs.dartmouth.edu:bx/capstone.git
+** Be sure to install the python bindings after installing the library (cd bindings/python; setup.py install)
+
+* Qemu-linaro, peferably my patched version which implements large-scale watchpoints.
+** git@gitlab.cs.dartmouth.edu:bx/qemu-linaro-bbxm.git
+
+* It also supports a openocd/baremetal target, but I will not document that here.  However the test suite will probably have a panic attack if you do not have a copy of openocd.  The newest version will be fine, although I have a patched version that properly enables debugging on the bbxm.
+** More information about what I did here: https://sourceforge.net/p/openocd/mailman/message/34799168/
+** Patched repo here: git@gitlab.cs.dartmouth.edu:bx/openocd.git
+
+* other python libraries needed:
+** pytables
+** pyinter
+** pygit2 (which needs libgit2 to be installed)
+** ipython
+** config-parser
+
+This test suite is written for python2.7, so make sure that is the version of python you are using (it will not work with python 3)
+
+Also you will need root on your machine so it can set up sdcard images.
+
+
+
+
+CONFIGURATION FILE
+
+The test managager searches for a configuration file at
+~/.bootsuite.yaml and if it doesn't find it, it uses the one in the
+bootsuite root directory (called bootsuite.yaml).  With this
+configuration file I was hoping to make it easy to add port the suite
+to different hardware/u-boot configurations, use new types of
+software, change the directory structure, etc.  What you need to know
+about it is that you will probably have to update various paths to get
+it working on your system, namely:
+
+Main/root: the root directory of which most all other paths are
+calculate from (the one exception to this is openocd_cfg paths,
+Software binary paths, and Software root paths who have the 'path:
+full' option set).
+
+test_data_path: relative location from Main/root where test data
+should be stored
+
+test_suite_path: relative location from Main/root where the directory
+containing this readme is store (bootloader_test_suite)
+
+cc: absolute location of CROSS_COMPILER path
+
+HardwareClass/sdskeleton: path to a sdcard image for which the test
+suite can copy to install new bootstage images
+
+
+Other things you may want to set:
+
+Software configuration:
+For any given Software entry you may need to set the value of root.
+The value of root typically should be the relative path to that the
+root of that software's source code from Main/root.  However if "path:
+cc" is set, then the path is relative from Main.cc.  If "path: full"
+is set, then the path is relative to your system's root directory.
+
+Also you may end up needing to tweak the build settings for a given
+piece of software. Build configuration can often be tweaked by setting
+the software's build_prepare (if build is set to StandardBuilder).
+However some pieces of software need test suite configuration
+information to properly configure themselves.  In these cases the
+build option is not set to StandardBuilder and there is a class of the
+build option's name in config.py that calculates the build information
+(example: the UBootBuilder class)
+
+Main/booloader: it's value corresponds to a 'name' of a Bootloader
+entry in the configuration.  It allows you to select between different
+bootloader configurations.  A bootloader configuration selects what
+configuration (defconfig) it should biuld against and what stages it
+supports. Each item a Bootloader entry lists under stages corresponds
+to a Bootstages class with that name.
+
+
+
+USAGE
+
+You must first invoke the test suite via:
+main.py -c
+
+Try to not invoke multiple instances of main.py at once as it may mess
+up your test results.
+
+This creates the directories it needs for its test results directory,
+builds u-boot, creates a new sd image, and runs all static analysis.
+If a test directory with the same bootloader/build tools configuration
+exists it will first delete that directory.
+
+This testsuite will detect any changes in the u-boot source code or
+gcc (and in the future any gcc plugins) and create a new
+test_config_instance directory along with a new sdcard image and
+static analysis database when it is invoked.
+
+If you want to generate new trace data without overwriting what you have already collected, execute
+main.py -n
+which will create a new trace data collection directory within your test configuration results trace-data directory
+
+If any bulids fail you can either ask it to rebuild all software via:
+main.py -b
+
+Or you can ask it for the build commands it uses on a piece of software via
+main.py -B <software_name>
+(sotware_name as it is written in the software's configuration in bootsuite.yaml)
+
+
+Once everything has been created, you can ask the test suite to print
+all commands that may be of use:
+main.py -a
+-or- just those commands that you should use to "execute" the bootloader (execute QEMU + any tracing tools)
+main.py -p
+-or- just print commands for a specific bootstage/hardware trace method configuration
+main.py -T <spl/main> <QemuWatchpointTrace/QemuBreakpointTrace>
+
+It will print out commands you need to both set up "execute" the
+hardware (or emulator) and to run the tracing software.
+
+All tracing tools, with the exception of QEMU watchpoints, will
+directly import their tracing data into the trace database and create the
+human-readable writehistogram file, as long as you allow the scripts
+to finish fully.  To import QEMU watchpoint data you can execute
+(assuming you have the trace data located at the correct path -- which
+will be the case if you ran QEMU watchpoint tracing using the command
+it printed out via '-p'):
+main.py -i
+
+
+PYTHON MODULES TO INSTALL
+interval
+yamlconf
+pygit2
+pyinter
+ipython
+sortedcontainers
+numpy
+numexpr
+tables
