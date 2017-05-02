@@ -101,13 +101,11 @@ if __name__ == '__main__':
             self.nargs = 3
             self.selected = False
             self.d = {'stages': "spl",
-                      "trace": "breakpoint",
+                      "traces": ["breakpoint", "calltrace"],
                       "hw": "bbxmqemu",
                       # 'type': 'write'
             }
-            #if dest == "run_trace":
-            #    kwargs['default'] = self.d
-            #else:
+
             kwargs['default'] = None
             #    print "None"
             super(TraceAction, self).__init__(option_strings, dest, **kwargs)
@@ -116,10 +114,10 @@ if __name__ == '__main__':
             if len(values) >= 3:
                 stagename = values[0]
                 hw = values[1]
-                trace = values[2]
+                traces = values[2:]
             else:
                 hw = self.d["hw"]
-                trace = self.d["trace"]
+                traces = self.d["traces"]
                 stagename = self.d["stages"]
                 # typ = self.d["type"]
             stagenames = [s.stagename for s in self.stages]
@@ -131,10 +129,11 @@ if __name__ == '__main__':
                 raise argparse.ArgumentError(self,
                                              "%s not a valid hardware name, must be one of %s" %
                                              (hw, str(self.hw_classes)))
-            if trace not in self.tracing_methods[hw]:
-                raise argparse.ArgumentError(self,
-                                             "%s not a valid tracing method, must be one of %s" %
-                                             (trace, str(self.tracing_methods[hw])))
+            for trace in traces:
+                if trace not in self.tracing_methods[hw]:
+                    raise argparse.ArgumentError(self,
+                                                 "%s not a valid tracing method, must be one of %s" %
+                                                 (trace, str(self.tracing_methods[hw])))
             # if typ not in self.types:
             #     raise argparse.ArgumentError(self,
             #                                  "%s not a valid trace command, must be one of %s" %
@@ -145,7 +144,7 @@ if __name__ == '__main__':
                 stages = [stagename]
             setattr(namespace, self.dest, {'stages': stages,
                                            'hw': hw,
-                                           'trace': trace})
+                                           'traces': traces})
 
     class SubstageFileAction(argparse.Action):
         def __init__(self, option_strings, dest, **kwargs):
@@ -242,105 +241,9 @@ if __name__ == '__main__':
         targets = args.build if args.build else args.buildcommands
         ret = task_mgr.build(targets, True if args.build else False)
         sys.exit(ret)
-    # t = TestConfigMgr(args.enabled_stages, args.enabled_hardware, args.quick)
     if args.create:
         task_mgr.create_test_instance()
     elif args.run_trace:
         task_mgr.run_trace()
     elif args.postprocess_trace:
         task_mgr.postprocess_trace()
-
-    #
-    # if args.create:
-    #     t.create_new_test(args.substagefile, args.quick)
-    # else:
-    #     t.open_existing_test(test_cfg_name=args.testcfginstance,
-    #                          trace_instance_name=args.traceinstance,
-    #                          substagefiles=args.substagefile,
-    #                          new_policy=args.import_substages_policy,
-    #                          new_trace=args.update_from_trace_data,
-    #                          edit=args.import_substages_test or args.import_substages_policy
-    #                          or args.rerun_static
-    #                          or args.consolidate_trace,
-    #                          new_substage_trace=args.import_substages_test,
-    #                          create_addr_space=args.import_substages_test or args.import_substages_policy,
-    #                          delete_old_policies=args.delete_old_policies)
-    # #if args.import_substages_test and args.substagefile:
-    # #    for (stage, (f, d)) in args.substagefile.iteritems():
-    # #        t.import_substages_test(Main.stage_from_name(stage), f, d)
-    # #elif args.create or args.update:
-    # #elif args.recreate:
-    # #    t.run_static_analysis(args.quick)
-    # if args.printcommands or args.allcommands:
-    #     t.print_commands(args.allcommands)
-    # elif args.update_from_trace_data:
-    #     t.update_from_trace_data()
-    # elif args.print_policy or args.import_substages_policy:
-    #     t.print_policy(args.print_policy or args.import_substages_policy, args.print_trace_results)
-    # elif args.rerun_static:
-    #     t.run_static_analysis(True, True)
-    # elif args.consolidate_trace:
-    #     for h in t.enabled_hardware:
-    #         for s in t.enabled_stages:
-    #             db = t.current_test_cfg_instance.current_test_trace.get_trace_db_obj(s, h)
-    #             db.consoladate_write_table("framac" in h.tracename.lower())
-    # if args.list_available_substages_tests:
-    #     test_cfg = t.current_test_cfg_instance
-    #     for s in Main.get_bootloader_cfg().supported_stages.itervalues():
-    #         tests = test_cfg.substage_mgr.list_available_substages_tests_for_stage(s)
-    #         print "Available substage test for %s: %s" % (s.stagename, ", ".join(tests))
-
-    # t.close_dbs()
-
-    #     for s in args.build:
-    #         s_cfg = Main.object_config_lookup("Software", s)
-    #         if s_cfg is None:
-    #             print "%s is not a valid software to build" % s
-    #         else:
-    #             build_cfg = s_cfg.build
-    #             if build_cfg is None:
-    #                 print "We do not know how to build %s" % s
-    #             else:
-    #                 build_cfg.do_all()
-
-    # t = TestConfigMgr(args.enabled_stages, args.enabled_hardware)
-    # if args.create:
-    #     t.create_new_test(args.substagefile, args.quick)
-    # else:
-    #     t.open_existing_test(test_cfg_name=args.testcfginstance,
-    #                          trace_instance_name=args.traceinstance,
-    #                          substagefiles=args.substagefile,
-    #                          new_policy=args.import_substages_policy,
-    #                          new_trace=args.update_from_trace_data,
-    #                          edit=args.import_substages_test or args.import_substages_policy
-    #                          or args.rerun_static
-    #                          or args.consolidate_trace,
-    #                          new_substage_trace=args.import_substages_test,
-    #                          create_addr_space=args.import_substages_test or args.import_substages_policy,
-    #                          delete_old_policies=args.delete_old_policies)
-    # #if args.import_substages_test and args.substagefile:
-    # #    for (stage, (f, d)) in args.substagefile.iteritems():
-    # #        t.import_substages_test(Main.stage_from_name(stage), f, d)
-    # #elif args.create or args.update:
-    # #elif args.recreate:
-    # #    t.run_static_analysis(args.quick)
-    # if args.printcommands or args.allcommands:
-    #     t.print_commands(args.allcommands)
-    # elif args.update_from_trace_data:
-    #     t.update_from_trace_data()
-    # elif args.print_policy or args.import_substages_policy:
-    #     t.print_policy(args.print_policy or args.import_substages_policy, args.print_trace_results)
-    # elif args.rerun_static:
-    #     t.run_static_analysis(True, True)
-    # elif args.consolidate_trace:
-    #     for h in t.enabled_hardware:
-    #         for s in t.enabled_stages:
-    #             db = t.current_test_cfg_instance.current_test_trace.get_trace_db_obj(s, h)
-    #             db.consoladate_write_table("framac" in h.tracename.lower())
-    # if args.list_available_substages_tests:
-    #     test_cfg = t.current_test_cfg_instance
-    #     for s in Main.get_bootloader_cfg().supported_stages.itervalues():
-    #         tests = test_cfg.substage_mgr.list_available_substages_tests_for_stage(s)
-    #         print "Available substage test for %s: %s" % (s.stagename, ", ".join(tests))
-
-    # t.close_dbs()

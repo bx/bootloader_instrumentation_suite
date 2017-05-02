@@ -164,7 +164,8 @@ class GDBBootController(gdb.Command):
         p.add_argument('logfile', default='', nargs='?')
         self.add_subcommand_parser('flushlog')
         #p.add_argument('pc')
-        self.add_subcommand_parser('go')
+        p = self.add_subcommand_parser('go')
+        p.add_argument('-p', "--prepare_only", action='store_true', default=False)
         p = self.add_subcommand_parser("startat")
         p.add_argument('-s', "--stage", action='store', default='')
         p.add_argument("pc", nargs='?')
@@ -193,7 +194,6 @@ class GDBBootController(gdb.Command):
         gdb.flush()
         if self.exit_hook:
             self.exit_hook(event)
-
 
     @staticmethod
     def _clsname(b):
@@ -408,7 +408,7 @@ class GDBBootController(gdb.Command):
         d = doit_manager.TaskManager(False, False, stages,
                                      substage_names, False, {}, self.test_trace_name,
                                      False,
-                                     [])
+                                     [], self.test_instance_name)
         if len(self.stage_order) == 0:
             self.stage_order = [Main.stage_from_name(s) for s in list(self._stages.iterkeys())]
         for stage in self.stage_order:
@@ -431,7 +431,8 @@ class GDBBootController(gdb.Command):
         stage = self.stage_order[0]
         gdb.events.exited.connect(self.gdb_exit)
         self.prepare_stage(stage, False)
-        gdb.execute("c")
+        if not args.prepare_only:
+            gdb.execute("c")
 
 
 class CompanionBreakpoint(gdb.Breakpoint):
@@ -655,8 +656,8 @@ class StageEndBreak(BootBreak):
 
         if stage_index >= len(cont.stage_order) - 1:
             ret = True
-            if cont._kill:
-                gdb.execute("monitor quit")
+            # if cont._kill:
+            #     gdb.execute("monitor quit")
         else:
             ret = False
             self.final_event = StartNextStage(cont, self.stage)

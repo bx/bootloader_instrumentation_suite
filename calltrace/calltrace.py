@@ -31,7 +31,7 @@ if os.path.exists(version):
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
 from config import Main
-import testsuite_utils as utils<
+import testsuite_utils as utils
 import config
 import gdb_tools
 

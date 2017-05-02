@@ -29,7 +29,8 @@ from doit.action import CmdAction
 from config import Main
 import pure_utils
 import sys
-
+import os
+import glob
 
 class TaskManager():
     loaders = []
@@ -37,7 +38,7 @@ class TaskManager():
 
     def __init__(self, do_build, create_test, enabled_stages,
                  policies, quick, run_trace, select_trace, import_policies,
-                 post_trace_processing=[]):
+                 post_trace_processing=[], open_instance=None):
         self.do_build_all = do_build
         self.create_test = create_test
         run = run_trace is not None
@@ -63,21 +64,34 @@ class TaskManager():
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
                 self.boot_task.build.uptodate = [False]
-        self.test_id = self._calculate_current_id()
+        if create_test:
+            self.test_id = self._calculate_current_id()
+        else:
+            if open_instance is None:
+                self.test_id = self._get_newest_id()
+            else:
+                self.test_id = open_instance
+        update_existing = create_test or (self._calculate_current_id() == self.test_id)
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
-                                                                            create_test)
-        for stage in Main.get_config('enabled_stages'):
+                                                                            create_test,
+                                                                            update_existing)
+        for stage in Main.get_bootloader_cfg().supported_stages.itervalues():
             stage.elf = Main.get_config('stage_elf', stage)
             stage.image = Main.get_config('stage_image', stage)
+            stage.post_build_setup_done = False
+        for stage in Main.get_config('enabled_stages'):
+            print stage.__dict__
             stage.post_build_setup()
+            print stage.__dict__
 
         trace_create = False
         if run_trace:
             trace_create = True
         self.py = instrumentation_results_manager.PolicyTaskLoader(policies,
-                                                                   import_policies)
+                                                                   import_policies,
+                                                                   update_existing)
         self.rt = instrumentation_results_manager.TraceTaskLoader(run_trace,
                                                                   select_trace,
                                                                   trace_create,
@@ -85,6 +99,19 @@ class TaskManager():
         if post_trace_processing:
             self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)
         self.loaders.append(instrumentation_results_manager.task_manager())
+
+    def _get_newest_id(self):
+        root = Main.test_data_path
+        choices = glob.glob(root + "/*")
+        newest = None
+        newest_time = 0
+        for i in choices:
+            itime = os.stat(i).st_ctime
+            if itime > newest_time:
+                newest = i
+                newest_time = itime
+        n = os.path.basename(newest)
+        return n
 
     def _calculate_current_id(self):
         gitid = self.boot_task.get_gitinfo()

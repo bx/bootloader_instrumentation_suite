@@ -128,7 +128,7 @@ class HookWrite(gdb_tools.GDBBootController):
         self.open_dbs_ro = False
         self._setup_parsers()
 
-    def f_hook(self):
+    def f_hook(self, args):
         for s in self.stage_order:
             db_info.create(s, "tracedb")
 

@@ -29,7 +29,6 @@ import intervaltree
 configtypes = {}
 registry = {}
 
-
 class ConfigTypeRegistrar(type):
     def __new__(cls, clsname, bases, attrs):
         newcls = type.__new__(cls, clsname, bases, attrs)
@@ -104,6 +103,7 @@ class Main(ConfigObject):
 
     test_suite_dir = os.path.dirname(os.path.realpath(__file__))
     configs = {}
+    supported_tracing_methods = set()
 
     @classmethod
     def set_config(cls, key, value):
@@ -228,6 +228,8 @@ class HardwareConfig(ConfigObject):
             if self.attr_exists("default_jtag"):
                 jtag = self.default_jtag
                 self.jtag_cfg = self.object_config_lookup("JtagConfig", jtag)
+            Main.supported_tracing_methods.update(self.tracing_methods)
+
 
 class Software(ConfigObject):
     required_fields = ["name", "root"]
