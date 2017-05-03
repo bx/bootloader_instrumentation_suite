@@ -33,6 +33,8 @@ import pytable_utils
 import intervaltree
 import db_info
 import substage
+import sys
+
 
 l = logging.getLogger("")
 
@@ -57,8 +59,7 @@ class FramaCDstEntry(tables.IsDescription):
 
 
 class WriteDstTable():
-    def __init__(self, writesearch, h5file, group, stage, name, desc=""):
-        self.ws = writesearch
+    def __init__(self, h5file, group, stage, name, desc=""):
         self.h5file = h5file
         self.group = group
         self.stage = stage
@@ -102,7 +103,7 @@ class WriteDstTable():
             r['substage'] = dstinfo.substage
             r['line'] = dstinfo.key()
             r['lvalue'] = dstinfo.lvalue
-            r['writepc'] = dstinfo.pc if dstinfo.pc else self.ws._get_write_pc_or_zero(dstinfo)
+            r['writepc'] = dstinfo.pc if dstinfo.pc else db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfoo)
             r['origpc'] = dstinfo.origpc if dstinfo.origpc else r['writepc']
             r.append()
 
@@ -111,7 +112,7 @@ class WriteDstTable():
             self.table.reindex_dirty()
         except:
             pass
-        num_writes = self.ws.writestable.nrows
+        num_writes = db_info.get(self.stage).num_writes()
         f = pytable_utils.get_rows(self.table, "dst_not_in_ram == True")
         num_framac_writes = len(f)
         print "%d of %d writes exclusively write to register memory" % (num_framac_writes,
@@ -270,15 +271,6 @@ class TraceTable():
             self.writestable.flush()
             self.nwrites = 0
 
-        self.ws = db_info.get(self.stage)._sdb.db
-
-        self.instructionstable = self.ws.writestable
-        self.srcstable = self.ws.srcstable
-        self.smcstable = self.ws.smcstable
-        self.funcstable = self.ws.funcstable
-        self.relocstable = self.ws.relocstable
-        self.longwritestable = self.ws.longwritestable
-        self.skipstable = self.ws.skipstable
         self.init_writerangetable()
 
         self._mdthumb = None
@@ -339,32 +331,10 @@ class TraceTable():
         return self._dataranges
 
     def close(self, flush_only=False):
-        try:
-            self.writestable.reindex_dirty()
-        except:
-            pass
-        try:
-            self.writerangetable_consolidated.reindex_dirty()
-        except:
-            pass
-        try:
-            self.instructionstable.reindex_dirty()
-        except:
-            pass
-        try:
-            self.writerangetable.table.reindex_dirty()
-        except:
-            pass
-        try:
-            self.h5file.flush()
-        except:
-            pass
-        if flush_only:
-            return
-        try:
+        db_info.get(self.stage).flush_staticdb()
+        self.h5file.flush()
+        if not flush_only:
             self.h5file.close()
-        except:
-            pass
 
     def get_group(self):
         return self.h5file.get_node("/"+self.stagename)
@@ -373,15 +343,12 @@ class TraceTable():
         return dis.split()[0]
 
     def init_writerangetable(self):
-        self.ws.open_all_tables()
-        self.writerangetable = WriteDstTable(self.ws,
-                                             self.h5file,
+        self.writerangetable = WriteDstTable(self.h5file,
                                              self.get_group(),
                                              self.stage,
                                              TraceTable.writerangetablename,
                                              "write information")
-        self.writerangetable_consolidated = WriteDstTable(self.ws,
-                                                          self.h5file,
+        self.writerangetable_consolidated = WriteDstTable(self.h5file,
                                                           self.get_group(),
                                                           self.stage,
                                                           TraceTable.consolidatedwriterangetablename,
@@ -402,28 +369,22 @@ class TraceTable():
             rs = rangetable.read_sorted('index')
         for rangerow in rs:
             # irow = next(row for row in itable.where("pc == 0x%x" % rangerow['pc']))
-            src = next(row for row in self.srcstable.where("addr == 0x%x" % rangerow['pc']))
+            (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
             lrfname = ''
             try:
-                pcfunc = next(row for row in
-                              self.funcstable.where("(startaddr <= 0x%x) & (0x%x < endaddr)"
-                                                    % (rangerow['pc'], rangerow['pc'])))
-                pcfname = pcfunc['fname']
+                pcfname = next(db_info.get(self.stage).func_at_addr(rangerow['pc']))
             except StopIteration:
                 pass
             try:
-                lrfunc = next(row for row in
-                              self.funcstable.where("(startaddr <= 0x%x) & (0x%x < endaddr)"
-                                                    % (rangerow['lr'], rangerow['lr'])))
-                lrfname = lrfunc['fname']
+                lrfname = next(db_info.get(self.stage).func_at_addr(rangerow['lr']))
             except StopIteration:
                 pass
 
             r = "pc=%x/[%x] (%s) lr=%x (%s) [%x-%x] (%d) %d times -- %s -- %s\n" % \
                 (rangerow['relocatedpc'], rangerow['pc'], pcfname, rangerow['lr'],
                  lrfname, rangerow['destlo'], rangerow['desthi'], rangerow['byteswritten'],
-                 rangerow['numops'], src['disasm'], src['src'])
+                 rangerow['numops'], sdisasm, ssrc)
 
             if outfile:
                 outfile.write(r)
@@ -537,9 +498,6 @@ class TraceTable():
         histotable = self.h5file.create_table(group, 'writerange',
                                               TraceWriteRange, "qemu memory write ranges")
         histotable.cols.index.create_index(kind='full')
-        table = self.writestable
-        instable = self.instructionstable
-
         relocatedpc = 0
         relocatedlr = 0
         size = 0
@@ -547,10 +505,9 @@ class TraceTable():
         destlo = 0
         currentrow = None
         line = ''
-        rs = table.read_sorted('index')
         index = 0
         pc = -1
-        for writerow in rs:
+        for writerow in self.writestable.read_sorted('index'):
             if (writerow['relocatedpc'] == relocatedpc) and \
                (writerow['relocatedlr'] == relocatedlr) and \
                ((destlo + byteswritten) == writerow['dest']):
@@ -580,8 +537,7 @@ class TraceTable():
 
                 currentrow['index'] = index
                 index += 1
-                irow = next(instable.where("pc == 0x%x" % pc))
-                size = irow['writesize']
+                size = db_info.get(self.stage).pc_write_size(pc)
                 byteswritten = size
                 currentrow['desthi'] = destlo + size
                 currentrow['byteswritten'] = size
@@ -595,9 +551,8 @@ class TraceTable():
                 if not self.thumbranges.overlaps_point(lr) or self.dataranges.overlaps_point(lr):
                     # lr not code!
                     continue
-                s = pytable_utils.get_rows(self.srcstable, "addr == 0x%x" % (lr))
-                if len(s) == 1:
-                    # do nothing, already in table
+                if db_info.get(self.stage).addr_in_srcs_table(lr):
+                    #  do nothing, already in table
                     continue
                 else:
                     lrthumb = self.thumbranges.overlaps_point(lr)
@@ -607,24 +562,16 @@ class TraceTable():
                     (lrvalue, lrdisasm, lrfunc) = \
                         utils.addr2disasmobjdump(lr, lrilength,
                                                  self.stage, lrthumb)
-                    srcr = self.srcstable.row
-                    srcr['thumb'] = lrthumb
-                    srcr = self.srcstable.row
-                    srcr['addr'] = lr
-                    srcr['ivalue'] = lrvalue
-                    srcr['ilength'] = len(lrvalue)
-                    srcr['mne'] = (lrdisasm.split())[0]
-                    srcr['disasm'] = lrdisasm
-                    srcr.append()
-                    self.srcstable.flush()
+                    db_info.get(self.stage).add_source_code_info_row(lrthumb,
+                                                                     lr,
+                                                                     lrvalue,
+                                                                     lrdisasm)
                 # now try to add to func table
                 if len(lrfunc) > 0:
-                    f = self.funcstable.where("(startaddr <= 0x%x) & (0x%x < endaddr)" % (lr, lr))
-                    try:
-                        f = next(f)
+                    if db_info.get(self.stage).addr_in_funcs_table(lr):
                         # do nothing
                         continue
-                    except StopIteration:
+                    else:
                         cmd = "%sgdb -ex 'disassemble/r %s' --batch --nh --nx  %s" \
                               % (self.cc, lrfunc, self.stage.elf)
                         output = Main.shell.run_multiline_cmd(cmd)
@@ -632,15 +579,11 @@ class TraceTable():
                             start = output[1].split('\t')
                         except IndexError:
                             continue
-                        funr = self.funcstable.row
-                        funr['fname'] = lrfunc
                         startaddr = int(start[0].split()[0], 16)
                         end = output[-3].split('\t')
                         endaddr = int(end[0].split()[0], 16)
-                        funr['startaddr'] = startaddr
-                        funr['endaddr'] = endaddr
-                        funr.append()
-                        self.funcstable.flush()
+                        db_info.get(self.stage).add_funcs_table_row(lrfunc, startaddr, endaddr)
+
         if currentrow is not None:
             currentrow.append()  # append last row
         self.writerangetable.flush_table()

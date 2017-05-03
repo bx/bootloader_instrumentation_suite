@@ -79,18 +79,11 @@ class FileLabels():
             raise Exception("Trying to insert label with incorrect filename/path")
 
         if label in self.current_labels:
-            print "returning %s" % str(label)
-        #    print label.reference_line
             return
         # update the lineno in the following labels
         if label in self.updated_labels:
             self.updated_labels.remove(label)
             self.updated_labels.add(label)
-        #    print label
-        #    return
-        #    for l in self.updated_labels[i:]:
-        #        l.lineno -= 1
-        print "adding %s %s" % (str(label), label.reference_line)
         i = self.updated_labels.bisect(label)
         for l in self.updated_labels[i:]:
             l.lineno += 1
@@ -98,7 +91,6 @@ class FileLabels():
 
     def remove_label(self, label):
         i = self.updated_labels.bisect(label)
-
         # update the lineno in the following labels
         for l in self.updated_labels[i:]:
             l.lineno -= 1
@@ -123,10 +115,9 @@ class FileLabels():
         f.close()
         nolabels = [l for l in lines if not SrcLabelTool.is_any_label(l)]
         for l in self.updated_labels:
-            # print l.filerepr()
             nolabels.insert(l.lineno-1, l.filerepr())
-        # rewrite file
 
+        # rewrite file
         f = open(fullpath, "w")
         for line in nolabels:
             f.write(line)
@@ -215,15 +206,6 @@ class Label():
             (self.filename, self.lineno, self.name, self.value, self.stagename)
 
 
-# class SubstageLabel(Label):
-#     begin = "BEGIN"
-#     values = [begin]
-#     labelformat = Label.format_label("SUBSTAGE", values)
-#     labelrequirements = {
-#     }
-#     Label.set_requirements(labelrequirements)
-
-
 class PhaseLabel(Label):
     begin = "BEGIN"
     end = "END"
@@ -297,7 +279,8 @@ class FramaCLabel(Label):
     Label.set_requirements(labelrequirements)
 
     def is_patch_value(self):
-        return (self.value == "PATCH") or (self.value == "ADDR_PATCH") or (self.value == "SUBPATCH")
+        return (self.value == "PATCH") or (self.value == "ADDR_PATCH") \
+            or (self.value == "SUBPATCH")
 
 
 class SrcLabelTool():
@@ -334,9 +317,6 @@ class SrcLabelTool():
             i = lineno
             for l in lines:
                 i = i + 1
-                #if "get_timer" in l:
-                #    print l
-                #    print i
                 if (len(l.strip()) > 0) and not cls.is_any_label(l):
                     return i
 

@@ -50,7 +50,6 @@ class InstructionAnalyzer():
         if cache:
             self.cache[pc] = i
         return i
-    #[i for i in ins][0]  # there should be only 1 disassembled instruction
 
     def is_instr_memstore(self, ins):
         return self.is_mne_memstore(ins.mnemonic)
@@ -585,23 +584,19 @@ class RelocDescriptor():
             if item is None:  # then lookup label
                 l = WriteSearch.find_label(labeltool.RelocLabel, value.upper(),
                                            self.stage, self.name)
+
                 if l is not None:
                     setattr(self, value+"addr", self.lookup_label_addr(l))
                 else:
-                    raise Exception("cannot find label value %s stage %s name %s" % (value, self.stage.stagename, self.name))
+                    raise Exception("cannot find label value "
+                                    "%s stage %s name %s" % (value,
+                                                             self.stage.stagename,
+                                                             self.name))
             else:
                 setattr(self, value+"addr", item)
 
     def get_row_information(self):
         # DST, CPYSTART, CPYEND, BEGIN, READY
-        # startaddr = utils.get_symbol_location("go_to_speed", stage, cc, uboot, elf)
-
-        #if self.relbeginaddr < 0:
-        #    self._calculate_addresses(stage)
-
-            # 'relocpc': utils.get_symbol_location("cpy_clk_code", cc, uboot, elf),
-            # 'startaddr': startaddr,
-            # 'size': (utils.get_symbol_location("lowlevel_init", cc, uboot, elf)) - startaddr,
         info = {
             'relocpc': self.readyaddr,
             'relmod': self.relmod,
@@ -730,6 +725,15 @@ class WriteSearch():
         outfile = Main.get_config('staticdb', stage)
         self.stage = stage
         self.ia = InstructionAnalyzer()
+        self.relocstable = None
+        self.stageexits = None
+        self.writestable = None
+        self.smcstable = None
+        self.srcstable = None
+        self.funcstable = None
+        self.longwritestable = None
+        self.skipstable = None
+
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         if createdb:
             m = "w" if delete else "a"
@@ -747,9 +751,6 @@ class WriteSearch():
                                            title="uboot %s bootloader static analysis"
                                            % stage.stagename)
             self.group = self.h5file.get_node("/staticanalysis")
-            self.open_all_tables()
-
-        # self.src_labels = WriteSearch._get_src_labels()
 
     @classmethod
     def _get_src_labels(cls):
@@ -764,7 +765,6 @@ class WriteSearch():
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
         self.skipstable = self.group.skips
-        #self.write_range_table = self.init_write_range_table()
 
     def print_relocs_table(self):
         for r in self.relocstable.iterrows():
@@ -780,15 +780,10 @@ class WriteSearch():
         except tables.exceptions.NoSuchNodeError:
             self.create_stageexit_table()
         try:
-            # self.group.relocs.remove()  # temporary for testing
             self.relocstable = self.group.relocs
         except tables.exceptions.NoSuchNodeError:
             self.create_relocs_table()
         try:
-            # self.group.writes.remove()
-            # self.group.smcs.remove()
-            # self.group.srcs.remove()
-            # self.group.funcs.remove()
             self.writestable = self.group.writes
             self.smcstable = self.group.smcs
             self.srcstable = self.group.srcs
@@ -796,18 +791,15 @@ class WriteSearch():
         except tables.exceptions.NoSuchNodeError:
             self.create_writes_table()
         try:
-            #self.group.longwrites.remove()
             self.longwritestable = self.group.longwrites
         except tables.exceptions.NoSuchNodeError:
             self.create_longwrites_table()
             rows = self.longwritestable.iterrows()
             map(lambda r: pytable_utils._print(self.longwrite_row_info(r)), rows)
         try:
-            # self.group.skips.remove()
             self.skipstable = self.group.skips
         except tables.exceptions.NoSuchNodeError:
             self.create_skip_table()
-        # self.write_range_table = self.init_write_range_table()
 
     def _setthumbranges(self):
         (self._thumbranges, self._armranges, self._dataranges) = Main.get_config("thumb_ranges",
@@ -975,7 +967,7 @@ class WriteSearch():
 
         if self.stage.stagename == "spl":
             skips = skips
-        else:
+        else: # strcpy doesn't work properly, disabling for now
             mainskips = [
                 LongWriteDescriptorGenerator("memmove", [], ["r2"],
                                              "", 'count', 1, False, self),
@@ -1028,14 +1020,16 @@ class WriteSearch():
         res = cls.find_labels(lclass, value, stage, name)
         if not (len(res) == 1):
             raise Exception("Found 0 or +1 labels of class=%s, value=%s, stage=%s, name=%s"
-                            % (lclass.__name__, value, stage, name))
+                            % (lclass.__name__, value, stage.stagename, name))
         return res[0]
 
     @classmethod
     def find_labels(cls, lclass, value, stage, name):
         all_labels = cls._get_src_labels()
-        labels = all_labels[lclass]
         results = []
+        if lclass not in all_labels.iterkeys():
+            return []
+        labels = all_labels[lclass]
         for l in labels:
             if ((stage is None) or (l.stagename == stage.stagename)) \
                and ((len(name) == 0) or (l.name == name)) \
@@ -1146,29 +1140,31 @@ class WriteSearch():
     def closedb(self, flushonly=True):
         try:
             self.writestable.reindex_dirty()
+        except AttributeError:
+            pass
+        try:
             self.smcstable.reindex_dirty()
+        except AttributeError:
+            pass
+        try:
             self.srcstable.reindex_dirty()
+        except AttributeError:
+            pass
+        try:
             self.funcstable.reindex_dirty()
-            # self.write_range_table.table.reindex_dirty()
         except AttributeError:
             pass
         if flushonly:
             self.h5file.flush()
-            return
-        try:
-            self.h5file.flush()
-            # self._get_addr_info(0x80102a14)
-        except:
-            pass
-        self.h5file.close()
-        self.writestable = None
-        self.smcstable = None
-        self.srcstable = None
-        self.funcstable = None
-        # self.write_range_table = None
-        self.relocstable = None
-        self.longwritestable = None
-        self.stageexits = None
+        else:
+            self.h5file.close()
+            self.writestable = None
+            self.smcstable = None
+            self.srcstable = None
+            self.funcstable = None
+            self.relocstable = None
+            self.longwritestable = None
+            self.stageexits = None
 
     def _get_addr_info(self, addr):
         WriteSearch.get_addr_info(addr,

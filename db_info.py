@@ -25,6 +25,7 @@ import staticanalysis
 import pytable_utils
 import addr_space
 import atexit
+import sys
 import substage
 import database
 import re
@@ -67,7 +68,8 @@ def create(*args, **kwargs):
     elif typ == "policydb":
         obj._pdb.create()
     elif typ == "policytracedb":
-        obj._pdb._create(trace=True)
+        # obj._ptdb._create()
+        obj._pdb._create(True)
     elif typ == "mmapdb":
         obj._mdb.create()
     elif typ == "tracedb":
@@ -100,6 +102,7 @@ class DBObj():
     def close(self):
         if self._db:
             self._close()
+            del self._db
             self._db = None
 
     @property
@@ -123,9 +126,15 @@ class PolicyDB(DBObj):
         if self._db:
             self._db.close_dbs(True)
 
-    def _create(self, trace=True):
+    def _create(self, trace=False):
         self._db = substage.SubstagesInfo(self.stage)
         self._db.create_dbs(True, trace)
+
+
+# class PolicyTraceDB(PolicyDB):
+#     def _create(self):
+#         self._db = substage.SubstagesInfo(self.stage)
+#         self._db.create_dbs(True, True)
 
 
 class MMapDB(DBObj):
@@ -150,7 +159,8 @@ class MMapDB(DBObj):
 
 class StaticDB(DBObj):
     def _open(self, append=False):
-        self._db = staticanalysis.WriteSearch(False, self.stage, False, True, False)
+        self._db = staticanalysis.WriteSearch(False, self.stage, False, not append, False)
+        self._db.open_all_tables()
 
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
@@ -193,14 +203,16 @@ class DBInfo():
         if self.key == "all" or self.key is None:
             self._sdb = None
             self._pdb = None
+            # self._ptdb = None
             self._tdb = None
         else:
             self._sdb = StaticDB(self.stage)
             self._pdb = PolicyDB(self.stage)
+            # self._ptdb = PolicyTraceDB(self.stage)
             self._tdb = TraceDB(self.stage)
 
     def _closeall(self):
-        for db in [self._mdb, self._sdb, self._pdb, self._tdb]:
+        for db in [self._mdb, self._sdb, self._pdb, self._tdb]:  # , self._ptdb]:
             if db:
                 db.close()
 
@@ -255,7 +267,7 @@ class DBInfo():
         return calculator(row, regs, sregs, eregs, string)
 
     def is_longwrite_string(self, rangetype):
-        calculator = staticanalysis.LongWriteRangeType.range_calculator(rangetype)
+        # calculator = staticanalysis.LongWriteRangeType.range_calculator(rangetype)
         return (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestrn)) \
             or (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestr))
 
@@ -289,6 +301,11 @@ class DBInfo():
         self._tdb.db.add_write_entry(time, pid, size, dest, pc,
                                      lr, cpsr, index)
 
+    def get_write_pc_or_zero_from_dstinfo(self, dstinfo):
+        return self._sdb.db._get_write_pc_or_zero(dstinfo)
+
+
+
     def add_range_dsts_entry(self, dstinfo):
         self._tdb.db.writerangetable.add_dsts_entry(dstinfo)
 
@@ -308,6 +325,8 @@ class DBInfo():
     def generate_write_range_file(self, out):
         self._tdb.close()
         self._tdb._open(True)
+        self._sdb.close()
+        self._sdb._open(append=True)
         if not self._tdb.db.has_histogram():
             self._tdb.db.histogram()
         self.trace_histograminfo(out)
@@ -318,6 +337,10 @@ class DBInfo():
     def flush_tracedb(self):
         if self._tdb:
             self._tdb.flush()
+
+    def flush_staticdb(self):
+        if self._sdb:
+            self._sdb.flush()
 
     def allowed_substage_writes(self, substage):
         return self._pdb.db.allowed_writes(substage)
@@ -332,6 +355,56 @@ class DBInfo():
         return [(r['startaddr'], r['endaddr'])
                 for r in pytable_utils.get_rows(self._sdb.db.funcstable, 'fname == b"%s"' % name)]
 
+    def pc_write_size(self, pc):
+        res = pytable_utils.query(self._sdb.db.writestable,
+                                  "pc == 0x%x" % pc)
+        try:
+            r = next(res)
+            return r['writesize']
+        except:
+            return 0
+
+    def addr_in_srcs_table(self, pc):
+        return pytable_utils.has_results(self._sdb.db.srcstable, "addr == 0x%x" % pc)
+
+    def addr_in_funcs_table(self, pc):
+        return pytable_utils.has_results(self._sdb.db.funcstable,
+                                         "(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc))
+
+    def func_at_addr(self, pc):
+        for r in pytable_utils.query(self._sdb.db.funcstable,
+                                     "(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc)):
+            yield r['fname']
+
+    def add_funcs_table_row(self, name, startaddr, endaddr):
+        r = self._sdb.db.funcstable.row
+        r['fname'] = name
+        r['startaddr'] = startaddr
+        r['endaddr'] = endaddr
+        r.append()
+        self._sdb.db.funcstable.flush()
+
+    def disasm_and_src_from_pc(self, pc):
+        r = pytable_utils.query(self._sdb.db.srcstable, "addr == 0x%x" % pc)
+        r = next(r)
+        return (r["disasm"], r["src"])
+
+    def add_source_code_info_row(self, thumb, addr, ivalue, disasm):
+        r = self._sdb.db.srcstable.row
+        r['thumb'] = thumb
+        r['addr'] = addr
+        r['ivalue'] = ivalue
+        r['ilength'] = len(ivalue)
+        r['mne'] = (disasm.split())[0]
+        r['disasm'] = disasm
+        r.append()
+        self._sdb.db.srcstable.flush()
+
+    def write_info_by_index(self):
+        fields = self._sdb.db.writestable.colnames
+        for r in pytable_utils.get_sorted(self._sdb.db.writestable, "index"):
+            yield {f: r[f] for f in fields}
+
     def write_interval_info(self, hwname, pclo=None, pchi=None,
                             substage_names=[], substage_entries={}):
         wt = self._get_writestable(hwname)
@@ -341,9 +414,8 @@ class DBInfo():
         else:
             fns = substage_entries
             substages = substage_names
-            intervals = {n: intervaltree.IntervalTree() for n in substages}
             num = 0
-            intervals = []
+            intervals = {n: intervaltree.IntervalTree() for n in substages}
             for r in wt.read_sorted('index'):
                 pc = r['pc']
                 if num < len(fns) - 1:
@@ -355,7 +427,7 @@ class DBInfo():
                     start = r['dest']
                     end = start + pytable_utils.get_rows(wt, 'pc == %d' %
                                                          r['pc'])[0]['writesize']
-                intervals[num].add(intervaltree.Interval(start, end))
+                    intervals[num].add(intervaltree.Interval(start, end))
             return intervals
 
     def write_trace_intervals(self, interval, table):

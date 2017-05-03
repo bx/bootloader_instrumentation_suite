@@ -29,6 +29,7 @@ import intervaltree
 configtypes = {}
 registry = {}
 
+
 class ConfigTypeRegistrar(type):
     def __new__(cls, clsname, bases, attrs):
         newcls = type.__new__(cls, clsname, bases, attrs)
@@ -318,6 +319,7 @@ class Bootstages(ConfigObject):
                 if not stage.post_build_setup_done:
                     stage.post_build_setup()
                 self.exitpc = stage.entrypoint
+
 
 path = os.path.dirname(os.path.realpath(__file__))
 config = os.path.join(os.path.expanduser("~"), ".bootsuite.yaml")

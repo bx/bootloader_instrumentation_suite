@@ -190,13 +190,12 @@ def enforce(main, configs,
     cmd.append("-ex 'enforce test_instance %s' " % instance_id)
     cmd.append("-ex 'enforce test_trace %s' " % test_id)
     cmd.append("-ex 'enforce log %s'" % log)
-    cmd.append("-ex 'enforce until %s'" % stagenames[-1])
+    cmd.append("-ex 'enforce until -s %s'" % stagenames[-1])
     cmd.append("-ex 'enforce stages %s'" % " ".join(stagenames))
-    cmd.append("-ex 'enforce kill'")
+    # cmd.append("-ex 'enforce kill'")
     cmd.append("-ex 'enforce go -p'")
 
     deps = []
-    targets = [log, done]
     done_commands = ["touch %s" % done]
     main_cfgs = {}
     for s in policies.iterkeys():
@@ -208,7 +207,7 @@ def enforce(main, configs,
     main_cfgs["enforce_log"] = log
     main_cfgs["enforce_done"] = done
 
-    return [("interactive", cmd),
+    return [("gdb_commands", cmd),
             ("gdb_targets", [log]),
             ("done_targets", [done]),
             ("done_commands", done_commands),
@@ -232,7 +231,6 @@ def watchpoint(main, configs,
     targets = []
     done_commands = []
     s = stages[0]
-    print s.__dict__
     breakpoint = "*0x%x" % s.exitpc
     f = main.get_config('trace_events_file', s)
     deps.append(f)

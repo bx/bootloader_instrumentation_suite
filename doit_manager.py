@@ -32,70 +32,71 @@ import sys
 import os
 import glob
 
+
 class TaskManager():
     loaders = []
     tasks = {}
 
     def __init__(self, do_build, create_test, enabled_stages,
                  policies, quick, run_trace, select_trace, import_policies,
-                 post_trace_processing=[], open_instance=None):
-        self.do_build_all = do_build
+                 post_trace_processing=[], open_instance=None, run=True):
+        if not do_build:
+            (print_build_cmd, build_source) = ([], [])
+        else:
+            (print_build_cmd, build_source) = do_build
         self.create_test = create_test
-        run = run_trace is not None
-        bootloader_only = create_test or run or len(post_trace_processing) > 0
-        self.src_manager = external_source_manager.SourceLoader(self.do_build_all, bootloader_only)
+        # run = run_trace is not None
+        bootloader_only = len(build_source) == 0
+        self.src_manager = external_source_manager.SourceLoader(print_build_cmd, build_source)
+        self.loaders.append(self.src_manager)
+        if len(print_build_cmd) + len(build_source) > 0:
+            return
         bootloader = Main.get_bootloader_cfg()
         self.boot_task = [s for s in self.src_manager.code_tasks
                           if s.build_cfg.name == bootloader.software][0]
-        if not do_build:
-            self.boot_task.build.uptodate = [True]
-        self.test_id = None
-        self.loaders.append(self.src_manager)
-        if 'all' in enabled_stages or enabled_stages is None:
-            Main.set_config('enabled_stages',
-                            list(Main.get_bootloader_cfg().supported_stages.itervalues()))
-        else:
-            ss = [v for v in
-                  Main.get_bootloader_cfg().supported_stages.itervalues()
-                  if v.stagename in enabled_stages]
-            Main.set_config('enabled_stages', ss)
-
         if create_test:
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
-                self.boot_task.build.uptodate = [False]
-        if create_test:
+            # rebuild bootloader now to ensure we have its elf/images available
+            self.boot_task.build.uptodate = [False]
+            self.src_manager.builds.append(bootloader.software)
             self.test_id = self._calculate_current_id()
+            self.build(self.boot_task.basename)
+            self.boot_task.build.uptodate = [True]
         else:
             if open_instance is None:
                 self.test_id = self._get_newest_id()
             else:
                 self.test_id = open_instance
-        update_existing = create_test or (self._calculate_current_id() == self.test_id)
+            self.boot_task.build.uptodate = [True]
+
+        update_existing = (create_test or (self._calculate_current_id() == self.test_id)) \
+                          and (len(post_trace_processing) == 0)
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
-                                                                            create_test,
-                                                                            update_existing)
-        for stage in Main.get_bootloader_cfg().supported_stages.itervalues():
-            stage.elf = Main.get_config('stage_elf', stage)
-            stage.image = Main.get_config('stage_image', stage)
-            stage.post_build_setup_done = False
-        for stage in Main.get_config('enabled_stages'):
-            print stage.__dict__
-            stage.post_build_setup()
-            print stage.__dict__
+                                                                            create_test)
 
+        instrumentation_results_manager.PolicyTaskLoader(policies,
+                                                         create_test or import_policies)
+
+        if create_test:
+            self.loaders.append(instrumentation_results_manager.task_manager())
+            return
         trace_create = False
         if run_trace:
             trace_create = True
-        self.py = instrumentation_results_manager.PolicyTaskLoader(policies,
-                                                                   import_policies,
-                                                                   update_existing)
+
+        trace = True
+        if (len(post_trace_processing) > 0) or create_test:
+            trace = False
+        if create_test:
+            trace_create = True
         self.rt = instrumentation_results_manager.TraceTaskLoader(run_trace,
                                                                   select_trace,
                                                                   trace_create,
-                                                                  quick)
+                                                                  quick,
+                                                                  trace,)
         if post_trace_processing:
             self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)
         self.loaders.append(instrumentation_results_manager.task_manager())

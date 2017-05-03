@@ -145,9 +145,10 @@ class CodeTaskBuild(CodeTask):
 
 
 class CodeTaskList():
-    def __init__(self, cfg, do_build):
+    def __init__(self, cfg, always_uptodate):
         self.build_cfg = cfg
         self.basename = cfg.name
+        self.always_uptodate = always_uptodate
         self.root_dir = self.build_cfg.root
         if os.path.isdir(os.path.join(self.root_dir, ".git")):
             self.git = git_mgr.GitManager(self.root_dir)
@@ -155,12 +156,11 @@ class CodeTaskList():
             self.git = None
 
         self.build = CodeTaskBuild(cfg)
-        if do_build:
-            self.tasks = [CodeTaskClean(cfg), CodeTaskConfig(cfg), self.build]
-        else:
-            print "uptodate"
-            self.tasks = [self.build]
-            self.build.uptodate = [True]
+        self.tasks = [CodeTaskClean(cfg), CodeTaskConfig(cfg), self.build]
+
+        if always_uptodate:
+            for t in self.tasks:
+                t.uptodate = [True]
 
     def has_nothing_to_commit(self):
         return self.git.has_nothing_to_commit() if self.git else True
@@ -188,23 +188,36 @@ class CodeTaskList():
 
 
 class SourceLoader():
-    def __init__(self, do_build, bootloader_only=False):
+    def __init__(self, print_build, do_build):
+        # bootloader_only = len(do_build) == 0
+        self.print_build = print_build
         self.do_build = do_build
+        self.builds = list(set(do_build + print_build))
         ss = Main.config_class_lookup("Software")
         bootloader = Main.get_bootloader_cfg()
-        if bootloader_only:
-            self.code_tasks = [CodeTaskList(s, self.do_build)
-                               for s in ss if s.name == bootloader.software]
-        else:
-            self.code_tasks = [CodeTaskList(s, self.do_build)
-                               for s in ss
-                               if hasattr(s, "build_required") and s.build_required]
+
+        self.code_tasks = [CodeTaskList(s, s.name in self.do_build)
+                           for s in ss
+                           if hasattr(s, "build_required")
+                           and s.build_required
+                           and (s.name in self.builds)]
+        # always need the bootloader
+        if bootloader.software not in self.builds:
+            self.code_tasks.extend(CodeTaskList(s,
+                                                s.name in self.do_build)
+                                   for s in ss if s.name == bootloader.software)
+        for c in self.code_tasks:
+            if c.basename in self.do_build:
+                for t in c.tasks:
+                    t.uptodate = [False]
 
     def list_tasks(self):
         l = []
         for c in self.code_tasks:
-            name = "task_%s" % c.basename
-            tl = c.list_tasks
-            if self.do_build:
+            # only if in bulid list
+            if c.basename in self.builds:
+                name = "task_%s" % c.basename
+                print "building %s" % name
+                tl = c.list_tasks
                 l.append((name, tl))
         return l

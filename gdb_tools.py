@@ -595,6 +595,7 @@ class SubstageEntryBreak(BootBreak):
         self.fnname = fnname
         self.substagenum = substagenum
         self.controller = controller
+        print self.fnname
         self.fnloc = int(gdb.execute("x/x %s" % self.fnname, to_string=True).split()[0], 0)
         spec = "*(0x%x)" % self.fnloc
         BootBreak.__init__(self, spec, controller, True, stage)
