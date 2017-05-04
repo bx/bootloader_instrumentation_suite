@@ -58,24 +58,26 @@ class TaskManager():
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
             # rebuild bootloader now to ensure we have its elf/images available
-            self.boot_task.build.uptodate = [False]
+            #self.boot_task.build.uptodate = [False]
             self.src_manager.builds.append(bootloader.software)
-            self.test_id = self._calculate_current_id()
-            self.build(self.boot_task.basename)
-            self.boot_task.build.uptodate = [True]
+            (self.test_id, gitinfo) = self._calculate_current_id()
+            current_id = self.test_id
+            self.build(self.boot_task.basename, True)
         else:
             if open_instance is None:
                 self.test_id = self._get_newest_id()
             else:
                 self.test_id = open_instance
             self.boot_task.build.uptodate = [True]
+            (current_id, gitinfo) = self._calculate_current_id()
 
-        update_existing = (create_test or (self._calculate_current_id() == self.test_id)) \
+        update_existing = (create_test or (current_id == self.test_id)) \
                           and (len(post_trace_processing) == 0)
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
-                                                                            create_test)
+                                                                            create_test,
+                                                                            gitinfo)
 
         instrumentation_results_manager.PolicyTaskLoader(policies,
                                                          create_test or import_policies)
@@ -115,7 +117,7 @@ class TaskManager():
         return n
 
     def _calculate_current_id(self):
-        gitid = self.boot_task.get_gitinfo()
+        (gitid,  sha) = self.boot_task.get_gitinfo()
         cc = Main.cc
         cc_name = self.boot_task.build_cfg.compiler_name
         ccpath = "%s%s" % (cc, cc_name)
@@ -123,24 +125,21 @@ class TaskManager():
         hwclass = Main.get_hardwareclass_config().name
         bootsoftware = self.boot_task.build_cfg.name
         ccinfo = pure_utils.file_md5(ccpath)
-        return "%s.%s.%s.%s.%s" % (hwclass, bootsoftware, defconfig, gitid, ccinfo)
+        gitinfo = {'local': self.boot_task.build_cfg.root,
+                   'sha1': sha}
+        return ("%s.%s.%s.%s.%s" % (hwclass, bootsoftware, defconfig, gitid, ccinfo),
+                gitinfo)
 
     def build(self, targets, do_build=True):
         if do_build:
             makes = [external_source_manager.CodeTask.get_task_name(b, "build") for b in targets]
-
             return self.run(makes)
         else:
+            rets = []
             for t in self.src_manager.code_tasks:
                 if t.basename in targets:
-                    for task in t.tasks:
-                        print "to %s %s:" % (task.name, task.basename)
-                        for action in task.list_tasks()['actions']:
-                            if isinstance(action, CmdAction):
-                                print "cd %s" % task.root_dir
-                                print action.expand_action()
-                        print "\n"
-            return 0
+                    rets.append(t)
+            return rets
 
     def run(self, cmds):
         tasks = {}

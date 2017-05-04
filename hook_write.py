@@ -55,12 +55,13 @@ class WriteLog():
 
 db_written = False
 
-
+now = True
 class FlushDatabase():
-    def __init__(self, stage, now=False):
+    def __init__(self, stage, for_now=False):
         self.stage = stage
         #self.do()
-        if now:
+        global now
+        if now or for_now:
             self.do()
 
     def do(self):
@@ -79,7 +80,9 @@ class FlushDatabase():
         db_written = True
 
     def __call__(self):
-        self.do()
+        global now
+        if not now:
+            self.do()
 
 
 class WriteDatabase():
@@ -95,7 +98,9 @@ class WriteDatabase():
         self.origpc = origpc
         self.num = substage
         self.stage = stage
-        #self.do()
+        global now
+        if now:
+            self.do()
 
     def do(self):
         db_info.get(self.stage).add_trace_write_entry(self.time, self.pid,
@@ -107,8 +112,9 @@ class WriteDatabase():
                                                     self.origpc, self.num)
 
     def __call__(self):
-        self.do()
-        pass
+        global now
+        if not now:
+            self.do()
 
 
 class HookWrite(gdb_tools.GDBBootController):

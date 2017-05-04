@@ -290,17 +290,17 @@ def bbxmframac(main, boot_config,
         if not stage.stagename == 'spl':
             return []
         else:
-            callstacks[stage.stagemae] = os.path.join(data_root, "callstacks.txt")
+            callstacks[stage.stagename] = os.path.join(data_root, "callstacks.txt")
             out = os.path.join(data_root, "framac-stdout.txt")
             policy_id = policies[stage]
             args = "--stage %s -e -u -b %s -c %s -t %s -T %s -I %s -P %s " % (stage.stagename,
                                                                               patch_dir,
-                                                                              callstacks,
+                                                                              callstacks[stage.stagename],
                                                                               out,
                                                                               test_id,
                                                                               instance_id,
                                                                               policy_id)
             cmd = "%s %s" % (framac, args)
             cmds.append(("command", cmd))
-    configs = {"framac_callstacks", lambda s: callstacks[s.stagename]}
+    configs = {"framac_callstacks": lambda s: callstacks[s.stagename]}
     return [("set_config", configs)] + cmds

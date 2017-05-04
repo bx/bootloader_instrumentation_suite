@@ -66,6 +66,7 @@ def create(*args, **kwargs):
     if typ == "staticdb":
         obj._sdb.create()
     elif typ == "policydb":
+        obj._pdb.close()
         obj._pdb.create()
     elif typ == "policytracedb":
         # obj._ptdb._create()
@@ -273,7 +274,8 @@ class DBInfo():
             or (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestr))
 
     def pc_writes_info(self, pc):
-        fields = self._sdb.db.writestable.colnames
+        fields = ['pc', 'thumb', 'reg0', 'reg1', 'reg2',
+                  'reg3', 'reg4', 'writesize', 'halt']
 
         return {f: r[f] for f in fields
                 for r in

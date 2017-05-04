@@ -173,10 +173,11 @@ class CodeTaskList():
         if self.git:
             head = self.git.get_head()
             head = head.translate(None, "/")
-            gitinfo = "%s.%s" % (head, self.git.get_commit())
-            return gitinfo
+            sha = self.git.get_commit()
+            gitinfo = "%s.%s" % (head, sha)
+            return (gitinfo, sha)
         else:
-            return None
+            return (None, None)#, None)
 
     def list_tasks(self):
         yield {
@@ -217,7 +218,6 @@ class SourceLoader():
             # only if in bulid list
             if c.basename in self.builds:
                 name = "task_%s" % c.basename
-                print "building %s" % name
                 tl = c.list_tasks
                 l.append((name, tl))
         return l

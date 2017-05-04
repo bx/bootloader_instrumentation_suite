@@ -549,7 +549,6 @@ class LongWriteDescriptor():
 class RelocDescriptor():
     def __init__(self, name, relocbegin,
                  relocrdy, cpystart, cpyend, reldst, stage, delorig, symname="", mod=0xffffffff):
-
         self.name = name
         self.symname = symname
         self.begin = relocbegin
@@ -1069,6 +1068,7 @@ class WriteSearch():
         r.set_reloffset(dstaddr - r.cpystartaddr)
         infos.append(r.get_row_information())
         if stage.stagename == 'main':
+            print stage.__dict__
             cpystartaddr = utils.get_symbol_location("__image_copy_start", stage)
             cpyendaddr = utils.get_symbol_location("__image_copy_end", stage)
             r = RelocDescriptor("reloc_code", None,
@@ -1098,7 +1098,7 @@ class WriteSearch():
         self.stageexits = self.h5file.create_table(self.group, 'stageexits',
                                                    StageExitInfo, "stage exit info")
         sls = WriteSearch.find_labels(labeltool.StageinfoLabel, "EXIT", self.stage, "")
-
+        sls = WriteSearch.find_labels(labeltool.StageinfoLabel, "EXIT", self.stage, "")
         r = self.stageexits.row
         print "creating stage exit table"
         for l in sls:
@@ -1107,6 +1107,7 @@ class WriteSearch():
             loc = "%s:%d" % (l.filename, lineno)
             addr = utils.get_line_addr(loc, True, self.stage)
             success = True if l.name == "success" else False
+            print "exit at %s %s success: %s" % (loc, addr, success)
             r['addr'] = addr
             r['line'] = loc
             r['success'] = success

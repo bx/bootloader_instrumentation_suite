@@ -22,7 +22,7 @@
 # SOFTWARE.
 
 from config import Main
-
+from doit.action import CmdAction
 
 import argparse
 import os
@@ -66,7 +66,7 @@ if __name__ == '__main__':
             self.nargs = 3
             self.selected = False
             self.d = {'stages': "spl",
-                      "traces": ["breakpoint"], #, "calltrace"],
+                      "traces": ["breakpoint", "calltrace"],
                       "hw": "bbxmqemu",
             }
 
@@ -200,6 +200,15 @@ if __name__ == '__main__':
     if args.build or args.buildcommands:
         targets = args.build if args.build else args.buildcommands
         ret = task_mgr.build(targets, True if args.build else False)
+        if args.buildcommands:
+            for r in ret:
+                for task in r:
+                    print "to %s %s:" % (task.name, task.basename)
+                    for action in task.list_tasks()['actions']:
+                        if isinstance(action, CmdAction):
+                            print "cd %s" % task.root_dir
+                            print action.expand_action()
+                    print "\n"
     elif args.create:
         task_mgr.create_test_instance()
     elif args.run_trace:

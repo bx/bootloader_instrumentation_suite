@@ -30,6 +30,7 @@ import re
 import functools
 import shutil
 import glob
+import atexit
 path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(path, ".."))
 sys.path.append(path)
@@ -38,12 +39,17 @@ if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
+from doit.action import CmdAction
 from config import Main
 import labeltool
 import database
-import utils
 import doit_manager
 import db_info
+import pure_utils
+import tempfile
+
+cc = None
+elf = None
 
 
 class PreprocessorDirective():
@@ -87,6 +93,10 @@ class PreprocessorDirective():
 class PreprocessedFileProcessor():
     def __init__(self, preprocessed_file, stage):
         self.stage = stage
+        global cc
+        global elf
+        self.cc = cc
+        self.elf = elf
         self.path = preprocessed_file
         self.included_files = set()
         self.directives = []
@@ -304,7 +314,7 @@ class PreprocessedFileProcessor():
         except:
             last = line.index(";")
 
-        value = utils.get_symbol_location(label.name, self.stage)
+        value = pure_utils.get_symbol_location(self.cc, self.elf, label.name, self.stage)
         l = "%s = 0x%x;\n" % (line[:last], value)
         return l
 
@@ -341,7 +351,7 @@ class PreprocessedFileProcessor():
         # addr of gd should be the top of .data section, so lookup where this section is
         line = line.strip()
         if self._data_loc == -1:
-            (self._data_loc, end) = utils.get_section_location(".data", self.stage)
+            (self._data_loc, end) = pure_utils.get_section_location(self.cc, self.elf, ".data")
         if ("frama_c_tweaks" not in self.path) and \
            (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
             return "gd_t *gd; //@ volatile gd reads read_gd writes write_gd;\n"
@@ -353,6 +363,8 @@ class PreprocessedFileProcessor():
             return line+"\n"
 
     def usbmaxp_patch(self, line, label):
+        print line
+        print label
         return "\treturn &epd->wMaxPacketSize;\n"
 
     def noreturn_patch(self, line, label):
@@ -790,24 +802,20 @@ class PreprocessedFiles():
                    "console.i"]
 
     @classmethod
-    def instances(cls, stage, quick=False):
+    def instances(cls, stage, root=Main.get_bootloader_root(), quick=False):
         if quick:
             files = cls.quick_files
         else:
             files = cls.files
-        fs = map(lambda s: os.path.join(Main.get_bootloader_root(), s), files)
+        fs = map(lambda s: os.path.join(root, s), files)
         fs = map(functools.partial(PreprocessedFileInstance, stage=stage), fs)
         return fs
-
-
-def get_line_addr(line, start):
-    return 0
 
 
 class FramaCDstPluginManager():
     def __init__(self, stage, labels=None, execute=False, quick=False, more=False, verbose=False,
                  patchdest=Main.get_bootloader_root(),
-                 patch_symlink='%s/u-boot-frama-c' % os.getenv("HOME"), backupdir='',
+                 patch_symlink='', backupdir='',
                  calltracefile=None, tee=None):
         self.frama_c = "frama-c"
         self.quick = quick
@@ -815,6 +823,10 @@ class FramaCDstPluginManager():
         self.stage = stage
         self.verbose = verbose
         self.patchdest = patchdest
+        if len(patch_symlink) == 0:
+            patch_symlink = tempfile.mkdtemp()
+            os.system("rm -r %s" % patch_symlink)
+            atexit.register(lambda: os.system("rm %s" % patch_symlink))
         self.shortdest = patch_symlink
         self.backupdir = backupdir
         self.tee = tee
@@ -855,10 +867,11 @@ class FramaCDstPluginManager():
             self.frama_c_args += " -dst-more"
         self.results = {}
         if labels is None:
-            self.labels = [l for l in labeltool.SrcLabelTool.label_search(labeltool.FramaCLabel)
-                           if l.stagename == self.stage.stagename]
+            self.labels = [l for l in Main.get_config('labels')[labeltool.FramaCLabel]
+                           if (l.stagename == self.stage.stagename)]
         else:
-            self.labels = [l for l in labels if l.stagename == self.stage.stagename]
+            self.labels = [l for l in labels[labeltool.FramaCLabel]
+                           if l.stagename == self.stage.stagename]
         self.entrypoints = []
         self.preprocessed_files = []
 
@@ -887,7 +900,9 @@ class FramaCDstPluginManager():
 
     def execute_frama_c(self, main):
         if not os.path.islink(self.shortdest):
-            os.link(self.shortdest, self.patchdest)
+            print self.shortdest
+            print self.patchdest
+            os.symlink(self.patchdest, self.shortdest)
         if len(self.backupdir) > 0:
             if not os.path.isdir(self.backupdir):
                 os.mkdirs(self.backupdir)
@@ -927,7 +942,6 @@ class FramaCDstPluginManager():
                         self.entrypoints.append(l)
                 elif l.is_patch_value():
                     patch_labels.append(l)
-
         outfile = "%s-%s.i" % (f.pp_path[:-2], "patched")
         f.patch(patch_labels, outfile)
         f.pp_path = outfile
@@ -962,7 +976,7 @@ class FramaCDstPluginManager():
         res = fnre.search(line)
         if res is not None:
             return res.group(1)
-        return "?"
+        raise Exception("cannot determine entrypoint from label %s" % (l, line))
 
     def process_entrypoints(self):
         for e in self.entrypoints:
@@ -1032,36 +1046,59 @@ if __name__ == "__main__":
                         help="Instead of running frama_c populate static analysis"
                         " database directly from this file (which should contain frama_c "
                         "dst plugin output)")
+    parser.add_argument('-S', '--standalone', action='store_true', default=False,
+                        help="Don't pull configuration data from instrumentation suite")
 
     args = parser.parse_args()
-    labels = labeltool.SrcLabelTool.label_search(labeltool.FramaCLabel)
 
     s = Main.stage_from_name(args.stage)
     if s is None:
         raise Exception("no such stage named %s" % args.stage)
-    d = doit_manager.TaskManager(False, False, [args.stage],
-                                 {args.stage: args.policy_id},
-                                 False, {}, args.test_id, False, [])
+    cc = Main.cc
+    if not args.standalone:
+        d = doit_manager.TaskManager(False, False, [args.stage],
+                                     {args.stage: args.policy_id},
+                                     False, {}, args.test_id, False, [])
+        labels = Main.get_config("labels")
+        root = Main.get_config("source_tree_copy")
+        builder = d.build([Main.get_bootloader_cfg().software], False)[0]
+        origdir = os.getcwd()
+        os.chdir(root)
+
+        for t in builder.tasks:
+            for action in t.list_tasks()['actions']:
+                if isinstance(action, CmdAction):
+                    do = action.expand_action()
+                    os.system(do)
+        os.chdir(origdir)
+        elf = Main.get_config("stage_elf", s)
+
+    else:
+        root = Main.get_bootloader_root()
+        labels = labeltool.get_all_labels(root)
+        s.post_build_setup()
+        elf = s.elf
+        print elf
+
     if args.update:
         args.execute = True
 
     if args.patchbkup and not os.path.isdir(args.patchbkup):
         os.makedirs(args.patchbkup)
-
     fc = FramaCDstPluginManager(s, labels=labels, execute=args.execute,
                                 quick=args.quick, more=args.more,
-                                verbose=args.verbose, patchdest=Main.get_bootloader_root(),
-                                #patch_symlink='%s/u-boot-frama-c' % (os.getenv("HOME")),
+                                verbose=args.verbose,
+                                patchdest=root,
                                 backupdir=args.patchbkup,
                                 calltracefile=args.calltracefile, tee=args.tee)
-
     if len(args.input) > 0:
         fc.import_results_from_file(args.input)
         fc.update_db()
     else:
-        files = PreprocessedFiles.instances(s, args.quick)
+        files = PreprocessedFiles.instances(s, root, args.quick)
         fc.process_dsts(files)
-        if args.update:
-            fc.update_db()
-        else:
-            fc.print_results()
+        if args.update or args.execute:
+            if args.update:
+                fc.update_db()
+            else:
+                fc.print_results()

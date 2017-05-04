@@ -217,7 +217,10 @@ class HardwareClass(ConfigObject):
                 self.ram_range_names = []
             self.ram_ranges = intervaltree.IntervalTree(range_intervals)
             self.ram_ranges.merge_overlaps()
-            self.non_ram_ranges = self.phy_addr_range - self.ram_ranges
+            self.non_ram_ranges = self.phy_addr_range
+            for r in self.ram_ranges:
+                self.non_ram_ranges.chop(r.begin, r.end)
+                self.non_ram_ranges.remove_overlap(r)
 
 
 class HardwareConfig(ConfigObject):

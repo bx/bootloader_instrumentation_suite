@@ -35,6 +35,7 @@ import sys
 import time
 import os
 import re
+import atexit
 import glob
 import importlib
 from doit.action import CmdAction
@@ -297,6 +298,7 @@ class PostTraceLoader(ResultsLoader):
     def _process_tasks(self):
         tasks = []
         uptodate = {"uptodate": [True]}
+        print "running %s" % self.processes
         for (k, v) in self._processes_types.iteritems():
             if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
                                                            self.tracenames)):
@@ -308,7 +310,8 @@ class PostTraceLoader(ResultsLoader):
             if k not in self.processes:
                 for t in ts:
                     t.other.update(uptodate)
-            tasks.extend(ts)
+            else:
+                tasks.extend(ts)
         return tasks
 
     def _watchpoints(self, name):
@@ -475,7 +478,7 @@ class TraceTaskLoader(ResultsLoader):
             tasks.append(self._mkdir(self._test_path()))
         tasks.append(self.save_config("trace_data_root", self._test_path()))
         symlink_dir = os.path.join(self.test_root,
-                                   "test_data-by_name", self.name)
+                                   "trace_data-by_name", self.name)
         if not MkdirTask.exists(symlink_dir):
             tasks.append(self._mkdir(symlink_dir))
         if not os.path.exists(symlink_dir):
@@ -651,14 +654,14 @@ traces: [{}]
 
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
-                 enabled_stages, create):
+                 enabled_stages, create, gitinfo):
         super(InstrumentationTaskLoader, self).__init__(test_id, "instance", create)
         self.create = create
+        self.gitinfo = gitinfo
         self.enabled_stages = enabled_stages
         self.bootloader = Main.get_bootloader_cfg()
         self.test_data_path = Main.test_data_path
         self.bootloader_path = boot_task.root_dir
-        Main.set_config("bootloader_path",  self.bootloader_path)
         self.boot_stages = Main.config_class_lookup("Bootstages")
         self.hardwareclass = Main.get_hardwareclass_config()
         self.test_id = test_id
@@ -793,8 +796,23 @@ class InstrumentationTaskLoader(ResultsLoader):
             internal = "labels_internal"
             v = Main.get_config(internal)
             if v is None:
-                v = labeltool.get_all_labels(Main.get_bootloader_root())
+                # make temporary copy of git tree to pull labels from
+                tmpdir = tempfile.mkdtemp()
+                def rm_src_dir():
+                    print "removing temporary copy of bootloader source code at %s" % tmpdir
+                    os.system("rm -rf %s" % tmpdir)
+                atexit.register(rm_src_dir)
+                Main.set_config("source_tree_copy", tmpdir)
+                local = Main.get_config("instance_git_local")
+                sha = Main.get_config("instance_git_sha")
+                olddir = os.getcwd()
+                os.chdir(local)
+                os.system("git archive %s | tar -C %s -x" % (sha, tmpdir))
+                os.chdir(tmpdir)
+                v = labeltool.get_all_labels(tmpdir)
                 Main.set_config(internal, v)
+                os.chdir(olddir)
+
             return v
 
         Main.set_config("labels", get_labels)
@@ -832,6 +850,34 @@ class InstrumentationTaskLoader(ResultsLoader):
         dstdir = self._full_path("images")
         if not MkdirTask.exists(dstdir):
             tasks.append(self._mkdir(dstdir))
+        self.config_path = self._full_path("config.yml")
+        Main.set_config("instance_config_file", self.config_path)
+        if self.create:
+            # self.remote = self.gitinfo['remote']
+            self.local = self.gitinfo['local']
+            self.sha = self.gitinfo['sha1']
+            contents = """
+local: {}
+sha1: {}
+"""
+            filecontents = contents.format(self.local,
+                                           self.sha)
+
+            def write(f, c):
+                with open(f, "w") as fconfig:
+                    fconfig.write(c)
+            a = ActionListTask([(write, [self.config_path, filecontents])],
+                               [], [self.config_path], "instance_config_file")
+            tasks.append(a)
+        else:
+            with open(self.config_path, 'r') as f:
+                settings = yaml.load(f)
+                # self.remote = settings['remote']
+                self.local = settings['local']
+                self.sha = settings['sha1']
+        # tasks.append(self.save_config("instance_git_remote", self.remote))
+        tasks.append(self.save_config("instance_git_local", self.local))
+        tasks.append(self.save_config("instance_git_sha", self.sha))
         bootimages = []
         bootelfs = []
         imgsrcs = []

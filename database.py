@@ -91,7 +91,6 @@ class WriteDstTable():
 
     def _addr_inter_is_not_ram(self, i):
         hw = Main.get_hardwareclass_config()
-        print "hw non ram ranges %s" % hw.non_ram_ranges
         return i in hw.non_ram_ranges
 
     def add_dsts_entry(self, dstinfo):
@@ -406,7 +405,7 @@ class TraceTable():
                            '',
                            [intervaltree.Interval(lo,
                                                   hi)],
-                           pc, origpc, substage=substage, stage=stage)
+                           pc, origpc, substage_name=substage, stage=stage)
         self.writerangetable.add_dsts_entry(w)
 
     def consoladate_write_table(self, framac=False):

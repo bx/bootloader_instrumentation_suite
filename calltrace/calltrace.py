@@ -35,18 +35,28 @@ import testsuite_utils as utils
 import config
 import gdb_tools
 
+
 open_log = None
+now = True
+
 
 class CloseLog():
     def __init__(self):
+        global now
+        if now:
+            self.do()
         pass
 
-    def __call__(self):
+    def do(self):
         global open_log
         if open_log is not None:
             open_log.close()
             open_log = None
 
+    def __call__(self):
+        global now
+        if not now:
+            self.do()
 
 class WriteResults():
     def __init__(self, depth, name, kind, pc, line, minimal=False):
@@ -57,7 +67,9 @@ class WriteResults():
         self.pc = pc
         self.entry = True if kind == "entry" else False
         self.minimal = minimal
-        #self.do()
+        global now
+        if now:
+            self.do()
 
     def do(self):
         global open_log
@@ -77,7 +89,9 @@ class WriteResults():
             gdb.write(outstr, gdb.STDOUT)
 
     def __call__(self):
-        self.do()
+        global now
+        if not now:
+            self.do()
 
 
 class CallExitBreak(gdb_tools.BootFinishBreakpoint):

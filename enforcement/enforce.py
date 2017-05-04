@@ -51,14 +51,24 @@ intervaltree.Interval.__repr__ = int_repr
 do_halt = False
 allowed_writes = {}
 check_inline = False
+now = True
+check_inline = now
 
 
 class CloseSubstageDB():
     def __init__(self, db):
         self.db
+        global now
+        if now:
+            self.do()
+
+    def do(self):
+        self.db.close_dbs()
 
     def __call__(self):
-        self.db.close_dbs()
+        global now
+        if not now:
+            self.do()
 
 
 class CheckWrite():

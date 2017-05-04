@@ -44,6 +44,9 @@ import db_info
 
 breakpoint_classes = {}
 
+gdb.execute('set pagination off')
+gdb.execute('set height unlimited')
+gdb.execute('set confirm off')
 
 class BreakpointRegistrar(type):
     def __new__(cls, clsname, bases, attrs):
@@ -125,6 +128,7 @@ class GDBBootController(gdb.Command):
                  exit_hook=None,
                  create_trace=False, open_dbs_ro=True,
                  disabled_breakpoints=[]):
+
         self.create_new_tracedb = create_trace
         self.open_dbs_ro = open_dbs_ro
         self.bp_hooks = {}
@@ -141,9 +145,6 @@ class GDBBootController(gdb.Command):
         self.f_hook = f_hook
         gdb.execute('set python print-stack full')
         self.cc = Main.cc
-        gdb.execute('set pagination off')
-        gdb.execute('set height unlimited')
-        gdb.execute('set confirm off')
         gdb.execute("dir %s" % Main.get_bootloader_root())
         gdb.Command.__init__(self, name, gdb.COMMAND_DATA)
         self.parser = argparse.ArgumentParser(prog=name)
@@ -262,7 +263,8 @@ class GDBBootController(gdb.Command):
         end = s_info.stoppoint
         if end:
             s_info.endbreaks.append(StageEndBreak(end, self, stage, True))
-
+        print db_info.get(stage).stage_exits()
+        print stage.__dict__
         for (addr, line, success) in db_info.get(stage).stage_exits():
             s_info.endbreaks.append(StageEndBreak(addr, self, stage, success))
 
@@ -595,7 +597,6 @@ class SubstageEntryBreak(BootBreak):
         self.fnname = fnname
         self.substagenum = substagenum
         self.controller = controller
-        print self.fnname
         self.fnloc = int(gdb.execute("x/x %s" % self.fnname, to_string=True).split()[0], 0)
         spec = "*(0x%x)" % self.fnloc
         BootBreak.__init__(self, spec, controller, True, stage)
@@ -615,6 +616,7 @@ class StageStartBreak(BootBreak):
             spec = "*(0x%x)" % realstart
         else:
             spec = realstart
+        controller.gdb_print("StartStageBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage)
 
     def continue_stage(self):
@@ -623,7 +625,7 @@ class StageStartBreak(BootBreak):
             elf = Main.get_config("stage_elf", self.stage)
             gdb.execute("file %s" % elf)
             cont.gdb_print('loaded file %s\n' % elf)
-        cont.gdb_print("Inserting breakpoints for ...\n")
+        cont.gdb_print("Inserting breakpoints for %s ...\n" % self.stage.stagename)
         #cont.disabledwritebreaks = False
         cont.current_substage = 0
         cont.insert_breakpoints(self.stage)
@@ -645,6 +647,7 @@ class StageEndBreak(BootBreak):
         self.starttime = time.time()
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
+        controller.gdb_print("ExitStageBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage, success=success)
 
     def _stop(self, ret):
