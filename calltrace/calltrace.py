@@ -84,7 +84,10 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     def __init__(self, name, controller, stage, entry):
         self.name = name
         self.entry = entry
-        gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
+        try:
+            gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
+        except ValueError:
+            pass
 
     def out_of_scope(self):
         if self.entry.no_rec:

@@ -66,7 +66,7 @@ if __name__ == '__main__':
             self.nargs = 3
             self.selected = False
             self.d = {'stages': "spl",
-                      "traces": ["breakpoint", "calltrace"],
+                      "traces": ["breakpoint"], #, "calltrace"],
                       "hw": "bbxmqemu",
             }
 

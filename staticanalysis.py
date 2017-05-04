@@ -569,7 +569,7 @@ class RelocDescriptor():
         self._calculate_addresses()
 
     def lookup_label_addr(self, label):
-        lineno = WriteSearch.get_real_lineno(label, True, self.stage)
+        lineno = WriteSearch.get_real_lineno(label, False, self.stage)
         loc = "%s:%d" % (label.filename, lineno)
         return utils.get_line_addr(loc, True, self.stage)
 
@@ -1229,7 +1229,7 @@ class WriteSearch():
             r['name'],
             r['startaddr'], r['startaddr'] + r['size'],
             r['startaddr'] + r['reloffset'],
-            r['relocpc'], r['relbegin'])
+            r['relbegin'], r['relocpc'])
 
     @classmethod
     def func_row_info(cls, r):
@@ -1322,11 +1322,11 @@ class WriteSearch():
                         words = [w.decode('hex')[::-1] for w in words]
                         # don't want it to wrip out any null bytes
                         ins = b"%s%s" % (words[0], words[1])
+                    inscheck = self.ia.disasm(ins, thumb, pc)
                     r['pc'] = pc
                     r['halt'] = True
 
                     # double check capstone is ok with this assembly
-                    inscheck = self.ia.disasm(ins, thumb, pc)
                     if not self.ia.is_mne_memstore(inscheck.mnemonic):
                         print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
                         print o

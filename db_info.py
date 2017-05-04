@@ -165,6 +165,7 @@ class StaticDB(DBObj):
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
         self._db.setup_missing_tables()
+        self._db.print_relocs_table()
 
     def _close(self):
         self._db.closedb(False)
