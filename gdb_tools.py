@@ -141,6 +141,7 @@ class GDBBootController(gdb.Command):
                 self.bp_hooks[k] = bp_hooks[k]
             else:
                 self.bp_hooks[k] = None
+        self.name = name
         self.stage_hook = stage_hook
         self.f_hook = f_hook
         gdb.execute('set python print-stack full')
@@ -263,8 +264,6 @@ class GDBBootController(gdb.Command):
         end = s_info.stoppoint
         if end:
             s_info.endbreaks.append(StageEndBreak(end, self, stage, True))
-        print db_info.get(stage).stage_exits()
-        print stage.__dict__
         for (addr, line, success) in db_info.get(stage).stage_exits():
             s_info.endbreaks.append(StageEndBreak(addr, self, stage, success))
 
@@ -433,6 +432,7 @@ class GDBBootController(gdb.Command):
         stage = self.stage_order[0]
         gdb.events.exited.connect(self.gdb_exit)
         self.prepare_stage(stage, False)
+        self.gdb_print("%s plugin is ready to go\n" % self.name)
         if not args.prepare_only:
             gdb.execute("c")
 
@@ -625,8 +625,8 @@ class StageStartBreak(BootBreak):
             elf = Main.get_config("stage_elf", self.stage)
             gdb.execute("file %s" % elf)
             cont.gdb_print('loaded file %s\n' % elf)
-        cont.gdb_print("Inserting breakpoints for %s ...\n" % self.stage.stagename)
-        #cont.disabledwritebreaks = False
+        cont.gdb_print("Inserting breakpoints for %s %s ...\n" % (self.controller.name,
+                                                                  self.stage.stagename))
         cont.current_substage = 0
         cont.insert_breakpoints(self.stage)
         cont.gdb_print("Done setting breakpoints\n")
@@ -647,7 +647,6 @@ class StageEndBreak(BootBreak):
         self.starttime = time.time()
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
-        controller.gdb_print("ExitStageBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage, success=success)
 
     def _stop(self, ret):

@@ -63,30 +63,33 @@ class WriteDstTable():
         self.h5file = h5file
         self.group = group
         self.stage = stage
-        self.name = name
+        self._name = name
         self.desc = desc
-        self._init_table()
+        self.tables = {}
 
-    def _init_table(self):
+    def name(self, num):
+        return "%s_%s" % (self._name, num)
+
+    def _init_table(self, num):
         try:
-            self.table = getattr(self.group, self.name)
+            self.tables[num] = getattr(self.group, self.name(num))
         except tables.exceptions.NoSuchNodeError:
-            self.table = self.h5file.create_table(self.group, self.name,
-                                                  FramaCDstEntry, self.desc)
-            print "setting up %s table" % self.name
-            self.table.cols.line.create_index(kind='full')
-            self.table.cols.writepc.create_index(kind='full')
-            self.table.cols.substage.create_index(kind='full')
-            self.table.flush()
+            self.tables[num] = self.h5file.create_table(self.group, self.name(num),
+                                                       FramaCDstEntry, self.desc)
+            #print "setting up %s table" % self.name(num)
+            self.tables[num].cols.line.create_index(kind='full')
+            self.tables[num].cols.writepc.create_index(kind='full')
+            self.tables[num].cols.substage.create_index(kind='full')
+            self.tables[num].flush()
             self.h5file.flush()
 
     def flush_table(self):
-        try:
-            self.table.reindex_dirty()
-        except:
-            pass
-
-        self.table.flush()
+        for t in self.tables.itervalues():
+            try:
+                t.reindex_dirty()
+            except:
+                pass
+            t.flush()
         self.h5file.flush()
 
     def _addr_inter_is_not_ram(self, i):
@@ -94,7 +97,10 @@ class WriteDstTable():
         return i in hw.non_ram_ranges
 
     def add_dsts_entry(self, dstinfo):
-        r = self.table.row
+        num = dstinfo.substage
+        if num not in self.tables.iterkeys():
+            self._init_table(num)
+        r = self.tables[num].row
         for v in dstinfo.values:
             r['dstlo'] = v.begin
             r['dsthi'] = v.end
@@ -107,18 +113,24 @@ class WriteDstTable():
             r.append()
 
     def print_dsts_info(self):
-        try:
-            self.table.reindex_dirty()
-        except:
-            pass
+        self.flush_table()
         num_writes = db_info.get(self.stage).num_writes()
-        f = pytable_utils.get_rows(self.table, "dst_not_in_ram == True")
-        num_framac_writes = len(f)
+        num_framac_writes = sum([len(pytable_utils.get_rows(t, "dst_not_in_ram == True"))
+                                 for t in self.tables.itervalues()])
         print "%d of %d writes exclusively write to register memory" % (num_framac_writes,
                                                                         num_writes)
-        for r in self.table.iterrows():
-            print "%s (%x) -> (%x,%x). substage: %s" % \
-                (r['line'], r['writepc'], r['dstlo'], r['dsthi'], r['substage'])
+        for t in self.tables.itervalues():
+            for r in t.iterrows():
+                print "%s (%x) -> (%x,%x). substage: %s" % \
+                    (r['line'], r['writepc'], r['dstlo'], r['dsthi'], r['substage'])
+
+    def nrows(self):
+        return sum([t.nrows for t in self.tables.itervalues()])
+
+    def substagenums(self):
+        substagenums = set(list(self.tables.itervalues()))
+        substagenums = sorted(list(substagenums))
+        return substagenums
 
 
 class WriteDstResult():
@@ -247,14 +259,12 @@ class TraceTable():
                                                title="QEMU tracing information")
             try:
                 self.writestable = self.get_group().writes
-                self.nwrites = self.writestable.nrows
             except tables.exceptions.NoSuchNodeError:
                 # go ahead and create table
                 m = "a"
                 self.h5file.close()
 
         if self.writestable is None:
-            print "Creating"
             self.h5file = tables.open_file(self.outname, mode=m,
                                            title="QEMU tracing information")
             group = self.h5file.create_group("/", self.stagename,
@@ -268,7 +278,6 @@ class TraceTable():
             self.writestable.cols.dest.create_index(kind='full')
 
             self.writestable.flush()
-            self.nwrites = 0
 
         self.init_writerangetable()
 
@@ -409,25 +418,25 @@ class TraceTable():
         self.writerangetable.add_dsts_entry(w)
 
     def consoladate_write_table(self, framac=False):
-        if self.writerangetable_consolidated.table.nrows > 0:
-            print "consolidate write table not empty, not adding new rows (%s)" % self.writerangetable_consolidated.table.nrows
+        if self.writerangetable_consolidated.tables:
+            print "consolidate write table not empty, not adding new rows"
             return
         last = None
-        cr = self.writerangetable_consolidated.table.row
         sortindex = 'line' if framac else 'writepc'
         intervals = intervaltree.IntervalTree()
         r = None
-        self.writerangetable.table.flush()
-        print "write range nrows %s" % self.writerangetable.table.nrows
-        substagenums = set(self.writerangetable.table.cols.substage[:])
-        substagenums = sorted(list(substagenums))
+        self.writerangetable.flush_table()
+        print "write range nrows %s" % self.writerangetable.nrows()
+        substagenums = self.writerangetable.substagenums()
+        print "write range nrows %s" % self.writerangetable.nrows()
+        print "write range substages %s" % substagenums
         writepc = None
         line = None
         lvalue = None
         dst_not_in_ram = True
         for n in substagenums:
             if n > 0:  # add last interval
-                self._add_intervals_to_table(self.writerangetable_consolidated.table,
+                self._add_intervals_to_table(self.writerangetable_consolidated.tables[n],
                                              intervals,
                                              writepc, line, lvalue, dst_not_in_ram,
                                              n)
@@ -439,12 +448,11 @@ class TraceTable():
             line = None
             count = 0
             intervals = intervaltree.IntervalTree()  # clear intervals
-            for r in filter(lambda x: x['substage'] == n,
-                            self.writerangetable.table.read_sorted(sortindex)):
+            for r in self.writerangetable.tables[n].read_sorted(sortindex):
                 count += 1
                 if not last == r[sortindex]:
                     if last is not None:
-                        self._add_intervals_to_table(self.writerangetable_consolidated.table,
+                        self._add_intervals_to_table(self.writerangetable_consolidated.tables[n],
                                                      intervals,
                                                      writepc,
                                                      line,
@@ -463,12 +471,12 @@ class TraceTable():
                 intervals.addi(r['dstlo'], r['dsthi'])
 
         if r is not None:
-            self._add_intervals_to_table(self.writerangetable_consolidated.table,
+            self._add_intervals_to_table(self.writerangetable_consolidated.tables[r['substage']],
                                          intervals,
                                          writepc, line, lvalue, dst_not_in_ram,
                                          r['substage'])
-        self.writerangetable_consolidated.table.flush()
-        print "write range consolidated nrows %s" % self.writerangetable_consolidated.table.nrows
+        self.writerangetable_consolidated.flush_table()
+        print "write range consolidated nrows %s" % self.writerangetable_consolidated.nrows()
 
     def _add_intervals_to_table(self, table, intervals, pc, line, lvalue, dst, substage):
         intervals.merge_overlaps()
@@ -596,9 +604,6 @@ class TraceTable():
 
     def add_write_entry(self, time, pid, size,
                         dest, pc, lr, cpsr, index=0):
-        if index == 0:
-            index = self.nwrites
-            self.nwrites = self.nwrites + 1
         o = qemusimpleparse.QemuParsedObject(time, pid, size,
                                              dest, pc, lr, cpsr)
         TraceTable._add_write_entry(o, self.pcmin,

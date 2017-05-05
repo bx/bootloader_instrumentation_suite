@@ -298,7 +298,6 @@ class PostTraceLoader(ResultsLoader):
     def _process_tasks(self):
         tasks = []
         uptodate = {"uptodate": [True]}
-        print "running %s" % self.processes
         for (k, v) in self._processes_types.iteritems():
             if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
                                                            self.tracenames)):
@@ -594,7 +593,6 @@ traces: [{}]
                         gdb_targets + done_targets, "gdb_tracing")
             newtask = self.merge_tasks(newtask, c)
         sys.path.pop()
-        print newtask.__dict__
         return [newtask]
 
     def merge_tasks(self, t1, t2):

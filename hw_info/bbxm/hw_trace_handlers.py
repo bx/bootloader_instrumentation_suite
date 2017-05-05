@@ -52,12 +52,12 @@ def bbxmqemu(main, boot_config,
             targets = [f]
             n = main.get_config("trace_events_file", s)
             deps = [n]
-            run_cmd += " -nographic -trace events=%s,file=%s" % (n, f)
+            run_cmd += " -nographic -trace events=%s,file=%s &" % (n, f)
+        cmds.append(("interactive", run_cmd))
     else:
         run_cmd += " -daemonize"
+        cmds.append(("long_running", run_cmd))
     deps.append(qemu)
-    cmds.append(("long_running", run_cmd))
-
     ret = cmds + [('configs', cfg), ("set_config", main_cfgs),
                   ('file_dep', deps), ("targets", targets)]
     return ret
@@ -237,13 +237,10 @@ def watchpoint(main, configs,
     done = main.get_config("trace_events_done")
     done_commands.append(("command", "touch %s" % done))
     targets.append(done)
-    cmd = "%s -ex 'break %s' %s -ex 'c'" \
-          "-ex 'monitor quit' " \
-          "-ex 'q'" % (gdb,
-                       breakpoint,
-                       additional_cmds)
+    gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
+    gdb_cmds.append("-ex 'break %s'" % breakpoint)
 
-    return [("interactive", cmd)] + done_commands + [("targets", targets), ("file_dep", deps)]
+    return done_commands + [("targets", targets), ("file_dep", deps), ("gdb_commands", gdb_cmds)]
 
 
 def bbxmbaremetal(main, boot_config,
@@ -286,6 +283,9 @@ def bbxmframac(main, boot_config,
     patch_dir = os.path.join(data_root, "patches")
     callstacks = {}
     cmds.append(("command", "mkdir -p %s" % patch_dir))
+    trace_dbs = {}
+    trace_db_done = {}
+    targets = []
     for stage in stages:
         if not stage.stagename == 'spl':
             return []
@@ -302,5 +302,16 @@ def bbxmframac(main, boot_config,
                                                                               policy_id)
             cmd = "%s %s" % (framac, args)
             cmds.append(("command", cmd))
+            trace_dbs[stage.stagename] = os.path.join(data_root,
+                                                      "tracedb-%s.h5" % stage.stagename)
+            trace_db_done[stage.stagename] = os.path.join(data_root,
+                                                          "tracedb-%s.completed" % stage.stagename)
+            done = trace_db_done[stage.stagename]
+            db = trace_dbs[stage.stagename]
+            cmds.append(("command", "touch %s" % trace_db_done[stage.stagename]))
+            targets.extend([db, done])
+    main_cfgs = {}
+    main_cfgs["trace_db"] = lambda s: trace_dbs[s.stagename]
+    main_cfgs["trace_db_done"] = lambda s: trace_db_done[s.stagename]
     configs = {"framac_callstacks": lambda s: callstacks[s.stagename]}
-    return [("set_config", configs)] + cmds
+    return [("set_config", configs), ("set_config", main_cfgs), ("targets", targets)] + cmds

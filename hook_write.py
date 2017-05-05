@@ -54,12 +54,14 @@ class WriteLog():
 
 
 db_written = False
-
 now = True
+
+start = time.time()
+
+
 class FlushDatabase():
     def __init__(self, stage, for_now=False):
         self.stage = stage
-        #self.do()
         global now
         if now or for_now:
             self.do()
@@ -70,10 +72,10 @@ class FlushDatabase():
             return
         db_info.get(self.stage).flush_tracedb()
 
-        start = time.time()
-        print "consolidating write intervals\n"
-        start = time.time()
-        db_info.get(self.stage).consoladate_trace_write_table()
+        # print "consolidating write intervals\n"
+        # start = time.time()
+        global start
+        # db_info.get(self.stage).consoladate_trace_write_table()
         db_info.get(self.stage).flush_tracedb()
         stop = time.time()
         print ".. finished in %f minutes\n" % ((stop-start)/60)
@@ -199,7 +201,8 @@ class HookWrite(gdb_tools.GDBBootController):
         sp.add_argument("stagename")
 
     def _go_stage(self, stage):
-        print "go stage"
+        #print "go stage"
+        pass
 
     def baremetal(self, args):
         self.isbaremetal = True

@@ -37,7 +37,7 @@ import gdb_tools
 
 
 open_log = None
-now = True
+now = False
 
 
 class CloseLog():
@@ -57,6 +57,7 @@ class CloseLog():
         global now
         if not now:
             self.do()
+
 
 class WriteResults():
     def __init__(self, depth, name, kind, pc, line, minimal=False):
@@ -240,7 +241,7 @@ class CallTrace(gdb_tools.GDBBootController):
         global open_log
         if open_log:
             sname = controller.current_stage.stagename
-            print "results written to %s" % open_log
+            print "results written to %s" % open_log.name
             controller.results_written = True
             # use event to make sure log is closed after all write events
             gdb.post_event(CloseLog())
