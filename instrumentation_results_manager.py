@@ -594,7 +594,7 @@ traces: [{}]
                         gdb_targets + done_targets, "gdb_tracing")
             newtask = self.merge_tasks(newtask, c)
         sys.path.pop()
-
+        print newtask.__dict__
         return [newtask]
 
     def merge_tasks(self, t1, t2):

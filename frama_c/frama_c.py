@@ -350,13 +350,19 @@ class PreprocessedFileProcessor():
     def gd_patch(self, line):
         # addr of gd should be the top of .data section, so lookup where this section is
         line = line.strip()
+        if "gd asm" in line:
+            print "GDPATCH00"
+            print self.path
+            print line
         if self._data_loc == -1:
             (self._data_loc, end) = pure_utils.get_section_location(self.cc, self.elf, ".data")
         if ("frama_c_tweaks" not in self.path) and \
            (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
+            print "patxh"
             return "gd_t *gd; //@ volatile gd reads read_gd writes write_gd;\n"
         elif ("frama_c_tweaks" in self.path) and \
              (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
+            print "GDPATCH00-- framac tweaks"
             return "gd_t *gd = 0x%x; //@ volatile gd reads read_gd writes write_gd;\n" % \
                 self._data_loc
         else:
@@ -803,10 +809,10 @@ class PreprocessedFiles():
 
     @classmethod
     def instances(cls, stage, root=Main.get_bootloader_root(), quick=False):
-        if quick:
-            files = cls.quick_files
-        else:
-            files = cls.files
+        # if quick:
+        #    files = cls.quick_files
+        #else:
+        files = cls.files
         fs = map(lambda s: os.path.join(root, s), files)
         fs = map(functools.partial(PreprocessedFileInstance, stage=stage), fs)
         return fs
@@ -826,7 +832,8 @@ class FramaCDstPluginManager():
         if len(patch_symlink) == 0:
             patch_symlink = tempfile.mkdtemp()
             os.system("rm -r %s" % patch_symlink)
-            atexit.register(lambda: os.system("rm %s" % patch_symlink))
+            if self.execute:
+                atexit.register(lambda: os.system("rm %s" % patch_symlink))
         self.shortdest = patch_symlink
         self.backupdir = backupdir
         self.tee = tee
