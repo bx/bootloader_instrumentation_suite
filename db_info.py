@@ -183,7 +183,7 @@ class TraceDB(DBObj):
 
     def _create(self):
         dbpath = Main.get_config("trace_db", self.stage)
-        print dbpath
+        # print dbpath
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):

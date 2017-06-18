@@ -38,7 +38,8 @@ def bbxmqemu(main, boot_config,
     run_cmd = "%s -M %s -sd %s -clock vm " \
               "-S -s" % (qemu, hw_config.machinename,
                          main.get_config('sd_image'))
-    cfg = {'gdb_commands': ["target extended-remote :1234"]}
+    cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1", "target extended-remote :1234"]}
+    print cfg
     deps = []
     targets = []
     main_cfgs = {}
@@ -239,6 +240,7 @@ def watchpoint(main, configs,
     targets.append(done)
     gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
     gdb_cmds.append("-ex 'break %s'" % breakpoint)
+    gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
 
     return done_commands + [("targets", targets), ("file_dep", deps), ("gdb_commands", gdb_cmds)]
 

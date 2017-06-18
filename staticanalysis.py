@@ -1068,7 +1068,7 @@ class WriteSearch():
         r.set_reloffset(dstaddr - r.cpystartaddr)
         infos.append(r.get_row_information())
         if stage.stagename == 'main':
-            print stage.__dict__
+            # print stage.__dict__
             cpystartaddr = utils.get_symbol_location("__image_copy_start", stage)
             cpyendaddr = utils.get_symbol_location("__image_copy_end", stage)
             r = RelocDescriptor("reloc_code", None,

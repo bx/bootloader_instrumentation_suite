@@ -39,6 +39,8 @@ if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
+patches = {}
+
 from doit.action import CmdAction
 from config import Main
 import labeltool
@@ -163,6 +165,9 @@ class PreprocessedFileProcessor():
                 index = line.index("( typeof")
             lastindex = self.match_paren(line, index)
             out = line[:index] + line[(index+lastindex+1):]
+            global patches
+            n = patches.get("typeof", 0)
+            patches["typeof"] = n + 1
             return self.typeof_patch(out, i+1)
         else:
             return line
@@ -187,7 +192,7 @@ class PreprocessedFileProcessor():
         inf = open(self.path, "r")
         fixinfo.sort(key=lambda (lineno, fixfunction, label):
                      lineno)
-        print fixinfo
+        # print fixinfo
         curlineno = 0
         for l in inf.readlines():
             curlineno += 1
@@ -276,6 +281,7 @@ class PreprocessedFileProcessor():
         new_line = "%s %s[(%s * sizeof(%s)) + 63]  __attribute__((aligned(8)));\n" % \
                    (res.group(3), res.group(1),  res.group(2), res.group(3))
         return new_line
+
     def gpio_bank_patch(self,line, label):
         return "static const struct gpio_bank gpio_bank_am33xx[] __attribute__((aligned(8)))= {\n"
 
@@ -350,27 +356,26 @@ class PreprocessedFileProcessor():
     def gd_patch(self, line):
         # addr of gd should be the top of .data section, so lookup where this section is
         line = line.strip()
-        if "gd asm" in line:
-            print "GDPATCH00"
-            print self.path
-            print line
+        global patches
         if self._data_loc == -1:
             (self._data_loc, end) = pure_utils.get_section_location(self.cc, self.elf, ".data")
         if ("frama_c_tweaks" not in self.path) and \
            (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
-            print "patxh"
+            n = patches.get("gd", 0)
+            patches["gd"] = n + 1
             return "gd_t *gd; //@ volatile gd reads read_gd writes write_gd;\n"
         elif ("frama_c_tweaks" in self.path) and \
              (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
-            print "GDPATCH00-- framac tweaks"
+            n = patches.get("gd", 0)
+            patches["gd"] = n + 1
             return "gd_t *gd = 0x%x; //@ volatile gd reads read_gd writes write_gd;\n" % \
                 self._data_loc
         else:
             return line+"\n"
 
     def usbmaxp_patch(self, line, label):
-        print line
-        print label
+        # print line
+        # print label
         return "\treturn &epd->wMaxPacketSize;\n"
 
     def noreturn_patch(self, line, label):
@@ -679,78 +684,22 @@ class PreprocessedFileProcessor():
                 continue
 
             name_to_patch_functions = {
-                "strcmp": self.strcmp_patch,
-                "memcmp": self.memcmp_patch,
-                "idx": self.idx_patch,
-                "min": self.min_patch,
-                "mmc_stat_read_patch": self.mmc_stat_read_patch,
-                "empty_block": self.empty_block,
-                "memalign": self.memalign_patch,
-                "memalign_return": self.memalign_return_patch,
-                "serial_putc": self.serial_putc,
-                # "update_gd": self.update_gd_patch,
-                # "gd_to_gdptr": self.gd_to_gdptr,
-                # "update_gd_ptr": self.update_gd_ptr_patch,
-                "number": self.number_patch,
-                "put_dec_trunc": self.put_dec_trunc_patch,
-                "delete_line": self.delete_line,
-                "delete_line_all": self.delete_line_all,
-                "void_to_int": self.void_int_patch,
-                "val": self.val_patch,
-                "cpuid": self.cpuid_patch,
-                "boot_device": self.bootdevice_patch,
-                "align_buffer": self.alignbuffer_malloc_patch,  # self.alignbuffer_patch,
-                "align_buffer_malloc": self.alignbuffer_malloc_patch,
-                "align_decl": self.align_decl_patch,
-                "align_buffer_dos": self.alignbufferdos_patch,
-                "mmc_device": self.mmcdevice_patch,
+                #"align_buffer": self.alignbuffer_malloc_patch,  # self.alignbuffer_patch,
+                # "align_buffer_dos": self.alignbufferdos_patch,
+                #"align_decl": self.align_decl_patch,
                 "chunksize": self.chunksz_patch,
-                "return_mmc": self.mmcdevice_patch,
-                "create_mmc": self.createmmc_patch,
-                "part": self.part_patch,
-                "assume_aligned": self.assume_aligned_patch,
-                "beagle_revision": self.revision_patch,
-                "createmmccheck": self.createmmccheck_patch,
-                "declare_mmc": self.declaremmc_patch,
-                "i2c_adap_start": self.i2cadapstart_patch,
+                "cpuid": self.cpuid_patch,
+                "delete_line": self.delete_line,
                 "i2c_adap_max": self.i2cadapmax_patch,
+                "i2c_adap_start": self.i2cadapstart_patch,
                 "i2c_init_bus": self.i2cinitbus_patch,
-                "usb_maxp": self.usbmaxp_patch,
-                "tolower": self.tolower_patch,
-                "va": self.va_patch,
-                "m_mmc": self.mmmc_patch,
-                "mangle_name": self.mangle_name,
+                "malloc_zero": self.malloc_zero_patch,
+                "memalign": self.memalign_patch,
                 "noreturn": self.noreturn_patch,
                 "return_zero": self.returnzero_patch,
-                "cast_ulong": self.cast_ulong_patch,
-                "compare_s": self.compare_s_patch,
-                "return_one": self.returnone_patch,
-                "malloc_zero": self.malloc_zero_patch,
-                "blksz": self.blksz_patch,
-                "mmc_capacity": self.capacity_patch,
-                "list_for_each": self.list_for_each_patch,
-                # "mmc_initialized": self.mmc_initialize_patch,
-                "list_entry": self.list_entry_patch,
-                "buffer_cast": self.buffer_cast_patch,
-                "mmcscr": self.mmcscr_patch,
                 "sdr_cs_offset": self.sdr_cs_offset_patch,
-                "deletebe32_line": self.be32_patch,
-                "le64u64": self.le64u64_patch,
-                "le32u32": self.le32u32_patch,
-                "u64le64": self.u64le64_patch,
-                "u32le32": self.u32le32_patch,
-                "pte": self.pte_patch,
-                "func": self.func_patch,
-                "ext_csd_u8": self.ext_csd_u8_patch,
-                "mmcread": self.mmcread_patch,
-                "mmcvolatile": self.mmcvolatile_patch,
-                #"declare_boot_params": self.declarebootparams_patch,
-                "use_boot_params": self.usebootparams_patch,
-                "gpio": self.gpio_patch,
-                "gpio_bank": self.gpio_bank_patch,
-                "get_unaligned_le32": self.unalignedle32_patch,
-                # when enablened, framac val analysis takes days to run, so disabling for now
-                # "dos_extended": self.dosextended_patch,
+                "val": self.val_patch,
+                "void_to_int": self.void_int_patch,
             }
             fixfn = self._no_patch
             if l.value == "ADDR_PATCH":
@@ -760,6 +709,9 @@ class PreprocessedFileProcessor():
             if l.value == "SUBPATCH":
                 fixfn = self.re_patch
             elif l.name.lower() in name_to_patch_functions.keys():
+                global patches
+                n = patches.get(l.name.lower(), 0)
+                patches[l.name.lower()] = n + 1
                 fixfn = name_to_patch_functions[l.name.lower()]
             fixinfo.append((pplineno, fixfn, l))
         self._do_fix_file(fixinfo, outfile)
@@ -1085,7 +1037,6 @@ if __name__ == "__main__":
         labels = labeltool.get_all_labels(root)
         s.post_build_setup()
         elf = s.elf
-        print elf
 
     if args.update:
         args.execute = True
@@ -1104,6 +1055,8 @@ if __name__ == "__main__":
     else:
         files = PreprocessedFiles.instances(s, root, args.quick)
         fc.process_dsts(files)
+        for p in sorted(list(patches.keys())):
+            print "%s: %s" % (p, patches[p])
         if args.update or args.execute:
             if args.update:
                 fc.update_db()

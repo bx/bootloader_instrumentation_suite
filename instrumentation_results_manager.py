@@ -408,7 +408,9 @@ class PostTraceLoader(ResultsLoader):
 
 
 class TraceTaskLoader(ResultsLoader):
-    def __init__(self, instrumentation_task, trace_name, create, quick, run_tasks):
+    def __init__(self, instrumentation_task, trace_name, create, quick, run_tasks,
+                 print_cmds):
+        self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
         print "trace task run %s" % run_tasks
         super(TraceTaskLoader, self).__init__(test_id, "trace", run_tasks)
@@ -593,7 +595,14 @@ traces: [{}]
                         gdb_targets + done_targets, "gdb_tracing")
             newtask = self.merge_tasks(newtask, c)
         sys.path.pop()
-        return [newtask]
+        if self.print_cmds:
+            print "----------------------------------------"
+            for a in newtask.actions:
+                print a
+            print "----------------------------------------"
+            return []
+        else:
+            return [newtask]
 
     def merge_tasks(self, t1, t2):
         for i in ["file_dep", "actions", "targets"]:

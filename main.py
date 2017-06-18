@@ -49,7 +49,7 @@ if __name__ == '__main__':
     cmds.add_argument('-b', '--buildcommands',
                       help="Print build commands for the listed software "
                       "(openocd, u-boot, qemu))", default=[],
-                      action="append")
+                       action="append")
     cmds.add_argument('--print_policy', default=False, action='store_true')
     parser.add_argument('-o', '--testcfginstance',
                         help='Name of test config result directory to open, " \
@@ -169,6 +169,8 @@ if __name__ == '__main__':
     cmds.add_argument('-T', '--postprocess_trace', default=[], action="append",
                       choices=instrumentation_results_manager.PostTraceLoader.supported_types,
                       help="Run trace postprocessing command")
+    parser.add_argument('-p', '--print_cmds', action='store_true',
+                        help='Print commands instead of running them, only works with -t')
 
     args = parser.parse_args()
     for l in ('enabled_stages',):  # , 'enabled_hardware'):
@@ -195,7 +197,9 @@ if __name__ == '__main__':
                                         args.run_trace,
                                         args.select_trace,
                                         import_policies,
-                                        args.postprocess_trace)
+                                        args.postprocess_trace,
+                                        None, True,
+                                        args.print_cmds)
 
     if args.build or args.buildcommands:
         targets = args.build if args.build else args.buildcommands

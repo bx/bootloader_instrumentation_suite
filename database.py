@@ -108,7 +108,7 @@ class WriteDstTable():
             r['substage'] = dstinfo.substage
             r['line'] = dstinfo.key()
             r['lvalue'] = dstinfo.lvalue
-            r['writepc'] = dstinfo.pc if dstinfo.pc else db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfoo)
+            r['writepc'] = dstinfo.pc if dstinfo.pc else db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfo)
             r['origpc'] = dstinfo.origpc if dstinfo.origpc else r['writepc']
             r.append()
 
@@ -128,7 +128,7 @@ class WriteDstTable():
         return sum([t.nrows for t in self.tables.itervalues()])
 
     def substagenums(self):
-        substagenums = set(list(self.tables.itervalues()))
+        substagenums = set(list(self.tables.keys()))
         substagenums = sorted(list(substagenums))
         return substagenums
 
@@ -150,6 +150,8 @@ class WriteDstResult():
         else:
             min_value = int(res.group(1), 0)
             max_value = int(res.group(2), 0)
+            if max_value > 0xFFFFFFFF:
+                max_value = 0xFFFFFFFF
             lvalue = res.group(3)
             path = res.group(4)
             lineno = int(res.group(5))
@@ -426,15 +428,15 @@ class TraceTable():
         intervals = intervaltree.IntervalTree()
         r = None
         self.writerangetable.flush_table()
-        print "write range nrows %s" % self.writerangetable.nrows()
         substagenums = self.writerangetable.substagenums()
-        print "write range nrows %s" % self.writerangetable.nrows()
         print "write range substages %s" % substagenums
         writepc = None
         line = None
         lvalue = None
         dst_not_in_ram = True
         for n in substagenums:
+            if n not in self.writerangetable_consolidated.tables.keys():
+                self.writerangetable_consolidated._init_table(n)
             if n > 0:  # add last interval
                 self._add_intervals_to_table(self.writerangetable_consolidated.tables[n],
                                              intervals,
@@ -469,14 +471,14 @@ class TraceTable():
                     last = r[sortindex]
                 dst_not_in_ram = dst_not_in_ram and r['dst_not_in_ram']
                 intervals.addi(r['dstlo'], r['dsthi'])
-
-        if r is not None:
-            self._add_intervals_to_table(self.writerangetable_consolidated.tables[r['substage']],
-                                         intervals,
-                                         writepc, line, lvalue, dst_not_in_ram,
-                                         r['substage'])
+            if intervals:
+                self._add_intervals_to_table(self.writerangetable_consolidated.tables[n],
+                                             intervals,
+                                             writepc, line, lvalue, dst_not_in_ram, n)
         self.writerangetable_consolidated.flush_table()
-        print "write range consolidated nrows %s" % self.writerangetable_consolidated.nrows()
+        for n in substagenums:
+            print "write range consolidated stage %s nrows %s" % (n,
+                                                                  self.writerangetable_consolidated.tables[n].nrows)
 
     def _add_intervals_to_table(self, table, intervals, pc, line, lvalue, dst, substage):
         intervals.merge_overlaps()

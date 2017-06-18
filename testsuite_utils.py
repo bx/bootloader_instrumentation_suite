@@ -266,9 +266,9 @@ def get_symbol_location_start_end(name, stage, debug=False):
 def get_line_addr(line, start, stage, debug=False):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s" % (cc,
-                                                                           Main.get_bootloader_root(),
-                                                                           line, elf)
+    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s 2>/dev/null" % (cc,
+                                                                                       Main.get_bootloader_root(),
+                                                                                       line, elf)
     if debug:
         print cmd
     output = Main.shell.run_multiline_cmd(cmd)
@@ -299,9 +299,9 @@ def get_line_addr(line, start, stage, debug=False):
 def get_line_addr2(line, stage, debug=False):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s" % (cc,
-                                                                           Main.get_bootloader_root(),
-                                                                           line, elf)
+    cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s 2>/dev/null" % (cc,
+                                                                                       Main.get_bootloader_root(),
+                                                                                       line, elf)
     if debug:
         print cmd
     output = Main.shell.run_multiline_cmd(cmd)
@@ -328,11 +328,11 @@ def symbol_relocation_file(name, offset, stage, path=None, debug=False):
         path = tempfile.NamedTemporaryFile("rw").name
     elf = Main.get_config("stage_elf", stage)
     cc = Main.cc
-    cmd = "%sobjcopy  --extract-symbol -w -N \!%s --change-addresses=0x%x %s %s" % (cc,
-                                                                                    name,
-                                                                                    offset,
-                                                                                    elf,
-                                                                                    path)
+    cmd = "%sobjcopy  --extract-symbol -w -N \!%s --change-addresses=0x%x %s %s 2>/dev/null" % (cc,
+                                                                                                name,
+                                                                                                offset,
+                                                                                                elf,
+                                                                                                path)
     if debug:
         print cmd
     output = Main.shell.run_cmd(cmd)

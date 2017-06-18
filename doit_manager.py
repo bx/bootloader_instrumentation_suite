@@ -39,7 +39,8 @@ class TaskManager():
 
     def __init__(self, do_build, create_test, enabled_stages,
                  policies, quick, run_trace, select_trace, import_policies,
-                 post_trace_processing=[], open_instance=None, run=True):
+                 post_trace_processing=[], open_instance=None, run=True,
+                 print_cmds=False):
         if not do_build:
             (print_build_cmd, build_source) = ([], [])
         else:
@@ -47,6 +48,7 @@ class TaskManager():
         self.create_test = create_test
         # run = run_trace is not None
         bootloader_only = len(build_source) == 0
+        self.print_cmds = print_cmds
         self.src_manager = external_source_manager.SourceLoader(print_build_cmd, build_source)
         self.loaders.append(self.src_manager)
         if len(print_build_cmd) + len(build_source) > 0:
@@ -98,7 +100,8 @@ class TaskManager():
                                                                   select_trace,
                                                                   trace_create,
                                                                   quick,
-                                                                  trace,)
+                                                                  trace,
+                                                                  self.print_cmds)
         if post_trace_processing:
             self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)
         self.loaders.append(instrumentation_results_manager.task_manager())
@@ -161,6 +164,9 @@ class TaskManager():
         return ret
 
     def run_trace(self):
+
+        if self.print_cmds:
+            return 0
         nm = self.rt.get_build_name()
         print "about to run %s" % nm
         ret = self.run([nm])
