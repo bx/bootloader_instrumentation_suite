@@ -82,7 +82,8 @@ class TaskManager():
                                                                             gitinfo)
 
         instrumentation_results_manager.PolicyTaskLoader(policies,
-                                                         create_test or import_policies)
+                                                         (create_test and not print_cmds) or import_policies or len(post_trace_processing) > 0)
+
 
         if create_test:
             self.loaders.append(instrumentation_results_manager.task_manager())
@@ -92,7 +93,7 @@ class TaskManager():
             trace_create = True
 
         trace = True
-        if (len(post_trace_processing) > 0) or create_test:
+        if (len(post_trace_processing) > 0) or create_test or import_policies:
             trace = False
         if create_test:
             trace_create = True
@@ -100,7 +101,7 @@ class TaskManager():
                                                                   select_trace,
                                                                   trace_create,
                                                                   quick,
-                                                                  trace,
+                                                                  trace and not self.print_cmds,
                                                                   self.print_cmds)
         if post_trace_processing:
             self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)

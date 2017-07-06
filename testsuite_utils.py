@@ -231,13 +231,13 @@ def get_c_function_names(stage):
 def get_section_headers(stage):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    return pure_utils.get_section_header(cc, elf)
+    return pure_utils.get_section_headers(cc, elf)
 
 
 def get_section_location(name, stage):
     cc = Main.cc
     elf = Main.get_config("stage_elf", stage)
-    return pure_utils.get_section_headers(cc, elf)
+    return pure_utils.get_section_location(cc, elf, name)
 
 
 def get_symbol_location(name, stage, debug=False, nm=False):

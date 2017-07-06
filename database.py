@@ -66,14 +66,29 @@ class WriteDstTable():
         self._name = name
         self.desc = desc
         self.tables = {}
+        self.open()
 
     def name(self, num):
         return "%s_%s" % (self._name, num)
 
-    def _init_table(self, num):
+    def open(self, force=False):
+        for s in self.substagenums():
+            self._init_table(s, force)
+
+    def purge(self):
+        self.tables = {}
+        self.open(True)
+
+    def _init_table(self, num, force=False):
         try:
             self.tables[num] = getattr(self.group, self.name(num))
+            if force:
+                self.h5file.remove_node(self.group, self.name(num))
+                self.tables[num] = None
         except tables.exceptions.NoSuchNodeError:
+            self.tables[num] = None
+
+        if self.tables[num] is None:
             self.tables[num] = self.h5file.create_table(self.group, self.name(num),
                                                        FramaCDstEntry, self.desc)
             #print "setting up %s table" % self.name(num)
@@ -128,9 +143,8 @@ class WriteDstTable():
         return sum([t.nrows for t in self.tables.itervalues()])
 
     def substagenums(self):
-        substagenums = set(list(self.tables.keys()))
-        substagenums = sorted(list(substagenums))
-        return substagenums
+        policy = Main.get_config('policy_file', self.stage)
+        return range(len(substage.SubstagesInfo.substages_entrypoints(policy)))
 
 
 class WriteDstResult():
@@ -176,7 +190,7 @@ class WriteDstResult():
         self.stage = stage
         if substage_name is None and callstack:
             policy = Main.get_config('policy_file', self.stage)
-            substages = substage.SubstagesInfo.substages_entrypoints(policy)
+            self.substages = substage.SubstagesInfo.substages_entrypoints(policy)
             substages[0] = "frama_go"
             called_fns = callstack.split("->")
             called_fns = filter(len, called_fns)
@@ -253,12 +267,12 @@ class TraceTable():
             m = "w"
         self.writestable = None
         if not create:
-            if write:
-                self.h5file = tables.open_file(self.outname, mode="a",
-                                               title="QEMU tracing information")
-            else:
-                self.h5file = tables.open_file(self.outname, mode="r",
-                                               title="QEMU tracing information")
+            #if write:
+            self.h5file = tables.open_file(self.outname, mode="a",
+                                           title="QEMU tracing information")
+            #else:
+            #    self.h5file = tables.open_file(self.outname, mode="a",
+            #                                   title="QEMU tracing information")
             try:
                 self.writestable = self.get_group().writes
             except tables.exceptions.NoSuchNodeError:
@@ -419,17 +433,20 @@ class TraceTable():
                            pc, origpc, substage_name=substage, stage=stage)
         self.writerangetable.add_dsts_entry(w)
 
-    def consoladate_write_table(self, framac=False):
-        if self.writerangetable_consolidated.tables:
-            print "consolidate write table not empty, not adding new rows"
-            return
+    def consolidate_write_table(self, framac=False):
+        populated = False
+        for t in self.writerangetable_consolidated.tables.itervalues():
+            if t.nrows > 0:
+                populated = True
+                break
+        if populated:
+            self.writerangetable_consolidated.purge()
         last = None
         sortindex = 'line' if framac else 'writepc'
         intervals = intervaltree.IntervalTree()
         r = None
         self.writerangetable.flush_table()
         substagenums = self.writerangetable.substagenums()
-        print "write range substages %s" % substagenums
         writepc = None
         line = None
         lvalue = None
@@ -442,7 +459,6 @@ class TraceTable():
                                              intervals,
                                              writepc, line, lvalue, dst_not_in_ram,
                                              n)
-                print "substage %s count %s" % (n - 1, count)
             last = None
             lvalue = None
             dst_not_in_ram = True

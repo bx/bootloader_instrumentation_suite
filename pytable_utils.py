@@ -48,10 +48,10 @@ def get_sorted(table, col):
 
 def get_unique_result(table, query):
     res = get_rows(table, query)
-    if len(res) > 0:
+    if len(res) > 1:
         raise Exception("more than 1 result matching query %s in table %s" %
                         (query, str(table)))
-    if len(res) == 0:
+    elif len(res) == 0:
         return None
     else:
         return res[0]

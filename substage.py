@@ -49,11 +49,14 @@ intervaltree.Interval.__str__ = int_repr
 intervaltree.Interval.__repr__ = int_repr
 BOOKKEEPING = "bookkeeping"
 substage_types = tables.Enum([BOOKKEEPING, "subsequent_substage_copy",
+                              "loading", "patching",
                               "subsequent_substage_setup", "stage_exit"])
 region_types = tables.Enum(["subsequent_substage",
+                            "future", 'global', 'patching',
                            "input_parameters",
                             "output_parameters",
                             "text", 'stack',
+                            'readonly',
                             'bookkeeping_readonly',
                             'symbol', "none",
                             BOOKKEEPING, "relocation_data", "registers", "vital"])
@@ -85,7 +88,8 @@ class SubstageRegionPolicy(tables.IsDescription):
     default_perms = tables.EnumCol(perms,
                                    'rwx', base='uint8')
     short_name = tables.StringCol(255)
-    symbol_name = tables.StringCol(255)
+    symbol_name = tables.StringCol(255)  # symbol name in code
+    symbol_elf_name = tables.StringCol(255)  # symbol name in elf filie
     region_type = tables.EnumCol(region_types, BOOKKEEPING, base='uint8')
     substagenum = tables.UInt8Col()
     new = tables.BoolCol()
@@ -365,7 +369,7 @@ class SubstagesInfo():
 
         intervals = {n: intervaltree.IntervalTree() for n in substages}
         for num in substages:
-            for r in pytable_utils.get_rows(interval_table,
+            for r in pytable_utils.get_rows(self.trace_intervals_table,
                                             'substagenum == %s' % num):
                 # lookup writes performed by this function
                 f = r['functionname']
@@ -395,6 +399,7 @@ class SubstagesInfo():
         intervals = self.calculate_intervals(substages)
         db_info.get(self.stage).write_trace_intervals(intervals,
                                                       self.trace_intervals_table)
+        self.print_substage_tables()
 
     def populate_substage_policy_tables(self):
         mmap_info = substages_parser.MmapFileParser(self.mmap_file)
@@ -422,7 +427,7 @@ class SubstagesInfo():
                 if numaddrs > 7:
                     addrs.append('...')
                     break
-                addrs.append("[0x%x, 0x%x]" % (a['startaddr'], a['endaddr']))
+                addrs.append("[0x%08x, 0x%08x]" % (a['startaddr'], a['endaddr']))
                 numaddrs += 1
             print 'Region: %s%s @{%s} reclass=%s' % (name, longname,
                                                      ', '.join(addrs),
@@ -509,17 +514,19 @@ class SubstagesInfo():
                     policy_row['reclassified'] = r.short_name in s.reclassified_regions
                     policy_row['allowed_symbol'] = False
                     policy_row['symbol_name'] = ''
+                    policy_row['symbol_elf_name'] = ''
                     policy_row.append()
             if s.is_cooking_substage():
                 for v in s.allowed_symbols:
                     pat = "^(%s)(.[\d]{5})?$" % v
-                    for r in db_info.get(self.stage).symbol_names_with(pat):
+                    for r in db_info.get(self.stage).symbol_names_with(v):
                         res = re.match(pat, r)
                         if res is not None:
                             rname = self.region_name_from_symbol(v)
                             policy_row['default_perms'] = getattr(perms, 'rwx')
                             policy_row['short_name'] = rname
-                            policy_row['symbol_name'] = r
+                            policy_row['symbol_elf_name'] = r
+                            policy_row['symbol_name'] = v
                             policy_row['region_type'] = getattr(region_types, 'symbol')
                             policy_row['substagenum'] = s.num
                             policy_row['new'] = False
@@ -681,10 +688,10 @@ class SubstagesInfo():
         iis = intervaltree.IntervalTree()
         for region in drs:
             if region['allowed_symbol']:
-                sname = region['symbol_name']
+                sname = region['symbol_elf_name']
                 iis.add(self.lookup_symbol_interval(sname, n))
             else:
-                query = '(short_name == "%s")' % region['short_name']
+                query = 'short_name == "%s"' % region['short_name']
                 for r in self.substage_mmap_addr_table.where(query):
                     iis.add(intervaltree.Interval(r['startaddr'],
                                                   r['endaddr']))
@@ -692,13 +699,13 @@ class SubstagesInfo():
         iis.merge_equals()
         return iis
 
-    def check_trace(self, tracedb):
-        table = tracedb.writerangetable_consolidated
+    def check_trace(self, table):
+        violation = False
         ss = self._substages_entrypoints()
-        self.open_dbs(False, False)
         for n in range(0, len(ss)):
             allowed_writes = self.allowed_writes(n)
-            for r in table.table.where("substage == %d" % n):
+
+            for r in table.tables[n].where("substage == %d" % n):
                 i = intervaltree.IntervalTree([intervaltree.Interval(r['dstlo'], r['dsthi'])])
                 union = allowed_writes.union(i)
                 union.merge_overlaps()
@@ -707,3 +714,6 @@ class SubstagesInfo():
                     print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,
                                                                            r['dstlo'],
                                                                            r['dsthi'])
+                    violation = True
+        if not violation:
+            print "Policy was not violated :)"

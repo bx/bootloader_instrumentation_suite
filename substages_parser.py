@@ -117,7 +117,6 @@ class MmapFileParser():
         self.stagename = get_value(self.data, 'stagename')
         self.stage = Main.stage_from_name(self.stagename)
         self.regions = {}
-
         for (k, v) in self._raw_regions.iteritems():
             self._parse(k, v, None)
         self._resolve_addresses()
@@ -187,7 +186,7 @@ class SubstagesConfig():
             s = getattr(self, n)
             setattr(self, n, list(s))
         self.new_reloc = False
-        if self.is_cooking_substage():
+        if self.is_cooking_substage() or self.is_patching_substage():
             # see if listed in reloc table
             if db_info.get(stage).name_in_relocs_table(self.fn):
                 self.new_reloc = True
@@ -197,10 +196,19 @@ class SubstagesConfig():
 
     @classmethod
     def is_cooking_substage_type(cls, typ):
-        return typ in ['subsequent_substage_copy', 'subsequent_substage_setup']
+        return typ in ['subsequent_substage_copy',
+                       'loading']
 
     def is_cooking_substage(self):
         return self.is_cooking_substage_type(self.substage_type)
+
+    def is_patching_substage(self):
+        return self.is_patching_substage_type(self.substage_type)
+
+    @classmethod
+    def is_patching_substage_type(cls, typ):
+        return typ in ['subsequent_substage_setup', 'patching']
+
 
     def _include_region(self, all_regions, r_name, r_list):
         if not r_name in all_regions.iterkeys():
@@ -227,7 +235,6 @@ class SubstagesConfig():
         for (r, v) in self._reclassified_regions.iteritems():
             reclass[r] = set()
             self._include_region(all_regions, r, reclass[r])
-
         self.available_regions.update(prev_regions)
         self.available_regions.update(self.new_regions)
         allregions = set(self.available_regions)
@@ -235,26 +242,27 @@ class SubstagesConfig():
         allregions.update(self.processed_regions)
         allregions.update(self.reclassified_regions)
         allregions.update(self.used_bookkeeping)
-        for r in all_regions.itervalues():
-            if MmapRegion.is_region_writable(self.substage_type, r.type_at_substage(self.num)):
-                self.writable_regions.add(r.short_name)
-        if self.is_cooking_substage():
-            for r in self.used_bookkeeping:
-                self.writable_regions.add(r)
-            for r in self.processed_regions:
-                self.writable_regions.add(r)
+        allregions.update(all_regions.itervalues())
+        #if self.is_cooking_substage():
+        #    for r in self.used_bookkeeping:
+        #        self.writable_regions.add(r)
+        #    for r in self.processed_regions:
+        #        self.writable_regions.add(r)
         self.reclassified_regions = set()
         for (r, v) in reclass.iteritems():
             for n in v:
                 all_regions[n].reclassification_rules[self.num] = self._reclassified_regions[r]
             self.reclassified_regions.update(v)
+        for r in allregions:
+            if MmapRegion.is_region_writable(self.substage_type, r.type_at_substage(self.num)):
+                self.writable_regions.add(r.short_name)
 
     def __repr__(self):
-        return "SubstagesConfig(num=%s, fn=%s, type=%s, regions=%s, processed=%s, available=%s, writable=%s)" % \
+        return "SubstagesConfig(num=%s, fn=%s, type=%s, regions=%s, processed=%s, available=%s, writable=%s, allowed=%s)" % \
             (self.num,
              self.fn,
              self.substage_type, self.available_regions, self.processed_regions,
-             len(self.available_regions), len(self.writable_regions))
+             len(self.available_regions), len(self.writable_regions), self.allowed_symbols)
 
 
 class MmapRegion():
@@ -279,7 +287,10 @@ class MmapRegion():
         self._raw_subregions = get_value(d, 'subregions')
         self._raw_include_children = get_value(d, 'include_children', parent_include_children)
         self._raw_reclassifiable = get_value(d, 'reclassifiable', parent_reclassifiable)
-        self._csv = Main.get_config("reglist")
+        self._csv = get_value(d, 'csv')
+        if self._csv:
+            self._csv = os.path.join(Main.get_config('test_instance_root'), self._csv)  # Main.get_config("reglist")
+
         self.contents = get_value(d, 'contents')
         self.children_names = [self.short_name + '.' + s for s in self._raw_subregions.iterkeys()]
         self.parent = parent
@@ -318,10 +329,15 @@ class MmapRegion():
         if SubstagesConfig.is_cooking_substage_type(substage_typ):
             return region_typ in ['stack', 'output_parameters',
                                   'relocation_data', 'cooking_bookkeeping',
+                                  'future', 'global'
                                   'subsequent_substage', 'registers']
+        elif SubstagesConfig.is_patching_substage_type(substage_typ):
+            return region_typ in ['stack', 'output_parameters',
+                                  'patching', 'registers', 'global']
+
         else:
             return region_typ in ['stack', 'bookkeeping', 'registers',
-                                  'vital', 'output_parameters']
+                                  'vital', 'global', 'output_parameters']
 
     def _convert_from_raw(self, values):
         raw_fields = ['typ', 'default_perms', 'addresses', 'subregions',
@@ -359,7 +375,6 @@ class MmapRegion():
                         continue
                     for i in s.addresses:
                         remainder.chop(i.begin, i.end)
-                #print "remainder %s from %s" % (remainder, self.parent.addresses)
                 remainder.merge_overlaps()
                 remainder.merge_equals()
                 toremove = []
@@ -406,7 +421,6 @@ class MmapRegion():
     def _resolve_region_relative(self, s, allregions):
         val = s
         split = s.split('.')
-        #print "res %s %s" % (s, values)
         if '.'.join(split[:-1]) in allregions.iterkeys():
             statedname = '.'.join(split[:-1])
 
@@ -454,13 +468,12 @@ class MmapRegion():
     def _resolve_var_addr(self, s, allregions, values):
         val = s
         split = s.split('.')
-        #print "res %s %s" % (s, values)
         if '.'.join(split[:-1]) in allregions.iterkeys():
             val = self._resolve_region_relative(s, allregions)
         elif s in values.iterkeys():
             val = values[s]
-        elif config.stage_from_name(split[0]):
-            stage = config.stage_from_name(split[0])
+        elif config.Main.stage_from_name(split[0]):
+            stage = config.Main.stage_from_name(split[0])
             if len(split) > 1:
                 attr = split[1]
                 val = getattr(stage, attr, val)
@@ -557,9 +570,9 @@ class MmapRegion():
             f.close()
             all_resolved = True
         elif (type(self._raw_addresses) == list):
-            if not self._raw_addresses:
-                return
-            elif type(self._raw_addresses[0]) == list:  # its a list of lists of subregions
+            #if not self._raw_addresses:
+            #    return
+            if type(self._raw_addresses[0]) == list:  # its a list of lists of subregions
                 for a in self._raw_addresses:
                     all_resolved = all_resolved and self._resolve_addr_region(a, all_regions,
                                                                               values)

@@ -135,7 +135,7 @@ regions:
         comment: manually calculated from test run
       rest:
         addresses: "remainder"
-        type: "input_parameters"
+        type: "bookkeeping_readonly"
         include_children: True
         reclassifiable: True
         comment: "Eventually becomes the stack, ending at 0x4020fa10"

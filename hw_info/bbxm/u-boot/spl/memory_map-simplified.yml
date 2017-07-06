@@ -1,0 +1,103 @@
+regions:
+  ROM:
+    type: "readonly"
+    addresses: [0x40000000, 0x4001C000]
+  RAM:
+    addresses: [0x40200000, 0x40210000]
+    subregions:
+      rom_stack:
+        type: "readonly"
+        reclassifiable: True                
+        addresses: ["ROM_STACK_START", "ROM_STACK_END"]
+        comment: manually calculated from test run      
+      downloaded_image:
+        name: "downloaded image"
+        addresses: ["ROM_STACK_END", 0x4020FFB0]
+        include_children: False
+        subregions:
+          downloaded_image_text:
+            type: "readonly"
+            addresses: ["RAM.downloaded_image.start", ".text.end"]
+          downloaded_image_data:
+            type: "bookkeeping"
+            addresses: [".text.end", "__image_copy_end"]
+            include_children: True
+          scratch_space:
+            type: "bookkeeping"            
+            include_children: True        
+            addresses: ["SCRATCH_SPACE_ADDR", "OMAP5_SCRATCH_SPACE_END"]
+          remainder:
+            type: "bookkeeping"
+            addresses: ["OMAP5_SCRATCH_SPACE_END", 0x4020F000]
+          public_stack:
+            name: "Public stack"
+            type: "bookkeeping"
+            reclassifiable: True
+            addresses: [0x4020F000, 0x4020FFB0]
+            comments: "initial stack value set by rom in qemy misc/omap3_boot.c:148/165 to 0x4020fcb0 (and then decremented to fit several KB of data"
+            include_children: True
+            subregions:
+              cpy_clk_code:
+                type: "future"
+                include_children: True        
+                addresses: [0x4020f840, "0x4020f840 + lowlevel_init - cpy_clk_code"]
+                comment: "double-check end address, i thought it copies from go_to_speed"
+              stack_rest:
+                addresses: "remainder"
+                include_children: True            
+      rest:
+        addresses: "remainder"
+        type: "bookkeeping_readonly"
+        reclassifiable: True
+        comment: "Eventually becomes the stack, ending at 0x4020fa10"
+
+  SRAM:
+    type: "none"
+    addresses: [0x80000000, 0xc0000000]
+    subregions:
+      bss:
+        addresses: [0x80000000, 0x80030144]
+        subregions:
+          sram_test:
+            addresses: [0x80000400, 0x80000404]
+          bss_rest:
+            addresses: "remainder"
+      image:
+        name: "Next stage's disk image"
+        addresses: [0x80100000, "0x80100000 + main.image_size"]
+      heap:
+        addresses: ["CONFIG_SYS_SPL_MALLOC_START", "CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE"]
+      nonbss:
+        addresses: "remainder"
+        subregions:
+          sram_test:
+            addresses: [[0xA0000400, 0xA0000404], [0xA0000000, 0xA0000008]]
+          rest:
+            addresses: "remainder"
+        
+  Registers:
+    csv: "regs.csv"
+    type: "registers"
+    include_children: True
+  missing_control_padconf0:
+    type: "registers"        
+    addresses: [0x48002150, 0x48002154]
+    comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
+  missing_control_padconf1:
+    type: "registers"
+    addresses: [0x48002154, 0x48002158]    
+    comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
+  missing_protection_mech_0:
+    type: "registers"
+    addresses: [0x68010060, 0x68010068]    
+    comment: "address written to by boootloader (secure_unlock_mem) must not listed in am37x hardware reference"
+
+values:
+  SCRATCH_SPACE_ADDR: 0x4020E000
+  OMAP5_SCRATCH_SPACE_END: 0x4020E029
+  ROM_STACK_START: 0x40200000
+  ROM_STACK_END: 0x40200254
+  CONFIG_SYS_SPL_MALLOC_START: 0x80208000
+  CONFIG_SYS_SPL_MALLOC_SIZE: 0x100000
+
+stagename: "spl"

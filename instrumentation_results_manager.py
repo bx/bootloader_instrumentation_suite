@@ -38,6 +38,7 @@ import re
 import atexit
 import glob
 import importlib
+import difflib
 from doit.action import CmdAction
 from doit import create_after
 from doit.tools import LongRunning, Interactive, PythonInteractiveAction
@@ -173,6 +174,8 @@ class CopyFileTask(TestTask):
         self.other = {'uptodate': [(self.uptodate, )]}
         self.file_dep = [self.src]
         self.actions = ["cp %s %s" % (self.src, self.dst)]
+        if self.src == self.dst:
+            raise Exception
         self.targets = [self.dst]
 
 
@@ -290,7 +293,7 @@ class PostTraceLoader(ResultsLoader):
         targets = []
         for (k, v) in self._processes_types.iteritems():
             if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
-                                                           self.tracenames)):
+                                                        self.tracenames)):
                 continue
             tasks.append(self._mkdir(self._process_path(k)))
         return tasks
@@ -298,9 +301,10 @@ class PostTraceLoader(ResultsLoader):
     def _process_tasks(self):
         tasks = []
         uptodate = {"uptodate": [True]}
+        not_uptodate = {"uptodate": [False]}
         for (k, v) in self._processes_types.iteritems():
             if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
-                                                           self.tracenames)):
+                                                        self.tracenames)):
                 continue
             if k not in self._processes_types.iterkeys():
                 continue
@@ -310,6 +314,8 @@ class PostTraceLoader(ResultsLoader):
                 for t in ts:
                     t.other.update(uptodate)
             else:
+                for t in ts:
+                    t.other.update(not_uptodate)
                 tasks.extend(ts)
         return tasks
 
@@ -354,15 +360,17 @@ class PostTraceLoader(ResultsLoader):
 
             def __call__(self):
                 db_info.get(self.s).generate_write_range_file(self.o)
-
+                db_info.get(self.s).consolidate_trace_write_table()
+        outs = {}
         for s in self.stages:
             deps = [Main.get_config('trace_db_done', s)]
             outfile = self._process_path(name,
                                          "%s-write_range_info.txt" % s.stagename)
-
             a = ActionListTask([PythonInteractiveAction(Do(s, outfile))],
                                deps, [outfile], name)
+            outs[s] = outfile
             tasks.append(a)
+        Main.set_config("consolidate_writes_done", lambda s: outs[s])
         return tasks
 
     def _policy_check(self, name):
@@ -378,8 +386,9 @@ class PostTraceLoader(ResultsLoader):
                 self.s = s
 
             def __call__(self):
-                db_info.create(self.s, "policytracedb")
-                #db_info.get(self.s).generate_write_range_file(self.o)
+                if not Main.get_config("policy_trace_done", self.s):
+                    db_info.create(self.s, "policytracedb")
+                db_info.get(self.s).check_trace()
 
         for s in Main.get_config("stages_with_policies"):
             if s not in self.stages:
@@ -394,12 +403,12 @@ class PostTraceLoader(ResultsLoader):
                 deps = [Main.get_config("calltrace_db", s)]
             else:
                 deps = [Main.get_config('framac_callstacks', s)]
-            tasks.append(ActionListTask([PythonInteractiveAction(Do(s)),
-                                         "touch %s" % tp_db_done[n]],
-                                        deps,
-                                        [tp_db_done[n], tp_db[n], el_file[n]],
-                                        "%s_postprocess_trace_policy" % (n)))
-
+            deps.append(Main.get_config("consolidate_writes_done", s))
+            a = ActionListTask([PythonInteractiveAction(Do(s)),
+                                "touch %s" % tp_db_done[n]],
+                               deps, [tp_db_done[n], tp_db[n], el_file[n]],
+                               "%s_postprocess_trace_policy" % (n))
+            tasks.append(a)
         Main.set_config("policy_trace_db", lambda s: tp_db[s.stagename])
         Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
         Main.set_config("policy_trace_done", lambda s: tp_db_done[s.stagename])
@@ -419,9 +428,22 @@ class TraceTaskLoader(ResultsLoader):
         self.quick = quick
         if self.create:
             self.trace_id = self.create_new_id()
+        elif trace_name is None:  # get last id
+            self.trace_id = sorted(self.existing_trace_ids())[0]
         else:
-            self.trace_id = trace_name
+            existing = sorted(self.existing_trace_ids())
+            if trace_name not in existing:
+                res = difflib.get_close_matches(trace_name, existing, 1, 0)
+                if not res:
+                    self.trace_id = existing[-1]
+                else:
+                    self.trace_id = res[0]
+            else:
+                self.trace_id = trace_name
+
         self.config_path = self._test_path("config.yml")
+        if self.print_cmds:
+            print "config at: %s" % self.config_path
         if create:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
@@ -499,7 +521,6 @@ traces: [{}]
             with open(f, "w") as fconfig:
                 fconfig.write(c)
         Main.set_config("test_config_file", self.config_path)
-        #Do(filecontents, self.config_path)],
         a = ActionListTask([(write, [self.config_path, filecontents])],
                            [], [self.config_path], "test_config_file")
         tasks.append(a)
@@ -950,7 +971,7 @@ sha1: {}
 
 class PolicyTaskLoader(ResultsLoader):
     def __init__(self, policies, run_tasks):
-        print "policy task loader run %s" % run_tasks
+        print "policy task loader run %s for %s" % (run_tasks, policies)
         test_id = Main.get_config("test_instance_id")
         test_ = Main.get_config("test_instance_id")
         super(PolicyTaskLoader, self).__init__(test_id, "policy", run_tasks)
@@ -985,7 +1006,7 @@ class PolicyTaskLoader(ResultsLoader):
             regions_file_name = "memory_map-%s.yml" % n
             policystagedir = self._full_path(s)
             if not MkdirTask.exists(self._full_path(s)):
-                tasks.append(self._mkdir(policy_file_name))
+                tasks.append(self._mkdir(self._full_path(s)))
 
             stages_with_policies.append(s)
             if n not in self.policies:
@@ -1014,12 +1035,15 @@ class PolicyTaskLoader(ResultsLoader):
             else:
                 s_policy = policy_entry[0]  # self.policies[n][0]
                 s_regions = policy_entry[1]  # self.policies[n][1]
+
             pdir = os.path.join(Main.get_config("bootloader_data_dir"), n)
             if s_policy is None or not os.path.exists(s_policy):  # use default
                 s_policy = os.path.join(pdir, pname)
             if s_regions is None or not os.path.exists(s_regions):  # use default
                 s_regions = os.path.join(pdir, rname)
+
             names[n] = substage.SubstagesInfo.calculate_name_from_files(s_policy, s_regions)
+            print names
             datadir = os.path.join(policystagedir, names[n])
             policies[n] = os.path.join(datadir, policy_file_name)
             regions[n] = os.path.join(datadir, regions_file_name)
@@ -1027,11 +1051,12 @@ class PolicyTaskLoader(ResultsLoader):
             dbs[n] = os.path.join(datadir, "policy-%s.h5" % n)
             if not MkdirTask.exists(datadir):
                 tasks.append(self._mkdir(datadir, "%s_data" % n))
-            tasks.append(self._copy_file(s_policy,
-                                         policies[n], "%s_policy" % n))
-            tasks.append(self._copy_file(s_regions,
-                                         regions[n], "%s_regions" % n))
-
+            if not s_policy == policies[n]:
+                tasks.append(self._copy_file(s_policy,
+                                             policies[n], "%s_policy" % n))
+            if not s_regions == regions[n]:
+                tasks.append(self._copy_file(s_regions,
+                                             regions[n], "%s_regions" % n))
         Main.set_config("policy_file", lambda s: policies[s.stagename])
         Main.set_config("regions_file", lambda s: regions[s.stagename])
         Main.set_config("policy_name", lambda s: names[s.stagename])

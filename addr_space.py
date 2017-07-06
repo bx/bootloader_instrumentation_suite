@@ -96,7 +96,6 @@ class AddrSpaceInfo():
         return "%s_vars" % stage.stagename
 
     def open_dbs(self, loc, create=False, csv=None):
-        print "opening %s" % loc
         if create:
             self._create_tables(loc, csv)
         else:

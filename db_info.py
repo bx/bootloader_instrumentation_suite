@@ -130,7 +130,7 @@ class PolicyDB(DBObj):
     def _create(self, trace=False):
         self._db = substage.SubstagesInfo(self.stage)
         self._db.create_dbs(True, trace)
-
+        self._db.print_substage_tables()
 
 # class PolicyTraceDB(PolicyDB):
 #     def _create(self):
@@ -183,7 +183,6 @@ class TraceDB(DBObj):
 
     def _create(self):
         dbpath = Main.get_config("trace_db", self.stage)
-        # print dbpath
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
@@ -224,7 +223,7 @@ class DBInfo():
 
     def reloc_offset_and_mod_from_cardinal(self, cardinal):
         r = pytable_utils.get_unique_result(self._sdb.db.relocstable, 'cardinal == %s' % cardinal)
-        return (r['offset'], r['relmod'])
+        return (r['reloffset'], r['relmod'])
 
     def reloc_info_by_cardinal(self, names):
         rows = pytable_utils.get_sorted(self._sdb.db.relocstable, 'cardinal')
@@ -233,7 +232,7 @@ class DBInfo():
 
     def mmap_var_loc(self, name):
         res = pytable_utils.get_unique_result(self._mdb.db.var_table[self.stage.stagename],
-                                              name)
+                                              'name == "%s"' % name)
         return (res['startaddr'], res['endaddr'])
 
     def symbol_names_with(self, substr):
@@ -242,7 +241,8 @@ class DBInfo():
                                     "contains(name, \"%s\")" % substr)]
 
     def reloc_names_in_substage(self, substagenum):
-        return [r['name'] for r in pytable_utils.query(self._sdb.db.relocstable, substagenum)]
+        return [r['name'] for r in pytable_utils.query(self._pdb.db.substage_reloc_info_table,
+                                                       'substagenum == %s' % substagenum)]
 
     def reloc_info(self):
         fields = self._sdb.db.relocstable.colnames
@@ -309,7 +309,6 @@ class DBInfo():
         return self._sdb.db._get_write_pc_or_zero(dstinfo)
 
 
-
     def add_range_dsts_entry(self, dstinfo):
         self._tdb.db.writerangetable.add_dsts_entry(dstinfo)
 
@@ -331,12 +330,12 @@ class DBInfo():
         self._tdb._open(True)
         self._sdb.close()
         self._sdb._open(append=True)
-        if not self._tdb.db.has_histogram():
-            self._tdb.db.histogram()
+        #if not self._tdb.db.has_histogram():
+        self._tdb.db.histogram()
         self.trace_histograminfo(out)
 
-    def consoladate_trace_write_table(self):
-        self._tdb.db.consoladate_write_table()
+    def consolidate_trace_write_table(self):
+        self._tdb.db.consolidate_write_table()
 
     def flush_tracedb(self):
         if self._tdb:
@@ -349,11 +348,18 @@ class DBInfo():
     def allowed_substage_writes(self, substage):
         return self._pdb.db.allowed_writes(substage)
 
+    def check_trace(self):
+        self._pdb.db.check_trace(self._get_writerangetable())
+
     def _get_writestable(self, hwname):
         if "framac" in hwname:
             return self._tdb.db.writerangetable_consolidated
         else:
             return self._tdb.db.writestable
+
+    def _get_writerangetable(self):
+        return self._tdb.db.writerangetable_consolidated
+
 
     def function_locations(self, name):
         return [(r['startaddr'], r['endaddr'])

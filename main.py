@@ -49,7 +49,7 @@ if __name__ == '__main__':
     cmds.add_argument('-b', '--buildcommands',
                       help="Print build commands for the listed software "
                       "(openocd, u-boot, qemu))", default=[],
-                       action="append")
+                      action="append")
     cmds.add_argument('--print_policy', default=False, action='store_true')
     parser.add_argument('-o', '--testcfginstance',
                         help='Name of test config result directory to open, " \
@@ -111,15 +111,19 @@ if __name__ == '__main__':
             self.stages = list(Main.get_bootloader_cfg().supported_stages.itervalues())
             self.stagenames = [s.stagename for s in self.stages]
             self.nargs = 3
+            defaultdir = os.path.join(Main.hw_info_path,
+                                      Main.get_hardwareclass_config().name,
+                                      Main.get_bootloader_cfg().software)
+            self.sdefaults = {s.stagename: (os.path.join(defaultdir, s.stagename, "substages.yml"),
+                                            os.path.join(defaultdir, s.stagename, "memory_map.yml"))
+
+                              for s in self.stages}
             if dest == "importpolicy":
-                defaultdir = os.path.join(Main.hw_info_path,
-                                          Main.get_hardwareclass_config().name,
-                                          Main.get_bootloader_cfg().software)
-                defaults = {s.stagename: (os.path.join(defaultdir, s.stagename, "substages.yml"),
-                                          os.path.join(defaultdir, s.stagename, "memory_map.yml"))
-                            for s in self.stages}
+                defaults = self.sdefaults
             else:
                 defaults = {}
+
+
             kwargs['default'] = defaults
             super(SubstageFileAction, self).__init__(option_strings, dest, **kwargs)
 
@@ -131,14 +135,21 @@ if __name__ == '__main__':
                 raise argparse.ArgumentError(self,
                                              "%s not a valid stage, must be one of %s" %
                                              (stagename, str(self.stagenames)))
-            getattr(namespace, self.dest)[stagename] = (f, d)
+            if self.dest == 'importpolicy':
+                setattr(namespace, "doimport", True)
+            for s in self.stagenames:
+                if s == stagename:
+                    getattr(namespace, self.dest)[s] = (f, d)
+                else:
+                    if s not in getattr(namespace, self.dest).iterkeys():
+                        getattr(namespace, self.dest)[s] = self.sdefaults[s]
 
     class SubstageNameAction(argparse.Action):
         def __init__(self, option_strings, dest, **kwargs):
             stages = list(Main.get_bootloader_cfg().supported_stages.itervalues())
             self.stagenames = [s.stagename for s in stages]
             self.nargs = 2
-            defaults = {'spl': None}
+            defaults = {}
             kwargs['default'] = defaults
             super(SubstageNameAction, self).__init__(option_strings, dest, **kwargs)
 
@@ -180,15 +191,21 @@ if __name__ == '__main__':
     shell = run_cmd.Cmd()
     res = 0
     do_build = True if args.build or args.buildcommands else False
-    import_policies = True
+    run = True
+    import_policies = False
     if args.create:
         policies = args.policyfiles
-    elif args.importpolicy:
+        import_policies = True
+    elif hasattr(args, "doimport"):
         policies = args.importpolicy
-    else:
+        import_policies = True
+    elif args.policyname:
         policies = args.policyname
-        import_policies = False
+    else:
+        policies = args.importpolicy
 
+    if args.print_cmds or args.importpolicy:
+        run = False
     task_mgr = doit_manager.TaskManager((args.buildcommands, args.build),
                                         args.create,
                                         args.enabled_stages,
@@ -198,7 +215,7 @@ if __name__ == '__main__':
                                         args.select_trace,
                                         import_policies,
                                         args.postprocess_trace,
-                                        None, True,
+                                        None, run,
                                         args.print_cmds)
 
     if args.build or args.buildcommands:
@@ -213,7 +230,7 @@ if __name__ == '__main__':
                             print "cd %s" % task.root_dir
                             print action.expand_action()
                     print "\n"
-    elif args.create:
+    elif args.create or import_policies:
         task_mgr.create_test_instance()
     elif args.run_trace:
         task_mgr.run_trace()
