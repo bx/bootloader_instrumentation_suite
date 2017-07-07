@@ -48,18 +48,13 @@ def int_repr(self):
 intervaltree.Interval.__str__ = int_repr
 intervaltree.Interval.__repr__ = int_repr
 BOOKKEEPING = "bookkeeping"
-substage_types = tables.Enum([BOOKKEEPING, "subsequent_substage_copy",
-                              "loading", "patching",
-                              "subsequent_substage_setup", "stage_exit"])
-region_types = tables.Enum(["subsequent_substage",
-                            "future", 'global', 'patching',
-                           "input_parameters",
-                            "output_parameters",
-                            "text", 'stack',
+substage_types = tables.Enum([BOOKKEEPING,
+                              "loading", "patching"])
+region_types = tables.Enum(["future", 'global', 'patching',
+                            'stack',
+                            'symbol',
                             'readonly',
-                            'bookkeeping_readonly',
-                            'symbol', "none",
-                            BOOKKEEPING, "relocation_data", "registers", "vital"])
+                            BOOKKEEPING])
 vlist = ['rw', 'r', 'w', 'none', '?']
 perms = tables.Enum(vlist + ["rwx", "x", "rx"])
 
@@ -93,11 +88,10 @@ class SubstageRegionPolicy(tables.IsDescription):
     region_type = tables.EnumCol(region_types, BOOKKEEPING, base='uint8')
     substagenum = tables.UInt8Col()
     new = tables.BoolCol()
-    in_process = tables.BoolCol()
-    available = tables.BoolCol()
+    defined = tables.BoolCol()
+    undefined = tables.BoolCol()
     writable = tables.BoolCol()
     reclassified = tables.BoolCol()
-    used_bookkeeping = tables.BoolCol()
     allowed_symbol = tables.BoolCol()
 
 
@@ -450,51 +444,47 @@ class SubstagesInfo():
             print '-----for substage %s ----' % (num)
 
             new = set()
-            inprocess = set()
-            available = set()
+            defined = set()
+            undefined = set()
             writable = set()
-            used_bookkeeping = set()
             reclassified = set()
             allregions = set()
             for s in self.substage_region_policy_table.iterrows():
                 name = s['short_name']
                 allregions.add(name)
                 if s['substagenum'] == num:
-                    if s['in_process']:
-                        inprocess.add(name)
+                    if s['defined']:
+                        defined.add(name)
                     if s['new']:
                         new.add(name)
                     if s['reclassified']:
                         reclassified.add(name)
                     if s['writable']:
                         writable.add(name)
-                    if s['used_bookkeeping']:
-                        used_bookkeeping.add(name)
-            used = new | inprocess | available | writable | reclassified | used_bookkeeping
+                    if s['undefined']:
+                        undefined.add(name)
+            used = new | defined | writable | reclassified
             unusedregions = allregions - used
-            print '%s total regions: %s new, %s in proccess -> %s writable | %s not writable' % \
-                (len(allregions), len(new), len(inprocess), len(writable), len(unusedregions))
+            print '%s total regions: %s new, %s defined -> %s writable | %s not writable' % \
+                (len(allregions), len(new), len(defined), len(writable), len(unusedregions))
             rowinfo = {}
             for s in pytable_utils.get_rows(self.substage_region_policy_table,
                                             'substagenum == %s' % (num)):
                 name = s['short_name']
                 rowinfo[name] = (region_types(s['region_type']),
                                  perms(s['default_perms']))
-            rs = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in available])
+            ds = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in defined])
             ns = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in new])
-            ps = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in inprocess])
+            us = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in undefined])
             ws = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in writable])
-            us = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0],
-                                              rowinfo[r][1]) for r in used_bookkeeping])
             cs = ', '.join(['(%s, %s, %s)' % (r,
                                               rowinfo[r][0], rowinfo[r][1]) for r in reclassified])
 
-            print 'available regions: %s' % rs
+            print 'defined regions: %s' % ds
             print 'new regions: %s' % ns
-            print 'inprocess regions: %s' % ps
+            print 'undefined regions: %s' % us
             print 'writable regions: %s' % ws
             print 'reclassified regions: %s' % cs
-            print 'used_bookkeeping regions: %s' % us
 
     def populate_policy_table(self, ss_info, mmap_info, policy_table):
         substages = list(ss_info.substages.iterkeys())
@@ -507,10 +497,9 @@ class SubstagesInfo():
                     policy_row['region_type'] = getattr(region_types, r.type_at_substage(s.num))
                     policy_row['substagenum'] = s.num
                     policy_row['new'] = r.short_name in s.new_regions
-                    policy_row['in_process'] = r.short_name in s.processed_regions
-                    policy_row['available'] = r.short_name in s.available_regions
+                    policy_row['undefined'] = r.short_name in s.undefined_regions
+                    policy_row['defined'] = r.short_name in s.defined_regions
                     policy_row['writable'] = r.short_name in s.writable_regions
-                    policy_row['used_bookkeeping'] = r.short_name in s.used_bookkeeping
                     policy_row['reclassified'] = r.short_name in s.reclassified_regions
                     policy_row['allowed_symbol'] = False
                     policy_row['symbol_name'] = ''
@@ -530,10 +519,9 @@ class SubstagesInfo():
                             policy_row['region_type'] = getattr(region_types, 'symbol')
                             policy_row['substagenum'] = s.num
                             policy_row['new'] = False
-                            policy_row['in_process'] = False
-                            policy_row['available'] = False
+                            policy_row['defined'] = False
+                            policy_row['undefined'] = False
                             policy_row['writable'] = True
-                            policy_row['used_bookkeeping'] = False
                             policy_row['reclassified'] = False
                             policy_row['allowed_symbol'] = True
                             policy_row.append()
@@ -634,7 +622,6 @@ class SubstagesInfo():
         policymode = "w" if new_policy else "r"
         if new_trace:
             trace_db = Main.get_config("policy_trace_db", self.stage)
-            print "policy trace db %s" % trace_db
             self.h5file = tables.open_file(trace_db, mode=tracemode,
                                            title="%s substage info" %
                                            self.stage.stagename)

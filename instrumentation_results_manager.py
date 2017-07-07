@@ -173,9 +173,10 @@ class CopyFileTask(TestTask):
         self.dst = dst
         self.other = {'uptodate': [(self.uptodate, )]}
         self.file_dep = [self.src]
-        self.actions = ["cp %s %s" % (self.src, self.dst)]
+        self.actions = ["cp -f %s %s" % (self.src, self.dst)]
         if self.src == self.dst:
-            raise Exception
+            self.other = {'uptodate': [True]}
+            # then dont copy
         self.targets = [self.dst]
 
 
@@ -570,6 +571,7 @@ traces: [{}]
             (newtask, c, g, gdep,
              gtargets, d, dtargets) = self._process_handler(handler_tasks,
                                                             "hardware_handler", True)
+
             newtask.file_dep.extend([Main.get_config("test_config_file")])
             config.update(c)
             # ignore any gdb/done commands/deps/targets
@@ -615,6 +617,10 @@ traces: [{}]
                         gdb_file_dep,
                         gdb_targets + done_targets, "gdb_tracing")
             newtask = self.merge_tasks(newtask, c)
+            for s in self.stages:
+                newtask.file_dep.extend([Main.get_config("policy_file", s),
+                                         Main.get_config("regions_file", s)])
+
         sys.path.pop()
         if self.print_cmds:
             print "----------------------------------------"
@@ -704,6 +710,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         Main.set_config("bootloader_data_dir",  bootdir)
         self.task_adders = [self._image_tasks, self._reg_tasks, self._qemu_tasks,
                             self._staticanalysis_tasks, self._addr_map_tasks]
+        print "instr task loader"
         self._add_tasks()
 
     def _full_path(self, rel=""):
@@ -1043,7 +1050,6 @@ class PolicyTaskLoader(ResultsLoader):
                 s_regions = os.path.join(pdir, rname)
 
             names[n] = substage.SubstagesInfo.calculate_name_from_files(s_policy, s_regions)
-            print names
             datadir = os.path.join(policystagedir, names[n])
             policies[n] = os.path.join(datadir, policy_file_name)
             regions[n] = os.path.join(datadir, regions_file_name)

@@ -88,6 +88,8 @@ def get_value(d, key, default=None):
                 'new_regions': [],
                 'substage_types': [],
                 'used_bookkeeping': [],
+                'defined_regions': [],
+                'undefined_regions': [],
                 'subregion_types': [],
                 'allowed_symbols': [],
                 'regions': {},
@@ -159,29 +161,32 @@ class MmapFileParser():
 
 
 class SubstagesConfig():
-    def __init__(self, fn, d, num, stage, prevstage=None, mmap_info=None):
+    def __init__(self, fn, d, num, stage, prevstage, mmap_info):
         self.fn = fn
         self.num = num
         self.substage_type = get_value(d, 'substage_type').lower()
-        prev_regions = prevstage.available_regions if prevstage else set()
+        prev_regions = prevstage.defined_regions if prevstage else set()
         self._new_regions = get_value(d, 'new_regions')
-        self._used_bookkeeping = get_value(d, 'used_bookkeeping')
         self.new_regions = set()
-        self.used_bookkeeping = set()
-        self.available_regions = set()
-        self._processed_regions = get_value(d, 'processed_regions')
+        # self.used_bookkeeping = set()
+        self.defined_regions = set(prev_regions)
+        # self._processed_regions = get_value(d, 'processed_regions')
         self._reclassified_regions = get_value(d, 'reclassified_regions')
-        self.processed_regions = set()
+        self.reclassified_regions = set()
+        self._undefined_regions = get_value(d, 'undefined_regions')
+        self.undefined_regions = set()
+
         self.allowed_symbols = get_value(d, 'allowed_symbols')
-        self.reclassified_regions = {}
+        self.reclassified_regions = set()
         self.comments = get_value(d, 'comments')
         self.writable_regions = set()
         stack = get_value(d, 'stack')
         prevstack = prevstage.stack if prevstage else None
         self.stack = stack if stack else prevstack
+
         self._setup_region_info(mmap_info.regions if mmap_info else {}, prev_regions)
         # convert from set to list
-        for i in ['available', 'processed', 'new', 'writable', 'reclassified']:
+        for i in ['writable', 'reclassified', 'defined', 'new', 'undefined']:
             n = i + '_regions'
             s = getattr(self, n)
             setattr(self, n, list(s))
@@ -196,8 +201,7 @@ class SubstagesConfig():
 
     @classmethod
     def is_cooking_substage_type(cls, typ):
-        return typ in ['subsequent_substage_copy',
-                       'loading']
+        return typ in ['loading']
 
     def is_cooking_substage(self):
         return self.is_cooking_substage_type(self.substage_type)
@@ -207,11 +211,10 @@ class SubstagesConfig():
 
     @classmethod
     def is_patching_substage_type(cls, typ):
-        return typ in ['subsequent_substage_setup', 'patching']
-
+        return typ in ['patching']
 
     def _include_region(self, all_regions, r_name, r_list):
-        if not r_name in all_regions.iterkeys():
+        if r_name not in all_regions.iterkeys():
             raise Exception("No existing region named %s" % r_name)
         info = all_regions[r_name]
         r_list.add(r_name)
@@ -227,42 +230,38 @@ class SubstagesConfig():
     def _setup_region_info(self, all_regions, prev_regions):
         for r in self._new_regions:
             self._include_region(all_regions, r, self.new_regions)
-        for r in self._processed_regions:
-            self._include_region(all_regions, r, self.processed_regions)
-        for r in self._used_bookkeeping:
-            self._include_region(all_regions, r, self.used_bookkeeping)
+        # for r in self._processed_regions:
+        #     self._include_region(all_regions, r, self.processed_regions)
+        for r in self._undefined_regions:
+            self._include_region(all_regions, r, self.undefined_regions)
         reclass = {}
+        self.defined_regions.update(prev_regions)
+        self.defined_regions.update(self.new_regions)
         for (r, v) in self._reclassified_regions.iteritems():
             reclass[r] = set()
             self._include_region(all_regions, r, reclass[r])
-        self.available_regions.update(prev_regions)
-        self.available_regions.update(self.new_regions)
-        allregions = set(self.available_regions)
-        allregions.update(self.new_regions)
-        allregions.update(self.processed_regions)
-        allregions.update(self.reclassified_regions)
-        allregions.update(self.used_bookkeeping)
-        allregions.update(all_regions.itervalues())
-        #if self.is_cooking_substage():
-        #    for r in self.used_bookkeeping:
-        #        self.writable_regions.add(r)
-        #    for r in self.processed_regions:
-        #        self.writable_regions.add(r)
-        self.reclassified_regions = set()
+            if r not in self.defined_regions:
+                raise Exception("trying to reclassify region %s that is not yet defined in %s" % (r,
+                                                                                                  self.defined_regions))
+
+        self.defined_regions.update(self.new_regions)
+        self.defined_regions.difference_update(self.undefined_regions)
+
         for (r, v) in reclass.iteritems():
             for n in v:
                 all_regions[n].reclassification_rules[self.num] = self._reclassified_regions[r]
             self.reclassified_regions.update(v)
-        for r in allregions:
-            if MmapRegion.is_region_writable(self.substage_type, r.type_at_substage(self.num)):
+
+        for (n, r) in all_regions.iteritems():
+            if n in self.defined_regions and MmapRegion.is_region_writable(self.substage_type, r.type_at_substage(self.num)):
                 self.writable_regions.add(r.short_name)
 
     def __repr__(self):
-        return "SubstagesConfig(num=%s, fn=%s, type=%s, regions=%s, processed=%s, available=%s, writable=%s, allowed=%s)" % \
+        return "SubstagesConfig(num=%s, fn=%s, type=%s, regions=%s, writable=%s, allowed=%s)" % \
             (self.num,
              self.fn,
-             self.substage_type, self.available_regions, self.processed_regions,
-             len(self.available_regions), len(self.writable_regions), self.allowed_symbols)
+             self.substage_type, self.defined_regions,
+             len(self.writable_regions), self.allowed_symbols)
 
 
 class MmapRegion():
@@ -327,17 +326,15 @@ class MmapRegion():
     @classmethod
     def is_region_writable(cls, substage_typ, region_typ):
         if SubstagesConfig.is_cooking_substage_type(substage_typ):
-            return region_typ in ['stack', 'output_parameters',
-                                  'relocation_data', 'cooking_bookkeeping',
-                                  'future', 'global'
-                                  'subsequent_substage', 'registers']
+            return region_typ in ['stack',
+                                  'future', 'global']
         elif SubstagesConfig.is_patching_substage_type(substage_typ):
-            return region_typ in ['stack', 'output_parameters',
-                                  'patching', 'registers', 'global']
+            return region_typ in ['stack',
+                                  'patching', 'global']
 
         else:
-            return region_typ in ['stack', 'bookkeeping', 'registers',
-                                  'vital', 'global', 'output_parameters']
+            return region_typ in ['stack', 'bookkeeping',
+                                  'global']
 
     def _convert_from_raw(self, values):
         raw_fields = ['typ', 'default_perms', 'addresses', 'subregions',

@@ -82,7 +82,10 @@ class TaskManager():
                                                                             gitinfo)
 
         instrumentation_results_manager.PolicyTaskLoader(policies,
-                                                         (create_test and not print_cmds) or import_policies or len(post_trace_processing) > 0)
+                                                         (create_test and not print_cmds) or
+                                                         import_policies or
+                                                         len(post_trace_processing) > 0 or
+                                                         run_trace)
 
 
         if create_test:
