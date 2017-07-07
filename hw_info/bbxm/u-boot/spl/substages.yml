@@ -1,7 +1,7 @@
 _start:
   substage_type: "bookkeeping"
   comments: "Saves pointer to input parameters, does some hardware initialization"
-  new_regions: ["ROM", "RAM", "SRAM", "Registers", "missing_control_padconf0", "missing_control_padconf1", "missing_protection_mech_0"]
+  new_regions: ["ROM", "RAM", "Registers", "missing_control_padconf0", "missing_control_padconf1", "missing_protection_mech_0"]
 
 lowlevel_init:
   substage_type: "bookkeeping"
@@ -26,31 +26,31 @@ board_init_f_mem:
   
 board_init_f_mem_finish:
   substage_type: "bookkeeping"
-
+  new_regions: ["SRAM"]
+  
 board_init_f:
   comment: "get_board_revision writes to static var 'revision'"  
   substage_type: "loading"
   allowed_symbols: ["revision"]  
-  reclassified_regions:
-    SRAM.bss: "future"
-    SRAM.nonbss.sram_test: "future"
     
 _main_finish:
   substage_type: "bookkeeping"
   reclassified_regions:
-    SRAM.heap: "bookkeeping"   
-    SRAM.bss.sram_test: "future"
-    SRAM.nonbss.sram_test: "readonly"    
-
+    SRAM.heap: "global"   
+  reclassified_regions:
+    SRAM.bss: "future"
+  undefined_regions: ["SRAM.bss.sram_test"]
+    
 clear_bss:
   substage_type: "loading"
-
+  # something on the heap is written to in this stage via memset. to addr (80307fec,80308000)
 board_init_r:
   substage_type: "loading"
   allowed_symbols: ["mem_malloc_start", "mem_malloc_end", "mem_malloc_brk", "gpmc_cfg", "_u_boot_list_2_i2c_2_omap24_0", "spl_boot_list", "mmc_devices", "mem_malloc_brk", "current_mallinfo", "sbrk_base", "av_", "max_sbrked_mem", "max_total_mem", "cur_dev", "fat_registered", "spl_image", "cur_dev_num"]
   reclassified_regions:
     SRAM.bss: "bookkeeping"
     SRAM.image: "future"
+    SRAM.heap: "bookkeeping"
   comment: "mem_malloc_init -> mem_malloc_*; gpmc_init->gpmc_cfg; omap24_i2c_setspeed->_u_boot_list_2_i2c_2_omap24_0; board_boot_order->spl_boot_list; mmc_initialize->mmc_devices, cur_dev_num; sbrk->mem_malloc_nrk,mem_malloc_brk; malloc_extend_top->current_mallinfo,sbrk_base,av_,max_sbrked_mem,max_total_mem; malloc->av_ ; mmc_create->(heap); fat_register_device->cur_dev; spl_register_fat_device->fat_registered; free->av_; spl_parse_image_header->spl_image"    
     
 spl_after_load_image:

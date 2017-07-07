@@ -441,7 +441,7 @@ class SubstagesInfo():
                      s['name'], s['stack'], substage_types(s['substage_type']))
         print '----------policies----------'
         for num in substages:
-            print '-----for substage %s ----' % (num)
+            print '-----for substage %s (%s) ----' % (num, self._substages_entrypoints()[num])
 
             new = set()
             defined = set()
