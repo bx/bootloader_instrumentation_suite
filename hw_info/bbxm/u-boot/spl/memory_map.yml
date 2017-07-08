@@ -59,7 +59,7 @@ regions:
         addresses: [0x80000000, 0x80030144]
         subregions:
           sram_test:
-            type: "future"
+            type: "patching"
             addresses: [[0x80000000, 0x80000008], [0x80000400, 0x80000404]]
           bss_rest:
             addresses: "remainder"
@@ -70,9 +70,10 @@ regions:
         addresses: ["CONFIG_SYS_SPL_MALLOC_START", "CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE"]
       nonbss:
         addresses: "remainder"
-        type: "future"
+        include_children: True
         subregions:
           sram_test:
+            type: "patching"      
             addresses: [[0xA0000400, 0xA0000404], [0xA0000000, 0xA0000008]]
           rest:
             addresses: "remainder"
@@ -98,7 +99,7 @@ values:
   SCRATCH_SPACE_ADDR: 0x4020E000
   OMAP5_SCRATCH_SPACE_END: 0x4020E030
   ROM_STACK_START: 0x40200000
-  ROM_STACK_END: 0x40200254
+  ROM_STACK_END: 0x40200800
   CONFIG_SYS_SPL_MALLOC_START: 0x80208000
   CONFIG_SYS_SPL_MALLOC_SIZE: 0x100000
 

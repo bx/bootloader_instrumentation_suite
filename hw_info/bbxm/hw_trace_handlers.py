@@ -216,33 +216,78 @@ def enforce(main, configs,
             ("gdb_file_dep", deps)]
 
 
-def watchpoint(main, configs,
+def watchpoint(main,
+               configs,
                stages,
                policies,
                instance_id,
                test_id,
                data_root,
                quick):
+    hwname = main.get_config("trace_hw")
+    if hwname == "bbxmqemu":
+        gdb = main.cc + "gdb"
+        additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
+        if len(stages) > 1:
+            return []
+        deps = []
+        targets = []
+        done_commands = []
+        s = stages[0]
+        breakpoint = "*0x%x" % s.exitpc
+        f = main.get_config('trace_events_file', s)
+        deps.append(f)
+        done = main.get_config("trace_events_done")
+        done_commands.append(("command", "touch %s" % done))
+        targets.append(done)
+        gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
+        gdb_cmds.append("-ex 'break %s'" % breakpoint)
+        gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
+        return done_commands + [("targets", targets),
+                                ("file_dep", deps), ("gdb_commands", gdb_cmds)]
+    else:  # openocd
+        stepper_src = os.path.join(main.test_suite_path, "stepper", "stepper.py")
+        # additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
+        if len(stages) > 1:
+            return []
+        deps = []
+        targets = []
+        done_commands = []
+        f = main.get_config('openocd_init_file')
+        deps.append(f)
+        trace_dbs = {}
+        logs = {}
+        trace_db_done = {}
+        targets = []
+        openocd_init = Main.get_config('openocd_init_file')
+        for stage in stages:
+            if not stage.stagename == 'spl':
+                return []
+            else:
+                policy_id = policies[stage]
+                out = os.path.join(data_root, "openocd-log.txt")
+                args = "--stage %s --l %s -t %s -I %s -P %s -D -i %s" % (stage.stagename,
+                                                                         log,
+                                                                         test_id,
+                                                                         instance_id,
+                                                                         policy_id,
+                                                                         openocd_init)
+                cmd = "%s %s" % (stepper_src, args)
+                cmds.append(("command", cmd))
+                trace_dbs[stage] = os.path.join(data_root,
+                                                "tracedb-%s.h5" % stage)
+                trace_db_done[stage.stagename] = os.path.join(data_root,
+                                                              "tracedb-%s.completed" % stage)
+                done = trace_db_done[stage]
+                db = trace_dbs[stage]
+                cmds.append(("command", "touch %s" % trace_db_done[stage]))
+                targets.extend([db, done])
 
-    gdb = main.cc + "gdb"
-    additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
-    if len(stages) > 1:
-        return []
-    deps = []
-    targets = []
-    done_commands = []
-    s = stages[0]
-    breakpoint = "*0x%x" % s.exitpc
-    f = main.get_config('trace_events_file', s)
-    deps.append(f)
-    done = main.get_config("trace_events_done")
-    done_commands.append(("command", "touch %s" % done))
-    targets.append(done)
-    gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
-    gdb_cmds.append("-ex 'break %s'" % breakpoint)
-    gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
+        main_cfgs = {}
+        main_cfgs["trace_db"] = lambda s: trace_dbs[s]
+        main_cfgs["trace_db_done"] = lambda s: trace_db_done[s]
 
-    return done_commands + [("targets", targets), ("file_dep", deps), ("gdb_commands", gdb_cmds)]
+        return [("set_config", main_cfgs), ("file_dep", deps), ("targets", targets)] + cmds
 
 
 def bbxmbaremetal(main, boot_config,
@@ -255,7 +300,19 @@ def bbxmbaremetal(main, boot_config,
                   data_root,
                   is_watchpoint,
                   quick):
-    return []
+
+    openocd = os.path.join(host_software_config.root, host_software_config.binary)
+    if len(stages) > 1:
+        return []
+    deps = []
+    targets = []
+    cnds = []
+    s = stages[0]
+    jtag_config = main.get_config('openocd_jtag_config_path')
+    hw_config = main.get_config('openocd_hw_config_path')
+
+    return [("targets", targets), ("file_dep", deps),
+            ("long_running", cmds)]
 
 
 def framac(main,

@@ -76,17 +76,16 @@ import logging
 import time
 # import string
 import socket
-# import table
 # import sys
 import os
 import re
 path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(path, ".."))
 from config import Main
-import staticanalysis
-import database
-
+import doit_manager
+import db_info
 import signal
+import staticanalysis
 
 class OpenOcdRpcClient():
     COMMAND_TOKEN = '\x1a'
@@ -204,32 +203,23 @@ class OpenOcd():
 
 class OpenOcdStepper():
     def __init__(self, client,
-                 stage, test_cfg_name="", test_trace_name=""):
+                 stage,
+                 test_id, instance_id, policy_id):
         self.ia = staticanalysis.InstructionAnalyzer()
-        self.stagname = stage
-        if stage not in ['spl', 'main']:
-            raise Exception("bad stage name %s" % stage)
-        self.stage = Main.get_bootloader_cfg().supported_stages["u-boot-%s" % stage]
+        self.stage = stage
         self.ocd = client
         self.stepno = 0
-        self.hw = Main.hardware_instance_from_name('OpenocdWatchpointTrace')
-        self.test_mgr = test_manager.TestConfigMgr()
-        self.test_mgr.open_existing_test(test_cfg_name,
-                                         test_trace_name,
-                                         new_trace=False,
-                                         edit=True)
-        test_cfg = self.testcfg_mgr.current_test_cfg_instance
-        test_trace = test_cfg.current_test_trace
-        self.db = test_trace.get_trace_db_obj(self.stage, self.hw)
-        self.writetable = self.db.writestable
-        self.smctable = self.db.smcstable
-        self.srcstable = self.db.srcstable
-        self.skipstable = self.db.skipstable
-        self.relocsstable = self.db.relocstable
+        self.test_id = test_id
+        self.instance_id = instance_id
+        self.policy_id = policy_id
+        self.do_it = doit_manager.TaskManager(False, False, [self.stage],
+                                              {self.stage.stagename: policy_id},
+                                              False, False, self.instance_id,
+                                              False, [], self.test_id)
+
         self.exitpc = self.stage.exitpc
         self.minpc = self.stage.minpc
         self.maxpc = self.stage.maxpc
-        self.histofile = test_trace.get_histogram_txt_path(self.stage, self.hw)
 
         self.pc = self.ocd.read_reg("pc")
         signal.signal(signal.SIGINT, self.int_signal)
@@ -254,14 +244,7 @@ class OpenOcdStepper():
 
     def finish(self):
         print "finishing databse processing"
-        self.db.index_write_table()
-        print "making histogram"
-        self.db.histogram()
-        if not self.histofile == "":
-            print "writing histogram"
-            self.db.histograminfo(self.histofile)
-            print ".. human-readable histogram created at %s\n" % self.histofile
-        self.testcfg_mgr.close_dbs(True)
+        db_info.close()
 
     def int_signal(self, signal, frame):
         print "received int signal at %x" % self.pc
@@ -338,16 +321,15 @@ class OpenOcdStepper():
             else:
                 self.broken = False
 
-                row = next(self.smctable.where("pc == 0x%x" % self.pc), None)
-                if row:
+                if db_info.get(self.stage).is_smc(self.pc):
                     print "SKIPPING ROM"
                     self.execute_rom(self.pc + 4, False)
-                row = next(self.skipstable.where("pc == 0x%x" % self.pc), None)
+                row = next(db_info.get(self.stage).skip_info(self.pc), None)
                 if row:
                     self.execute_rom(row['resumepc'], thumb=row['thumb'])
 
-                row = next(self.writetable.where("pc == 0x%x" % self.pc), None)
-                srcrow = next(self.srcstable.where("addr == 0x%x" % self.pc), None)
+                row = next(db_info.stepper_write_info(self.pc), None)
+                srcrow = next(db_info.src_write_info(self.pc), None)
                 if row:  # if this instruction is a write instruction
                     size = 0
                     dest = None
@@ -357,8 +339,9 @@ class OpenOcdStepper():
                     dest = self.calculate_write_dest(self.pc, val, core,
                                                      [row['reg0'], row['reg1'],
                                                       row['reg2'], row['reg3']])
-                    self.db.add_write_entry(time.time(), 0, size, dest, self.pc,
-                                            self.lr, self.cpsr, self.stepno)
+                    db_info.add_trace_write_entry(
+                        time.time(), 0, size, dest, self.pc,
+                        self.lr, self.cpsr, self.stepno)
 
                 if (self.stepno % 1000) == 0:
                     print "stepno=%d pc=0x%x" % (self.stepno, self.pc)
@@ -415,6 +398,7 @@ def main():
                                 const=logging.CRITICAL, dest='loglevel')
     parser.add_argument('-n', '--noinit', help='do not run initialization', action='store_const',
                         const=True, default=False)
+
     parser.add_argument('-l', '--logfile', help='Path to file in which "\
     "to write openocd logging information',
                         action="store",
@@ -429,15 +413,19 @@ def main():
                         default="0x80100000")
     parser.add_argument('-D', '--writedest', help='Get extra write destination information',
                         action='store_true', default=False)
-    parser.add_argument('-t', '--test_config_name', action="store", default='')
+    parser.add_argument('-t', '--test_id', action="store", default='')
+    parser.add_argument('-I', '--instance_id', action="store", default='')
+    parser.add_argument('-p', '--policy_id', action="store", default='')
     parser.add_argument('-b', '--stage', action="store", default='spl')
-
     args = parser.parse_args()
 
     o = OpenOcd(args.openocdinit, args.noinit, args.logfile)
+    stage = Main.stage_from_name(args.stage)
     stepper = OpenOcdStepper(o,
-                             args.stage, args.histofile,
-                             args.test_config_name)
+                             stage,
+                             args.test_id,
+                             args.instance_id,
+                             args.policy_id)
     if args.startat:
         print "startat %x" % (int(args.startat, 0))
         time.sleep(1)

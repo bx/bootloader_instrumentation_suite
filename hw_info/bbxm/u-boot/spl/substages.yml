@@ -15,14 +15,18 @@ cpy_clk_code:
 lowlevel_init_finish:
   substage_type: "bookkeeping"
   reclassified_regions:
-    RAM.downloaded_image.public_stack: "stack"
     RAM.downloaded_image.remainder: "stack"
+    RAM.downloaded_image.public_stack.beginning: "stack"    
+    RAM.downloaded_image.public_stack.cpy_clk_code: "readonly"    
     RAM.rest: "readonly"
-    RAM.downloaded_image.public_stack.cpy_clk_code: "readonly"
     
 board_init_f_mem:
   substage_type: "bookkeeping"
   comment: "stack set by _main before board_init_f_mem"
+  reclassified_regions:
+     RAM.downloaded_image.remainder: "readonly"
+     RAM.downloaded_image.public_stack.beginning: "readonly"
+     RAM.downloaded_image.public_stack.stack_rest: "stack"         
   
 board_init_f_mem_finish:
   substage_type: "bookkeeping"
@@ -30,33 +34,33 @@ board_init_f_mem_finish:
   
 board_init_f:
   comment: "get_board_revision writes to static var 'revision'"  
-  substage_type: "loading"
+  substage_type: "patching"
   allowed_symbols: ["revision"]  
     
 _main_finish:
   substage_type: "bookkeeping"
   reclassified_regions:
-    SRAM.heap: "global"   
-  reclassified_regions:
+    SRAM.heap: "patching"
     SRAM.bss: "future"
+    SRAM.nonbss: "readonly"    
   undefined_regions: ["SRAM.bss.sram_test"]
     
 clear_bss:
   substage_type: "loading"
-  # something on the heap is written to in this stage via memset. to addr (80307fec,80308000)
+  comment: "something on the heap is written to in this stage via memset. to addr (80307fec,80308000)"
+
 board_init_r:
-  substage_type: "loading"
+  substage_type: "patching"
   allowed_symbols: ["mem_malloc_start", "mem_malloc_end", "mem_malloc_brk", "gpmc_cfg", "_u_boot_list_2_i2c_2_omap24_0", "spl_boot_list", "mmc_devices", "mem_malloc_brk", "current_mallinfo", "sbrk_base", "av_", "max_sbrked_mem", "max_total_mem", "cur_dev", "fat_registered", "spl_image", "cur_dev_num"]
   reclassified_regions:
     SRAM.bss: "bookkeeping"
     SRAM.image: "future"
-    SRAM.heap: "bookkeeping"
   comment: "mem_malloc_init -> mem_malloc_*; gpmc_init->gpmc_cfg; omap24_i2c_setspeed->_u_boot_list_2_i2c_2_omap24_0; board_boot_order->spl_boot_list; mmc_initialize->mmc_devices, cur_dev_num; sbrk->mem_malloc_nrk,mem_malloc_brk; malloc_extend_top->current_mallinfo,sbrk_base,av_,max_sbrked_mem,max_total_mem; malloc->av_ ; mmc_create->(heap); fat_register_device->cur_dev; spl_register_fat_device->fat_registered; free->av_; spl_parse_image_header->spl_image"    
     
 spl_after_load_image:
   substage_type: "bookkeeping"
   reclassified_regions:
     SRAM.image: "readonly"
-
+    SRAM.heap: "bookkeeping"
 jump_to_image_no_args:
   substage_type: "bookkeeping"

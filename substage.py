@@ -505,7 +505,7 @@ class SubstagesInfo():
                     policy_row['symbol_name'] = ''
                     policy_row['symbol_elf_name'] = ''
                     policy_row.append()
-            if s.is_cooking_substage():
+            if s.is_cooking_substage() or s.is_patching_substage():
                 for v in s.allowed_symbols:
                     pat = "^(%s)(.[\d]{5})?$" % v
                     for r in db_info.get(self.stage).symbol_names_with(v):

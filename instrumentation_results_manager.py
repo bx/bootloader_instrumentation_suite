@@ -709,8 +709,8 @@ class InstrumentationTaskLoader(ResultsLoader):
                                    "bootloaderdata": bootdir}
         Main.set_config("bootloader_data_dir",  bootdir)
         self.task_adders = [self._image_tasks, self._reg_tasks, self._qemu_tasks,
+                            self._openocd_tasks
                             self._staticanalysis_tasks, self._addr_map_tasks]
-        print "instr task loader"
         self._add_tasks()
 
     def _full_path(self, rel=""):
@@ -721,6 +721,21 @@ class InstrumentationTaskLoader(ResultsLoader):
 
     def _suite_src_path(self, rel=""):
         return os.path.join(Main.config.test_suite_path, rel)
+
+    def _openocd_tasks(self):
+        tasks = []
+        bootinfo = self.default_file_paths["bootloaderdata"]
+        tracefile = {}
+        hdir = os.path.join(Main.hw_info_path, hwname)
+        ocdinit = os.path.join(hdir, "ocdinit")
+        d = self._full_path("openocd")
+        ocd_cached = os.path.join(d, "ocdinit")
+        tasks.append(self._mkdir(d))
+        Main.set_config("openocd_init_file", ocd_cached)
+        tasks.append(self._copy_file(ocd_init, ocd_cached)
+        tasks.append(self.save_config("openocd_init_file", ocd_cached))
+        return tasks
+
 
     def _qemu_tasks(self):
         tasks = []
@@ -967,7 +982,10 @@ sha1: {}
             Main.set_config('enabled_stages', ss)
         for stage in Main.get_bootloader_cfg().supported_stages.itervalues():
             for t in ["elf", "image"]:
-                e = elfdst[stage.stagename]
+                if t == "elf":
+                    e = elfdst[stage.stagename]
+                else:
+                    e = imgdst[stage.stagename]
                 if os.path.exists(e):
                     setattr(stage, t, e)
         for stage in Main.get_config('enabled_stages'):

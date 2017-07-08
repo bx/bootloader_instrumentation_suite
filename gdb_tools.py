@@ -407,7 +407,7 @@ class GDBBootController(gdb.Command):
                           for s in self.stage_order if self._stages[s.stagename].substages is not None}
         stages = [s.stagename for s in self.stage_order]
         d = doit_manager.TaskManager(False, False, stages,
-                                     substage_names, False, {}, self.test_trace_name,
+                                     substage_names, False, False, self.test_trace_name,
                                      False,
                                      [], self.test_instance_name)
         if len(self.stage_order) == 0:

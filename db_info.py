@@ -264,6 +264,21 @@ class DBInfo():
         return [longwrites_dict(r)
                 for r in self._sdb.db.longwritestable.iterrows()]
 
+    def smcs_info(self):
+        fields = self._sdb.db.smcsstable.colnames
+
+        def smcs_dict(r):
+            d = {}
+            for f in fields:
+                d[f] = r[f]
+            return d
+        return [smcs_dict(r)
+                for r in self._sdb.db.smcstable.iterrows()]
+
+    def is_smc(self, pc):
+        query = "pc == 0x%x" % pc
+        return pytable_utils.has_results(self._sdb.db.smcstable, query)
+
     def longwrites_calculate_dest_addrs(self, row, rangetype, regs,
                                         sregs=None, eregs=None, string=None):
         calculator = staticanalysis.LongWriteRangeType.range_calculator(rangetype)
@@ -293,12 +308,40 @@ class DBInfo():
         query = "(pc <= 0x%x) & (0x%x < resumepc)" % (pc, pc)
         return pytable_utils.has_results(self._sdb.db.skipstable, query)
 
+    def skip_info(self, pc):
+        query = "pc == 0x%x" % (pc)
+        return [{"resumepc": r["resumepc"],
+                 "thumb": r["thumb"]}
+                for r in pytable_utils.query(self._sdb.db.skipstable, query)]
+
     def is_pc_longwrite(self, pc):
         query = "0x%x == writeaddr" % pc
         return pytable_utils.has_results(self._sdb.db.longwritestable, query)
 
     def write_info(self):
         return [(r['pc'], r['halt']) for r in self._sdb.db.writestable.iterrows()]
+
+    def stepper_write_info(self, pc):
+        fields = self._sdb.db.writestable.colnames
+
+        def writes_dict(r):
+            d = {}
+            for f in fields:
+                d[f] = r[f]
+            return d
+        query = "pc == 0x%x" % pc
+        return [writes_dict(r) for r in pytable_utils.query(self._sdb.db.writestable, query)]
+
+    def src_write_info(self, pc):
+        fields = self._sdb.db.srcsstable.colnames
+
+        def srcs_dict(r):
+            d = {}
+            for f in fields:
+                d[f] = r[f]
+            return d
+        query = "addr == 0x%x" % pc
+        return [srcs_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
 
     def add_trace_write_entry(self, time, pid, size,
                               dest, pc, lr, cpsr, index=0):
@@ -307,7 +350,6 @@ class DBInfo():
 
     def get_write_pc_or_zero_from_dstinfo(self, dstinfo):
         return self._sdb.db._get_write_pc_or_zero(dstinfo)
-
 
     def add_range_dsts_entry(self, dstinfo):
         self._tdb.db.writerangetable.add_dsts_entry(dstinfo)
