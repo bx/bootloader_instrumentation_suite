@@ -766,9 +766,9 @@ class WriteSearch():
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
         self.verbose = True
-        # self.h5file.remove_node(self.group, "skips")
-        # self.create_skip_table()
-        self.skipstable = self.group.skips
+        self.h5file.remove_node(self.group, "skips")
+        self.create_skip_table()
+        # self.skipstable = self.group.skips
 
     def print_relocs_table(self):
         for r in self.relocstable.iterrows():
@@ -875,7 +875,7 @@ class WriteSearch():
             SkipDescriptorGenerator("mmc_write_data1", self),
             SkipDescriptorGenerator("mmc_write_data2", self),
             SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
-            SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
+            #SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
 
             SkipDescriptorGenerator("mmc_read_data0", self),
             SkipDescriptorGenerator("mmc_read_data1", self),
