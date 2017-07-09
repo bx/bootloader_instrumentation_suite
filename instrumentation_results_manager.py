@@ -225,6 +225,9 @@ class ActionListTask(TestTask):
         self.actions = actions
         self.file_dep = self.fdeps
 
+    def __repr__(self):
+        return "Actions %s" % self.actions
+
 
 class ResultsLoader(object):
     def __init__(self, test_id, subgroup, run_task=True):
@@ -369,9 +372,9 @@ class PostTraceLoader(ResultsLoader):
                                          "%s-write_range_info.txt" % s.stagename)
             a = ActionListTask([PythonInteractiveAction(Do(s, outfile))],
                                deps, [outfile], name)
-            outs[s] = outfile
+            outs[s.stagename] = outfile
             tasks.append(a)
-        Main.set_config("consolidate_writes_done", lambda s: outs[s])
+        Main.set_config("consolidate_writes_done", lambda s: outs[s.stagename])
         return tasks
 
     def _policy_check(self, name):
@@ -443,8 +446,6 @@ class TraceTaskLoader(ResultsLoader):
                 self.trace_id = trace_name
 
         self.config_path = self._test_path("config.yml")
-        if self.print_cmds:
-            print "config at: %s" % self.config_path
         if create:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
@@ -466,11 +467,40 @@ class TraceTaskLoader(ResultsLoader):
         Main.set_config("trace_hw", self.hw)
         Main.set_config("trace_traces", self.tracenames)
         Main.set_config("trace_id", self.trace_id)
-        self.task_adders = [self._setup_tasks, self._collect_data]
+        self.task_adders = [self._setup_tasks, self._openocd_tasks, self._collect_data]
         self._add_tasks()
 
     def _format_id(self, num):
         return str(num).zfill(8)
+
+    def _openocd_tasks(self):
+        tasks = []
+        #bootinfo = self.default_file_paths["bootloaderdata"]
+        tracefile = {}
+
+        if not self.hw.host_software == "openocd":
+            return tasks
+
+        d = Main.get_config("test_instance_root", "openocd")
+        tasks.append(self._mkdir(d))
+        tasks.append(self.save_config("openocd_data_dir", d))
+        ocd_cached = os.path.join(d, "ocdinit")
+        sw = os.path.join(Main.object_config_lookup("Software",
+                                                    "openocd"))
+        search = os.path.join(sw.root, "tcl")
+        jtag_config = self.hw.default_jtag
+        jtagfile = Main.object_config_lookup("JtagConfig", "flyswatter2")
+        hw_config = os.path.join(self.hw.openocd_cfg)
+        hdir = os.path.join(Main.hw_info_path, Main.get_hardwareclass_config().name)
+        ocdinit = os.path.join(hdir, "ocdinit")
+
+        Main.set_config("openocd_init_file", ocd_cached)
+        tasks.append(self._copy_file(ocdinit, ocd_cached))
+        tasks.append(self.save_config("openocd_init_file", ocd_cached))
+        tasks.append(self.save_config('openocd_jtag_config_path', jtagfile.cfg_path))
+        tasks.append(self.save_config('openocd_hw_config_path', hw_config))
+        tasks.append(self.save_config('openocd_search_path', search))
+        return tasks
 
     def create_new_id(self):
         num = 0
@@ -543,7 +573,9 @@ traces: [{}]
         done_targets = []
         gdb_file_dep = []
         gdb_targets = []
+        file_dep = []
         gdb_tasks = []
+        tasks = []
         handler_path = os.path.join(Main.hw_info_path, Main.hardwareclass, Main.task_handlers)
         sys.path.append(os.path.dirname(handler_path))
         name = re.sub(".py", "", os.path.basename(handler_path))
@@ -554,7 +586,11 @@ traces: [{}]
         if hasattr(mod, self.hwname):
             handler = getattr(mod, self.hwname)
             stages_with_policies = Main.get_config("stages_with_policies")
-            policies = {s: Main.get_config("policy_name", s) for s in stages_with_policies}
+            enabled_stages = Main.get_config("enabled_stages")
+            policies = {}
+            for s in enabled_stages:
+                if s.stagename in [a.stagename for a in stages_with_policies]:
+                    policies[s.stagename] = Main.get_config("policy_name", s)
             test_id = Main.get_config("test_instance_id")
             handler_tasks = handler(Main, Main.get_bootloader_cfg(),
                                     self.stages,
@@ -571,8 +607,6 @@ traces: [{}]
             (newtask, c, g, gdep,
              gtargets, d, dtargets) = self._process_handler(handler_tasks,
                                                             "hardware_handler", True)
-
-            newtask.file_dep.extend([Main.get_config("test_config_file")])
             config.update(c)
             # ignore any gdb/done commands/deps/targets
             hwtaskname = newtask.name
@@ -584,6 +618,7 @@ traces: [{}]
                                               config,
                                               self.stages,
                                               policies,
+                                              self.hw,
                                               test_id,
                                               self.trace_id,
                                               self._test_path(),
@@ -608,11 +643,10 @@ traces: [{}]
                 else:
                     newtask.actions.extend(d)
                     newtask.targets.extend(dtargets)
-                    newtask = self.merge_tasks(newtask, ttask)
+
         if gdb_commands:
             gdb = " ".join(gdb_commands)
             gdb += " -ex 'c' -ex 'monitor quit' -ex 'q'"
-            print "gdb cmd: %s" % gdb
             c = CmdTask([Interactive(gdb)] + done_commands,
                         gdb_file_dep,
                         gdb_targets + done_targets, "gdb_tracing")
@@ -620,7 +654,20 @@ traces: [{}]
             for s in self.stages:
                 newtask.file_dep.extend([Main.get_config("policy_file", s),
                                          Main.get_config("regions_file", s)])
+                newtask.file_dep.extend([Main.get_config("test_config_file")])
 
+            tasks.append(newtask)
+        else:
+            newtask.actions.extend(done_commands)
+            newtask.targets.extend(done_targets)
+            for s in self.stages:
+                ttask.file_dep.extend([Main.get_config("policy_file", s),
+                                       Main.get_config("regions_file", s)])
+            ttask.file_dep.extend([Main.get_config("test_config_file")])
+            newtask.file_dep.extend([Main.get_config("test_config_file")])
+            ttask.name = "trace-" + ttask.name
+            #ttask.actions = [CmdTask("sleep 10", [], [], "sleep")] + ttask.actions
+            tasks.extend([newtask, ttask])
         sys.path.pop()
         if self.print_cmds:
             print "----------------------------------------"
@@ -629,7 +676,7 @@ traces: [{}]
             print "----------------------------------------"
             return []
         else:
-            return [newtask]
+            return tasks
 
     def merge_tasks(self, t1, t2):
         for i in ["file_dep", "actions", "targets"]:
@@ -678,7 +725,6 @@ traces: [{}]
                 raise Exception("unknown hardware trace handler tag '%s' (%s)" % (n, c))
             if a:
                 actions.append(a)
-
         task = ActionListTask(actions, deps,
                               targets, name)
         return (task, configs, gdb_commands,
@@ -704,12 +750,12 @@ class InstrumentationTaskLoader(ResultsLoader):
         hdir = os.path.join(Main.hw_info_path, hwname)
         bootdir = os.path.join(hdir, bootname)
         Main.set_config("test_instance_id", test_id)
-        self.default_file_paths = {"hwinfo": hdir,
+        self.default_file_paths = {
                                    "reglist": os.path.join(hdir, "regs.csv"),
                                    "bootloaderdata": bootdir}
+        Main.set_config("hardware_data_dir",  hdir)
         Main.set_config("bootloader_data_dir",  bootdir)
         self.task_adders = [self._image_tasks, self._reg_tasks, self._qemu_tasks,
-                            self._openocd_tasks
                             self._staticanalysis_tasks, self._addr_map_tasks]
         self._add_tasks()
 
@@ -721,21 +767,6 @@ class InstrumentationTaskLoader(ResultsLoader):
 
     def _suite_src_path(self, rel=""):
         return os.path.join(Main.config.test_suite_path, rel)
-
-    def _openocd_tasks(self):
-        tasks = []
-        bootinfo = self.default_file_paths["bootloaderdata"]
-        tracefile = {}
-        hdir = os.path.join(Main.hw_info_path, hwname)
-        ocdinit = os.path.join(hdir, "ocdinit")
-        d = self._full_path("openocd")
-        ocd_cached = os.path.join(d, "ocdinit")
-        tasks.append(self._mkdir(d))
-        Main.set_config("openocd_init_file", ocd_cached)
-        tasks.append(self._copy_file(ocd_init, ocd_cached)
-        tasks.append(self.save_config("openocd_init_file", ocd_cached))
-        return tasks
-
 
     def _qemu_tasks(self):
         tasks = []
@@ -902,7 +933,8 @@ class InstrumentationTaskLoader(ResultsLoader):
             tasks.append(self._mkdir(dstdir))
         self.config_path = self._full_path("config.yml")
         Main.set_config("instance_config_file", self.config_path)
-        if self.create:
+        #if self.create:
+        if not os.path.exists(self.config_path):
             # self.remote = self.gitinfo['remote']
             self.local = self.gitinfo['local']
             self.sha = self.gitinfo['sha1']
@@ -996,7 +1028,7 @@ sha1: {}
 
 class PolicyTaskLoader(ResultsLoader):
     def __init__(self, policies, run_tasks):
-        print "policy task loader run %s for %s" % (run_tasks, policies)
+        print "policy task loader run %s" % (run_tasks)
         test_id = Main.get_config("test_instance_id")
         test_ = Main.get_config("test_instance_id")
         super(PolicyTaskLoader, self).__init__(test_id, "policy", run_tasks)

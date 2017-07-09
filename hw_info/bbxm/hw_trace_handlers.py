@@ -39,7 +39,6 @@ def bbxmqemu(main, boot_config,
               "-S -s" % (qemu, hw_config.machinename,
                          main.get_config('sd_image'))
     cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1", "target extended-remote :1234"]}
-    print cfg
     deps = []
     targets = []
     main_cfgs = {}
@@ -54,7 +53,7 @@ def bbxmqemu(main, boot_config,
             n = main.get_config("trace_events_file", s)
             deps = [n]
             run_cmd += " -nographic -trace events=%s,file=%s &" % (n, f)
-        cmds.append(("interactive", run_cmd))
+        cmds.append(("long_running", run_cmd))
     else:
         run_cmd += " -daemonize"
         cmds.append(("long_running", run_cmd))
@@ -67,54 +66,96 @@ def bbxmqemu(main, boot_config,
 def breakpoint(main, configs,
                stages,
                policies,
+               hw_config,
                instance_id,
                test_id,
                data_root,
                quick):
-    gdb = main.cc + "gdb"
-    hookwrite_src = os.path.join(main.test_suite_path, "hook_write.py")
-    additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
-    gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
-    gdb_cmds.append("-ex 'python execfile(\"%s\")'" % hookwrite_src)
-    gdb_cmds.append("-ex 'hookwrite test_instance %s'" % instance_id)
-    gdb_cmds.append("-ex 'hookwrite test_trace %s'" % test_id)
-    gdb_cmds.append("-ex 'hookwrite kill'")
-    for s in stages:
-        gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
-                         " -ex 'hookwrite until -s %s'" % s.stagename])
-    for (s, v) in policies.iteritems():
-        gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s.stagename, v))
-    gdb_cmds.append("-ex 'hookwrite go -p'")
     gdb_deps = []
     done_targets = []
     gdb_targets = []
     done_commands = []
     main_cfgs = {}
     trace_dbs = {}
+    gdb_cmds = []
+    deps = []
+    trace_dbs = {}
     trace_db_done = {}
-    for s in policies.iterkeys():
-        gdb_deps.extend([main.get_config("staticdb", s),
-                         main.get_config("staticdb_done", s),
-                         main.get_config("policy_db", s),
-                         main.get_config("policy_db_done", s)])
-        trace_dbs[s.stagename] = os.path.join(data_root, "tracedb-%s.h5" % s.stagename)
-        trace_db_done[s.stagename] = os.path.join(data_root, "tracedb-%s.completed" % s.stagename)
-        done = trace_db_done[s.stagename]
-        done_commands.append("touch %s" % done)
-        gdb_targets.append(trace_dbs[s.stagename])
-        done_targets.append(done)
+    targets = []
+    other_cmds = []
+    gdb = main.cc + "gdb"
+    hwname = main.get_config("trace_hw").name
+    if hwname == "bbxmqemu":
+        hookwrite_src = os.path.join(main.test_suite_path, "hook_write.py")
+        additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
+        gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
+        gdb_cmds.append("-ex 'python execfile(\"%s\")'" % hookwrite_src)
+        gdb_cmds.append("-ex 'hookwrite test_instance %s'" % instance_id)
+        gdb_cmds.append("-ex 'hookwrite test_trace %s'" % test_id)
+        gdb_cmds.append("-ex 'hookwrite kill'")
+        for s in stages:
+            gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
+                             " -ex 'hookwrite until -s %s'" % s.stagename])
+        for (s, v) in policies.iteritems():
+            gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s.stagename, v))
+        gdb_cmds.append("-ex 'hookwrite go -p'")
+        for s in policies.iterkeys():
+            gdb_deps.extend([main.get_config("staticdb", s),
+                             main.get_config("staticdb_done", s),
+                             main.get_config("policy_db", s),
+                             main.get_config("policy_db_done", s)])
+            trace_dbs[s] = os.path.join(data_root, "tracedb-%s.h5" % s)
+            trace_db_done[s] = os.path.join(data_root, "tracedb-%s.completed" % s)
+            gdb_targets.append(trace_dbs[s])
+
+    else:
+        stepper_src = os.path.join(main.test_suite_path, "stepper", "stepper.py")
+        #
+        if len(stages) > 1:
+            return []
+        stage = stages[0]
+        if not stage.stagename == 'spl':
+            return []
+        f = main.get_config("openocd_init_file")
+
+        logs = {}
+        logs[stage.stagename] = os.path.join(data_root, "stepper.log")
+        main_cfgs["stepper_log"] = lambda s: logs[s.stagename]
+        targets.append(logs[stage.stagename])
+        policy_id = policies[stage.stagename]
+        cmd = "%s -t %s -I %s -p %s -b %s -D -s 0x%x -e 0x%x -i %s" % (stepper_src,
+                                                                          instance_id,
+                                                                          test_id,
+                                                                          policy_id,
+                                                                          stage.stagename,
+                                                                          stage.entrypoint,
+                                                                          stage.exitpc,
+                                                                          f)
+        other_cmds.append(("interactive", [cmd]))
+        deps.extend([main.get_config("staticdb", stage),
+                     main.get_config("staticdb_done", stage),
+                     main.get_config("policy_db", stage),
+                     main.get_config("policy_db_done", stage)])
+        trace_dbs[stage.stagename] = os.path.join(data_root, "tracedb-%s.h5" % stage.stagename)
+        trace_db_done[stage.stagename] = os.path.join(data_root,
+                                            "tracedb-%s.completed" % stage.stagename)
+        targets.append(trace_dbs[stage.stagename])
+        done = trace_db_done[stage.stagename]
+    done_commands.append("touch %s" % done)
+    done_targets.append(done)
     main_cfgs["trace_db"] = lambda s: trace_dbs[s.stagename]
     main_cfgs["trace_db_done"] = lambda s: trace_db_done[s.stagename]
 
     return [("gdb_commands", gdb_cmds),
             ("set_config", main_cfgs), ("gdb_targets", gdb_targets),
-            ("done_targets", done_targets),
-            ("gdb_file_dep", gdb_deps), ("done_commands", done_commands)]
+            ("done_targets", done_targets), ('targets', targets), ('file_dep', deps),
+            ("gdb_file_dep", gdb_deps), ("done_commands", done_commands)] + other_cmds
 
 
 def calltrace(main, configs,
               stages,
               policies,
+              hw_config,
               instance_id,
               test_id,
               data_root,
@@ -173,6 +214,7 @@ def calltrace(main, configs,
 def enforce(main, configs,
             stages,
             policies,
+            hw_config,
             instance_id,
             test_id,
             data_root,
@@ -187,7 +229,7 @@ def enforce(main, configs,
     cmd = ["%s %s" % (gdb, additional_cmds)]
     cmd.append("-ex 'python execfile(\"%s\")'" % enforce_src)
     for (s, v) in policies.iteritems():
-        cmd.append("-ex 'enforce substages %s %s'" % (s.stagename, v))
+        cmd.append("-ex 'enforce substages %s %s'" % (s, v))
     cmd.append("-ex 'enforce test_instance %s' " % instance_id)
     cmd.append("-ex 'enforce test_trace %s' " % test_id)
     cmd.append("-ex 'enforce log %s'" % log)
@@ -220,74 +262,31 @@ def watchpoint(main,
                configs,
                stages,
                policies,
+               hw_config,
                instance_id,
                test_id,
                data_root,
                quick):
-    hwname = main.get_config("trace_hw")
-    if hwname == "bbxmqemu":
-        gdb = main.cc + "gdb"
-        additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
-        if len(stages) > 1:
-            return []
-        deps = []
-        targets = []
-        done_commands = []
-        s = stages[0]
-        breakpoint = "*0x%x" % s.exitpc
-        f = main.get_config('trace_events_file', s)
-        deps.append(f)
-        done = main.get_config("trace_events_done")
-        done_commands.append(("command", "touch %s" % done))
-        targets.append(done)
-        gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
-        gdb_cmds.append("-ex 'break %s'" % breakpoint)
-        gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
-        return done_commands + [("targets", targets),
-                                ("file_dep", deps), ("gdb_commands", gdb_cmds)]
-    else:  # openocd
-        stepper_src = os.path.join(main.test_suite_path, "stepper", "stepper.py")
-        # additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
-        if len(stages) > 1:
-            return []
-        deps = []
-        targets = []
-        done_commands = []
-        f = main.get_config('openocd_init_file')
-        deps.append(f)
-        trace_dbs = {}
-        logs = {}
-        trace_db_done = {}
-        targets = []
-        openocd_init = Main.get_config('openocd_init_file')
-        for stage in stages:
-            if not stage.stagename == 'spl':
-                return []
-            else:
-                policy_id = policies[stage]
-                out = os.path.join(data_root, "openocd-log.txt")
-                args = "--stage %s --l %s -t %s -I %s -P %s -D -i %s" % (stage.stagename,
-                                                                         log,
-                                                                         test_id,
-                                                                         instance_id,
-                                                                         policy_id,
-                                                                         openocd_init)
-                cmd = "%s %s" % (stepper_src, args)
-                cmds.append(("command", cmd))
-                trace_dbs[stage] = os.path.join(data_root,
-                                                "tracedb-%s.h5" % stage)
-                trace_db_done[stage.stagename] = os.path.join(data_root,
-                                                              "tracedb-%s.completed" % stage)
-                done = trace_db_done[stage]
-                db = trace_dbs[stage]
-                cmds.append(("command", "touch %s" % trace_db_done[stage]))
-                targets.extend([db, done])
+    gdb = main.cc + "gdb"
+    additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
+    gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
+    if len(stages) > 1:
+        return []
+    deps = []
+    targets = []
+    done_commands = []
+    s = stages[0]
+    breakpoint = "*0x%x" % s.exitpc
+    gdb_cmds.append("-ex 'break %s'" % breakpoint)
+    gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
+    f = main.get_config('trace_events_file', s)
+    deps.append(f)
+    done = main.get_config("trace_events_done")
+    done_commands.append(("command", "touch %s" % done))
+    targets.append(done)
 
-        main_cfgs = {}
-        main_cfgs["trace_db"] = lambda s: trace_dbs[s]
-        main_cfgs["trace_db_done"] = lambda s: trace_db_done[s]
-
-        return [("set_config", main_cfgs), ("file_dep", deps), ("targets", targets)] + cmds
+    return done_commands + [("targets", targets),
+                            ("file_dep", deps), ("gdb_commands", gdb_cmds)]
 
 
 def bbxmbaremetal(main, boot_config,
@@ -300,18 +299,25 @@ def bbxmbaremetal(main, boot_config,
                   data_root,
                   is_watchpoint,
                   quick):
-
     openocd = os.path.join(host_software_config.root, host_software_config.binary)
     if len(stages) > 1:
         return []
-    deps = []
     targets = []
-    cnds = []
+    cmds = []
     s = stages[0]
+    logs = {}
+    main_cfgs = {}
     jtag_config = main.get_config('openocd_jtag_config_path')
-    hw_config = main.get_config('openocd_hw_config_path')
+    ocd_hw_config = main.get_config('openocd_hw_config_path')
+    search = main.get_config('openocd_search_path')
+    logs[s.stagename] = os.path.join(data_root, "openocd.log")
+    main_cfgs["openocd_log"] = lambda st: logs[st.stagename]
+    targets.append(logs[s.stagename])
 
-    return [("targets", targets), ("file_dep", deps),
+    c = "%s -f %s -f %s -l %s -s %s &" % (openocd, jtag_config,
+                                          ocd_hw_config, logs[s.stagename], search)
+    cmds.append(c)
+    return [("targets", targets),
             ("long_running", cmds)]
 
 
@@ -319,6 +325,7 @@ def framac(main,
            stages,
            configs,
            policies,
+           hw_config,
            instance_id,
            test_id,
            data_root,
@@ -351,7 +358,7 @@ def bbxmframac(main, boot_config,
         else:
             callstacks[stage.stagename] = os.path.join(data_root, "callstacks.txt")
             out = os.path.join(data_root, "framac-stdout.txt")
-            policy_id = policies[stage]
+            policy_id = policies[stage.stagename]
             args = "--stage %s -e -u -b %s -c %s -t %s -T %s -I %s -P %s " % (stage.stagename,
                                                                               patch_dir,
                                                                               callstacks[stage.stagename],

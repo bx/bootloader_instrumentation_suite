@@ -204,15 +204,16 @@ class OpenOcd():
 class OpenOcdStepper():
     def __init__(self, client,
                  stage,
-                 test_id, instance_id, policy_id):
+                 test_id, instance_id, policy_id, verbose=False):
         self.ia = staticanalysis.InstructionAnalyzer()
         self.stage = stage
+        self.verbose = verbose
         self.ocd = client
         self.stepno = 0
         self.test_id = test_id
         self.instance_id = instance_id
         self.policy_id = policy_id
-        self.do_it = doit_manager.TaskManager(False, False, [self.stage],
+        self.do_it = doit_manager.TaskManager(False, False, [self.stage.stagename],
                                               {self.stage.stagename: policy_id},
                                               False, False, self.instance_id,
                                               False, [], self.test_id)
@@ -233,10 +234,10 @@ class OpenOcdStepper():
     def execute_rom(self, until, verbose=False, thumb=False):
         start = self.pc
         print "resuming at %x (until %x)" % (start, until)
-        if thumb:
-            self.ocd.ocd.send("bp 0x%x 2 hw" % (until))
-        else:
-            self.ocd.ocd.send("bp 0x%x 4 hw" % (until))
+        #if thumb:
+        #    self.ocd.ocd.send("bp 0x%x 1 hw" % (until))
+        #else:
+        self.ocd.ocd.send("bp 0x%x 1 hw" % (until))
         self.ocd.ocd.send("resume")
         self.ocd.ocd.send("wait_halt 100000")
         self.ocd.ocd.send("rbp 0x%x" % until)
@@ -301,7 +302,8 @@ class OpenOcdStepper():
         self.lr = 0
         self.pc = self.ocd.read_reg("pc")
         while not (self.pc == addr):
-            print "pc=%x" % self.pc
+            if self.verbose:
+                print "pc=%x" % self.pc
             success = self.step()
             if not success:
                 print "Cannot step : ( starting at pc=%x step=%d" % (self.pc, self.stepno)
@@ -324,12 +326,21 @@ class OpenOcdStepper():
                 if db_info.get(self.stage).is_smc(self.pc):
                     print "SKIPPING ROM"
                     self.execute_rom(self.pc + 4, False)
-                row = next(db_info.get(self.stage).skip_info(self.pc), None)
-                if row:
+                res = db_info.get(self.stage).skip_info(self.pc)
+                if len(res) > 0:
+                    row = res.pop()
                     self.execute_rom(row['resumepc'], thumb=row['thumb'])
 
-                row = next(db_info.stepper_write_info(self.pc), None)
-                srcrow = next(db_info.src_write_info(self.pc), None)
+                res = db_info.get(self.stage).stepper_write_info(self.pc)
+                if len(res) > 0:
+                    row = res.pop()
+                else:
+                    row = None
+                srcres = db_info.get(self.stage).src_write_info(self.pc)
+                if len(srcres) > 0:
+                    srcrow = srcres.pop()
+                else:
+                    srcrow = None
                 if row:  # if this instruction is a write instruction
                     size = 0
                     dest = None
@@ -339,7 +350,7 @@ class OpenOcdStepper():
                     dest = self.calculate_write_dest(self.pc, val, core,
                                                      [row['reg0'], row['reg1'],
                                                       row['reg2'], row['reg3']])
-                    db_info.add_trace_write_entry(
+                    db_info.get(self.stage).add_trace_write_entry(
                         time.time(), 0, size, dest, self.pc,
                         self.lr, self.cpsr, self.stepno)
 
@@ -389,13 +400,13 @@ def main():
     """main"""
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    verbositygroup = parser.add_mutually_exclusive_group()
-    verbositygroup.add_argument('-v', '--verbose', help='Verbose logging', action='store_const',
-                                const=logging.INFO, dest='loglevel')
-    verbositygroup.add_argument('-d', '--debug', help='Debugging logging', action='store_const',
-                                const=logging.DEBUG, dest='loglevel')
-    verbositygroup.add_argument('-q', '--quiet', help='Minimal logging', action='store_const',
-                                const=logging.CRITICAL, dest='loglevel')
+    # verbositygroup = parser.add_mutually_exclusive_group()
+    # verbositygroup.add_argument('-v', '--verbose', help='Verbose logging', action='store_const',
+    #                             const=logging.INFO, dest='loglevel')
+    # verbositygroup.add_argument('-d', '--debug', help='Debugging logging', action='store_const',
+    #                             const=logging.DEBUG, dest='loglevel')
+    # verbositygroup.add_argument('-q', '--quiet', help='Minimal logging', action='store_const',
+    #                             const=logging.CRITICAL, dest='loglevel')
     parser.add_argument('-n', '--noinit', help='do not run initialization', action='store_const',
                         const=True, default=False)
 
@@ -416,16 +427,19 @@ def main():
     parser.add_argument('-t', '--test_id', action="store", default='')
     parser.add_argument('-I', '--instance_id', action="store", default='')
     parser.add_argument('-p', '--policy_id', action="store", default='')
+    parser.add_argument('-v', '--verbose', action="store_true", default=False)
     parser.add_argument('-b', '--stage', action="store", default='spl')
     args = parser.parse_args()
 
     o = OpenOcd(args.openocdinit, args.noinit, args.logfile)
     stage = Main.stage_from_name(args.stage)
+    print args
     stepper = OpenOcdStepper(o,
                              stage,
                              args.test_id,
                              args.instance_id,
-                             args.policy_id)
+                             args.policy_id,
+                             args.verbose)
     if args.startat:
         print "startat %x" % (int(args.startat, 0))
         time.sleep(1)

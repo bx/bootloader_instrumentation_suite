@@ -56,15 +56,17 @@ class TaskManager():
         bootloader = Main.get_bootloader_cfg()
         self.boot_task = [s for s in self.src_manager.code_tasks
                           if s.build_cfg.name == bootloader.software][0]
+        uptodate = True
         if create_test:
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
+                uptodate = False
             # rebuild bootloader now to ensure we have its elf/images available
             #self.boot_task.build.uptodate = [False]
             self.src_manager.builds.append(bootloader.software)
             (self.test_id, gitinfo) = self._calculate_current_id()
             current_id = self.test_id
-            self.build(self.boot_task.basename, True)
+            self.build(self.boot_task.basename, False)
         else:
             if open_instance is None:
                 self.test_id = self._get_newest_id()
@@ -78,7 +80,7 @@ class TaskManager():
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
-                                                                            create_test,
+                                                                            create_test and not uptodate,
                                                                             gitinfo)
 
         instrumentation_results_manager.PolicyTaskLoader(policies,
@@ -86,7 +88,6 @@ class TaskManager():
                                                          import_policies or
                                                          len(post_trace_processing) > 0 or
                                                          run_trace)
-
 
         if create_test:
             self.loaders.append(instrumentation_results_manager.task_manager())

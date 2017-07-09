@@ -669,6 +669,8 @@ class SkipDescriptorGenerator():
                 start = output[2].split('\t')
                 startaddr = int(start[0].split()[0], 16)
             # disasm = " ".join((output[1].split('\t'))[2:])
+        if self.adjuststart:
+            print "sdjust start of %s from %x to %x" % (self.name, startaddr, startaddr + self.adjuststart)
         row['pc'] = startaddr + self.adjuststart
         row['resumepc'] = endaddr + self.adjustend
         # row['disasm'] = disasm
@@ -732,7 +734,7 @@ class WriteSearch():
         self.funcstable = None
         self.longwritestable = None
         self.skipstable = None
-
+        self.verbose = True
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         if createdb:
             m = "w" if delete else "a"
@@ -744,8 +746,8 @@ class WriteSearch():
                                                   % stage.stagename)
         else:
             mo = "a"
-            if readonly:
-                mo = "r"
+            #if readonly:
+            #    mo = "r"
             self.h5file = tables.open_file(outfile, mode=mo,
                                            title="uboot %s bootloader static analysis"
                                            % stage.stagename)
@@ -763,6 +765,9 @@ class WriteSearch():
         self.srcstable = self.group.srcs
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
+        self.verbose = True
+        # self.h5file.remove_node(self.group, "skips")
+        # self.create_skip_table()
         self.skipstable = self.group.skips
 
     def print_relocs_table(self):
@@ -795,6 +800,7 @@ class WriteSearch():
             self.create_longwrites_table()
             rows = self.longwritestable.iterrows()
             map(lambda r: pytable_utils._print(self.longwrite_row_info(r)), rows)
+
         try:
             self.skipstable = self.group.skips
         except tables.exceptions.NoSuchNodeError:
@@ -848,27 +854,29 @@ class WriteSearch():
             SkipDescriptorGenerator("do_sdrc_init0", self),
             SkipDescriptorGenerator("do_sdrc_init1", self),
             SkipDescriptorGenerator("do_sdrc_init2", self),
-            SkipDescriptorGenerator("write_sdrc_timings0", self),
-            SkipDescriptorGenerator("write_sdrc_timings1", self),
-            SkipDescriptorGenerator("per_clocks_enable0", self),
-            SkipDescriptorGenerator("per_clocks_enable2", self),
-            SkipDescriptorGenerator("per_clocks_enable3", self),
-            SkipDescriptorGenerator("mmc_init_stream0", self),
-            SkipDescriptorGenerator("mmc_init_stream1", self),
+            #SkipDescriptorGenerator("write_sdrc_timings0", self),
+            #SkipDescriptorGenerator("write_sdrc_timings1", self),
+            #SkipDescriptorGenerator("per_clocks_enable0", self),
+            #SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
+            #SkipDescriptorGenerator("per_clocks_enable3", self),
+            SkipDescriptorGenerator("write_sdrc_timings", self),
+            SkipDescriptorGenerator("mmc_init_stream", self),
+            #SkipDescriptorGenerator("mmc_init_stream0", self),
+            #SkipDescriptorGenerator("mmc_init_stream1", self),
             # SkipDescriptorGenerator("mmc_init_stream2", self),
-            SkipDescriptorGenerator("mmc_init_setup0", self),
-            SkipDescriptorGenerator("mmc_init_setup1", self),
-            SkipDescriptorGenerator("mmc_init_setup2", self),
-            SkipDescriptorGenerator("mmc_init_setup3", self),
-            SkipDescriptorGenerator("mmc_init_setup4", self),
+            SkipDescriptorGenerator("mmc_init_setup", self),
+            #SkipDescriptorGenerator("mmc_init_setup1", self),
+            #SkipDescriptorGenerator("mmc_init_setup2", self),
+            #SkipDescriptorGenerator("mmc_init_setup3", self),
+            #SkipDescriptorGenerator("mmc_init_setup4", self),
             SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
             SkipDescriptorGenerator("mmc_write_data0", self),
             SkipDescriptorGenerator("mmc_write_data3", self),
             SkipDescriptorGenerator("mmc_write_data1", self),
             SkipDescriptorGenerator("mmc_write_data2", self),
             SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
-            SkipDescriptorGenerator("omap_hsmmc_send_cmd",
-                                    self, 0, -2),
+            SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
+
             SkipDescriptorGenerator("mmc_read_data0", self),
             SkipDescriptorGenerator("mmc_read_data1", self),
             SkipDescriptorGenerator("mmc_read_data2", self),
@@ -888,6 +896,7 @@ class WriteSearch():
             SkipDescriptorGenerator("get_cpu_id", self),
             SkipDescriptorGenerator("set_muxconf_regs", self),
             SkipDescriptorGenerator("get_osc_clk_speed", self),
+            SkipDescriptorGenerator("per_clocks_enable", self),
             SkipDescriptorGenerator("timer_init", self),
             SkipDescriptorGenerator("mmc_board_init", self),
             SkipDescriptorGenerator("go_to_speed", self),
@@ -917,7 +926,6 @@ class WriteSearch():
             info = s.get_row_information()
             for (k, v) in info.iteritems():
                 r[k] = v
-
             if self.verbose:
                 print "skip %s (%x,%x)" % (s.name, r['pc'], r['resumepc'])
             r.append()

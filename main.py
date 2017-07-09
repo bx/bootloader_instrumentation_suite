@@ -123,7 +123,6 @@ if __name__ == '__main__':
             else:
                 defaults = {}
 
-
             kwargs['default'] = defaults
             super(SubstageFileAction, self).__init__(option_strings, dest, **kwargs)
 

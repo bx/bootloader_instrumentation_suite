@@ -333,7 +333,7 @@ class DBInfo():
         return [writes_dict(r) for r in pytable_utils.query(self._sdb.db.writestable, query)]
 
     def src_write_info(self, pc):
-        fields = self._sdb.db.srcsstable.colnames
+        fields = self._sdb.db.srcstable.colnames
 
         def srcs_dict(r):
             d = {}
