@@ -384,7 +384,7 @@ class SkipEntry(tables.IsDescription):
     disasm = tables.StringCol(256)
     thumb = tables.BoolCol()
     resumepc = tables.UInt32Col()
-
+    isfunction = tables.BoolCol()
 
 class LongWriteDescriptorGenerator():
     def __init__(self, name, dregs, calcregs, subreg, writetype, interval, inplace, table):
@@ -627,14 +627,18 @@ class SkipDescriptorGenerator():
         start = ""
         end = ""
         elf = Main.get_config("stage_elf", self.stage)
+        isfunc = False
         for l in labels:
             if l.value == "START":
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
+                print start
             elif l.value == "END":
                 lineno = self.table._get_real_lineno(l, True)
                 end = "%s:%d" % (l.filename, lineno)
+                print end
             elif l.value == "FUNC":
+                isfunc = True
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
                 startaddr = self.table._get_line_addr(start, True)
@@ -671,9 +675,18 @@ class SkipDescriptorGenerator():
             # disasm = " ".join((output[1].split('\t'))[2:])
         if self.adjuststart:
             print "sdjust start of %s from %x to %x" % (self.name, startaddr, startaddr + self.adjuststart)
-        row['pc'] = startaddr + self.adjuststart
-        row['resumepc'] = endaddr + self.adjustend
+        s = startaddr + self.adjuststart
+        e = endaddr + self.adjustend
+        if e < s:
+            t = s
+            s = e
+            e = t
+        row['pc'] = s
+        if isfunc and (self.adjustend or self.adjuststart):
+            print "isfunc adj %s %s %s %s" % (isfunc, self.adjustend, self.adjuststart, name)
+        row['resumepc'] = e
         # row['disasm'] = disasm
+        row['isfunction'] = isfunc
         row['thumb'] = self.table.thumbranges.overlaps_point(row['pc'])
         return row
 
@@ -766,9 +779,15 @@ class WriteSearch():
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
         self.verbose = True
-        self.h5file.remove_node(self.group, "skips")
-        self.create_skip_table()
-        # self.skipstable = self.group.skips
+        # try:
+        #      self.h5file.remove_node(self.group, "skips")
+        #  except:
+        #      pass
+
+        #  print "create skips table"
+        #  self.create_skips_table()
+        #  self.skipstable.flush()
+        self.skipstable = self.group.skips
 
     def print_relocs_table(self):
         for r in self.relocstable.iterrows():
@@ -854,28 +873,28 @@ class WriteSearch():
             SkipDescriptorGenerator("do_sdrc_init0", self),
             SkipDescriptorGenerator("do_sdrc_init1", self),
             SkipDescriptorGenerator("do_sdrc_init2", self),
-            #SkipDescriptorGenerator("write_sdrc_timings0", self),
-            #SkipDescriptorGenerator("write_sdrc_timings1", self),
-            #SkipDescriptorGenerator("per_clocks_enable0", self),
-            #SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
-            #SkipDescriptorGenerator("per_clocks_enable3", self),
+            SkipDescriptorGenerator("write_sdrc_timings0", self),
+            SkipDescriptorGenerator("write_sdrc_timings1", self),
+            SkipDescriptorGenerator("per_clocks_enable0", self),
+            SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
+            SkipDescriptorGenerator("per_clocks_enable3", self),
             SkipDescriptorGenerator("write_sdrc_timings", self),
-            SkipDescriptorGenerator("mmc_init_stream", self),
-            #SkipDescriptorGenerator("mmc_init_stream0", self),
-            #SkipDescriptorGenerator("mmc_init_stream1", self),
-            # SkipDescriptorGenerator("mmc_init_stream2", self),
-            SkipDescriptorGenerator("mmc_init_setup", self),
-            #SkipDescriptorGenerator("mmc_init_setup1", self),
-            #SkipDescriptorGenerator("mmc_init_setup2", self),
-            #SkipDescriptorGenerator("mmc_init_setup3", self),
-            #SkipDescriptorGenerator("mmc_init_setup4", self),
+            #SkipDescriptorGenerator("mmc_init_stream", self),
+            SkipDescriptorGenerator("mmc_init_stream0", self),
+            SkipDescriptorGenerator("mmc_init_stream1", self),
+            SkipDescriptorGenerator("mmc_init_stream2", self),
+            #SkipDescriptorGenerator("mmc_init_setup", self),
+            SkipDescriptorGenerator("mmc_init_setup1", self),
+            SkipDescriptorGenerator("mmc_init_setup2", self),
+            SkipDescriptorGenerator("mmc_init_setup3", self),
+            SkipDescriptorGenerator("mmc_init_setup4", self),
             SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
             SkipDescriptorGenerator("mmc_write_data0", self),
             SkipDescriptorGenerator("mmc_write_data3", self),
             SkipDescriptorGenerator("mmc_write_data1", self),
-            SkipDescriptorGenerator("mmc_write_data2", self),
+            #SkipDescriptorGenerator("mmc_write_data", self),
             SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
-            #SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
+            SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
 
             SkipDescriptorGenerator("mmc_read_data0", self),
             SkipDescriptorGenerator("mmc_read_data1", self),
@@ -901,12 +920,7 @@ class WriteSearch():
             SkipDescriptorGenerator("mmc_board_init", self),
             SkipDescriptorGenerator("go_to_speed", self),
         ]
-        # i'd rather avoid directly specifing ranges b/c they always
-        # change depending on the build
-        # skipranges = [
-        #             # (0x40207568,0x40207570) # not sure what this is for
-        # but we may need this later
-        #              ]
+
         if self.stage.stagename == 'spl':  # we may need to add more ranges in the main bootloader
             skiplines.extend([  # identify_nand_chip
                 SkipDescriptorGenerator("identify_nand_chip0", self),
@@ -927,7 +941,8 @@ class WriteSearch():
             for (k, v) in info.iteritems():
                 r[k] = v
             if self.verbose:
-                print "skip %s (%x,%x)" % (s.name, r['pc'], r['resumepc'])
+                print "skip %s (%x,%x) isfunc %s" % (s.name, r['pc'],
+                                                   r['resumepc'], r['isfunction'])
             r.append()
         self.skipstable.flush()
         self.h5file.flush()
@@ -1057,12 +1072,7 @@ class WriteSearch():
         # its a bit complicated to calculated the address to which
         # code is being copied, hopefully this works for different builds
         # line = "arch/arm/cpu/armv7/omap3/lowlevel_init.S:181" #ldr	r1, =SRAM_CLK_CODE
-        # cmd = "%sgdb -ex 'info line %s' --batch --nh --nx  %s" %(cc, line, elf)
-        # output = cls.get_command_output(cmd)
-        # output = output[0]
-        # readdr = re.compile("starts at address (0x[0-9a-fA-F]{0,8})")
-        # readdr = readdr.search(output)
-        # addr = int(readdr.group(1),16)
+
         # now disassemble and lookup where the value we need is stored, in the commend
         cmd = "%sgdb -ex 'x/i 0x%x' --batch --nh --nx  %s" % (cc, dstaddr, elf)
         output = Main.shell.run_multiline_cmd(cmd)
@@ -1362,7 +1372,7 @@ class WriteSearch():
                     smcr['thumb'] = thumb
                     insadded = True
                     smcr.append()
-
+                    print "smc at 0x%x" % pc
                 if insadded:
                     s = self.srcstable.where("addr == 0x%x" % (pc))
                     try:

@@ -1017,7 +1017,8 @@ if __name__ == "__main__":
     if not args.standalone:
         d = doit_manager.TaskManager(False, False, [args.stage],
                                      {args.stage: args.policy_id},
-                                     False, {}, args.test_id, False, [])
+                                     False, {}, args.test_id, False, [],
+                                     hook=True)
         labels = Main.get_config("labels")
         root = Main.get_config("source_tree_copy")
         builder = d.build([Main.get_bootloader_cfg().software], False)[0]

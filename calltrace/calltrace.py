@@ -107,7 +107,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     def out_of_scope(self):
         if self.entry.no_rec:
             self.entry.breakpoint.enabled = True
-        print "exit breakpoint for %s out of scope" % self.name
+        self.gdb_print("exit breakpoint for %s out of scope\n" % self.name)
 
     def _stop(self):
         c = self.controller
@@ -129,7 +129,7 @@ class CallEntryBreak(gdb_tools.BootBreak):
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
         except gdb.error as e:
-            print e
+            self.gdb_print("%s\n" % e)
             return
         i = re.sub(':', '', i)
         self.fnloc = int(i, 0)
@@ -229,7 +229,7 @@ class CallTrace(gdb_tools.GDBBootController):
 
     def stop_end(self, bp, ret):
         if bp is None:
-            print "quitting"
+            self.gdb_print("quitting\n")
         if bp is not None:
             stage = self.current_stage
             controller = bp.controller
@@ -241,7 +241,7 @@ class CallTrace(gdb_tools.GDBBootController):
         global open_log
         if open_log:
             sname = controller.current_stage.stagename
-            print "results written to %s" % open_log.name
+            self.gdb_print("results written to %s\n" % open_log.name)
             controller.results_written = True
             # use event to make sure log is closed after all write events
             gdb.post_event(CloseLog())

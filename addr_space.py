@@ -103,9 +103,6 @@ class AddrSpaceInfo():
 
     def _create_tables(self, dbloc, csv):
         dname = os.path.dirname(dbloc)
-
-        if not os.path.isdir(dname):
-            os.makedirs(dname)
         self.h5file = tables.open_file(dbloc, mode="w",
                                        title="addr space info")
         self.h5group = self.h5file.create_group("/", self.grpname, "")
@@ -115,8 +112,9 @@ class AddrSpaceInfo():
                                                   RegEntry, "")
         self._create_memmap_table()
         self._create_reg_table(csv)
-        for stage in Main.get_config('enabled_stages'):
+        for stage in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             self._create_var_table(stage)
+        print "CREATE"
 
     def create_substage_memmap_table(self, substagecsv):
         with open(substagecsv) as csvfile:
@@ -233,17 +231,15 @@ class AddrSpaceInfo():
         self.h5file = tables.open_file(loc, mode="r")
         self.h5group = self.h5file.get_node("/%s" % self.grpname)
         self.memmap_table = getattr(self.h5group, self.mem_tablename)
-        for stage in Main.get_config('enabled_stages'):
+        for stage in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             self.var_table[stage.stagename] = getattr(self.h5group, self._var_tablename(stage))
         self.reg_table = getattr(self.h5group, self.reg_tablename)
+        print "OPEN"
 
     def close_dbs(self, flush_only=False):
-        self.memmap_table.flush()
-        self.reg_table.flush()
         for v in self.var_table.itervalues():
             v.flush()
         self.h5file.flush()
-        #print "grp %x" % id(self.h5group)
         if not flush_only:
             self.h5file.close()
 

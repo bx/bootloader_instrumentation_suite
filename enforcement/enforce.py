@@ -22,7 +22,6 @@
 
 import gdb
 import time
-import argparse
 import sys
 import os
 import signal

@@ -83,6 +83,10 @@ def task_manager(test_id=None):
             self.ALL_GROUPS = 0
             self.test_id = test_id
             self.tasks = {}
+            self.enabled = [self.ALL_GROUPS]
+
+        def enable(self, subgroup):
+            self.enabled.append(subgroup)
 
         def add_tasks(self, task_list, subgroup):
             l = self.tasks.get(subgroup, [])
@@ -112,13 +116,16 @@ def task_manager(test_id=None):
                 task_lists = [item for sublist in vallists for item in sublist]
                 alldeps = []
                 for (subgroup, tasks) in self.tasks.iteritems():
-                    for t in tasks:
-                        alldeps.append(self.task_name(t, subgroup))
-                yield {
-                    'basename': "all_subroups",
-                    'name': None,
-                    'task_dep': alldeps,
-                }
+                    if subgroup in self.enabled:
+                        for t in tasks:
+                            print "enable %s" % self.task_name(t, subgroup)
+                            alldeps.append(self.task_name(t, subgroup))
+                else:
+                    yield {
+                        'basename': "all_subroups",
+                        'name': None,
+                        'task_dep': alldeps,
+                    }
             else:
                 for inst in self.tasks[subgroup]:
                     r = {
@@ -129,7 +136,13 @@ def task_manager(test_id=None):
                         'file_dep': inst.file_dep
                     }
                     r.update(inst.other)
-                    yield r
+                    if subgroup not in self.enabled:
+                        print "disable %s" % r['basename']
+                        del r['targets']
+                        del r['actions']
+                        del r['file_dep']
+                    else:
+                        yield r
 
         def task_name(self, task, subgroup):
             return "%s:%s" % (subgroup, task.name)
@@ -164,14 +177,14 @@ class TestTask(object):
 
 
 class CopyFileTask(TestTask):
-    def uptodate(self):
-        return os.path.exists(self.dst)
+    #def uptodate(self):
+    #    return os.path.exists(self.dst)
 
     def __init__(self, src, dst, name):
         super(CopyFileTask, self).__init__(name)
         self.src = src
         self.dst = dst
-        self.other = {'uptodate': [(self.uptodate, )]}
+        #self.other = {'uptodate': [(self.uptodate, )]}
         self.file_dep = [self.src]
         self.actions = ["cp -f %s %s" % (self.src, self.dst)]
         if self.src == self.dst:
@@ -183,8 +196,8 @@ class CopyFileTask(TestTask):
 class MkdirTask(TestTask):
     dirs = set()
 
-    def uptodate(self):
-        return os.path.exists(self.dst)
+    # def uptodate(self):
+    #     return os.path.exists(self.dst)
 
     @classmethod
     def exists(cls, d):
@@ -192,11 +205,10 @@ class MkdirTask(TestTask):
 
     def __init__(self, d, name):
         self.dst = d
-        self.other = {'uptodate': [(self.uptodate, )]}
+        # self.other = {'uptodate': [(self.uptodate, )]}
         self.actions = [(create_folder, [self.dst])]
         MkdirTask.dirs.add(d)
         super(MkdirTask, self).__init__(name)
-
 
 class CmdTask(TestTask):
     def __init__(self, cmds, file_deps, tgts, name):
@@ -236,15 +248,19 @@ class ResultsLoader(object):
         self.task_adders = []
         self.task_manager = task_manager(test_id)
         self.run_task = run_task
+        if self.run_task:
+            self.enable()
 
     def get_build_name(self):
         return self.task_manager.build_name(self.subgroup)
 
+    def enable(self):
+        self.task_manager.enable(self.subgroup)
+
     def _add_tasks(self):
         for i in self.task_adders:
             t = i()
-            if self.run_task:
-                self.task_manager.add_tasks(t, self.subgroup)
+            self.task_manager.add_tasks(t, self.subgroup)
 
     def _copy_file(self, path, dst, name=None):
         name = path if name is None else name
@@ -256,7 +272,6 @@ class ResultsLoader(object):
 
     def save_config(self, k, v):
         Main.set_config(k,  v)
-
         def save():
             return {k: v}
         return ActionListTask([(save,)], [], [], "save_%s" % k)
@@ -274,7 +289,7 @@ class PostTraceLoader(ResultsLoader):
 
     def __init__(self, processes):
         test_id = Main.get_config("test_instance_id")
-        super(PostTraceLoader, self).__init__(test_id, "post_trace")
+        super(PostTraceLoader, self).__init__(test_id, "post_trace", True)
         self.trace_id = Main.get_config("trace_id")
         self.data_dir = Main.get_config("trace_data_dir")
         self.name = Main.get_config("trace_name")
@@ -421,7 +436,9 @@ class PostTraceLoader(ResultsLoader):
 
 
 class TraceTaskLoader(ResultsLoader):
-    def __init__(self, instrumentation_task, trace_name, create, quick, run_tasks,
+    def __init__(self, stages, hw, tracenames,
+                 trace_name,
+                 create, quick, run_tasks,
                  print_cmds):
         self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
@@ -430,136 +447,20 @@ class TraceTaskLoader(ResultsLoader):
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
         self.quick = quick
-        if self.create:
-            self.trace_id = self.create_new_id()
-        elif trace_name is None:  # get last id
-            self.trace_id = sorted(self.existing_trace_ids())[0]
-        else:
-            existing = sorted(self.existing_trace_ids())
-            if trace_name not in existing:
-                res = difflib.get_close_matches(trace_name, existing, 1, 0)
-                if not res:
-                    self.trace_id = existing[-1]
-                else:
-                    self.trace_id = res[0]
-            else:
-                self.trace_id = trace_name
-
-        self.config_path = self._test_path("config.yml")
-        if create:
-            self.stagenames = instrumentation_task['stages']
-            self.hwname = instrumentation_task['hw']
-            self.tracenames = instrumentation_task['traces']
-        else:
-            with open(self.config_path, 'r') as f:
-                settings = yaml.load(f)
-                self.stagenames = settings['stages']
-                self.hwname = settings['hw']
-                self.tracenames = settings['traces']
-        self.hw = Main.get_hardwareclass_config().hardware_type_cfgs[self.hwname]
-        self.stages = [Main.stage_from_name(s) for s in self.stagenames]
-        self.name = "%s.%s.%s" % (self.hwname,
-                                  "-".join(self.tracenames), "-".join(self.stagenames))
-        self.namefile = self._test_path(self.name)
-
-        Main.set_config("trace_name", self.name)
-        Main.set_config("trace_stages", self.stages)
-        Main.set_config("trace_hw", self.hw)
-        Main.set_config("trace_traces", self.tracenames)
-        Main.set_config("trace_id", self.trace_id)
-        self.task_adders = [self._setup_tasks, self._openocd_tasks, self._collect_data]
+        self.trace_id = trace_name
+        self.stages = stages
+        self.tracenames = tracenames
+        self.stagenames = [s.stagename for s in self.stages]
+        self.hw = hw
+        self.hwname = self.hw.name
+        self.task_adders = [self._collect_data]
         self._add_tasks()
-
-    def _format_id(self, num):
-        return str(num).zfill(8)
-
-    def _openocd_tasks(self):
-        tasks = []
-        #bootinfo = self.default_file_paths["bootloaderdata"]
-        tracefile = {}
-
-        if not self.hw.host_software == "openocd":
-            return tasks
-
-        d = Main.get_config("test_instance_root", "openocd")
-        tasks.append(self._mkdir(d))
-        tasks.append(self.save_config("openocd_data_dir", d))
-        ocd_cached = os.path.join(d, "ocdinit")
-        sw = os.path.join(Main.object_config_lookup("Software",
-                                                    "openocd"))
-        search = os.path.join(sw.root, "tcl")
-        jtag_config = self.hw.default_jtag
-        jtagfile = Main.object_config_lookup("JtagConfig", "flyswatter2")
-        hw_config = os.path.join(self.hw.openocd_cfg)
-        hdir = os.path.join(Main.hw_info_path, Main.get_hardwareclass_config().name)
-        ocdinit = os.path.join(hdir, "ocdinit")
-
-        Main.set_config("openocd_init_file", ocd_cached)
-        tasks.append(self._copy_file(ocdinit, ocd_cached))
-        tasks.append(self.save_config("openocd_init_file", ocd_cached))
-        tasks.append(self.save_config('openocd_jtag_config_path', jtagfile.cfg_path))
-        tasks.append(self.save_config('openocd_hw_config_path', hw_config))
-        tasks.append(self.save_config('openocd_search_path', search))
-        return tasks
-
-    def create_new_id(self):
-        num = 0
-        existing = sorted(self.existing_trace_ids())
-        if len(existing) == 0:
-            return self._format_id(0)
-        while True:
-            if self._format_id(num) in existing:
-                num += 1
-            else:
-                break
-        return self._format_id(num)
-
-    def existing_trace_ids(self):
-        for f in glob.glob("%s/*" % self._dest_dir_root_path()):
-            if os.path.isdir(f):
-                yield os.path.basename(f)
 
     def _dest_dir_root_path(self, rel=""):
         return os.path.join(self.test_root, "trace_data", rel)
 
     def _test_path(self, rel=""):
         return os.path.join(self._dest_dir_root_path(self.trace_id), rel)
-
-    def _setup_tasks(self):
-        tasks = []
-        deps = []
-        if not MkdirTask.exists(self._test_path()):
-            tasks.append(self._mkdir(self._test_path()))
-        tasks.append(self.save_config("trace_data_root", self._test_path()))
-        symlink_dir = os.path.join(self.test_root,
-                                   "trace_data-by_name", self.name)
-        if not MkdirTask.exists(symlink_dir):
-            tasks.append(self._mkdir(symlink_dir))
-        if not os.path.exists(symlink_dir):
-            tasks.append(CmdTask(["ln -s %s %s" % (self._test_path(),
-                                                   symlink_dir)],
-                                 [], [], "make_name_symlink"))
-        tasks.append(self.save_config("trace_data_dir", self._test_path()))
-        contents = """
-stages: [{}]
-hw: {}
-traces: [{}]
-"""
-        filecontents = contents.format(", ".join(self.stagenames), self.hwname,
-                                       ", ".join(self.tracenames))
-
-        def write(f, c):
-            with open(f, "w") as fconfig:
-                fconfig.write(c)
-        Main.set_config("test_config_file", self.config_path)
-        a = ActionListTask([(write, [self.config_path, filecontents])],
-                           [], [self.config_path], "test_config_file")
-        tasks.append(a)
-        c = CmdTask(["touch %s" % self.namefile], [],
-                    [self.namefile], "test_name_file")
-        c.other = {'uptodate': [False]}
-        tasks.append(c)
-        return tasks
 
     def _writes(self):
         tasks = []
@@ -588,7 +489,7 @@ traces: [{}]
             stages_with_policies = Main.get_config("stages_with_policies")
             enabled_stages = Main.get_config("enabled_stages")
             policies = {}
-            for s in enabled_stages:
+            for s in [Main.stage_from_name(st) for st in enabled_stages]:
                 if s.stagename in [a.stagename for a in stages_with_policies]:
                     policies[s.stagename] = Main.get_config("policy_name", s)
             test_id = Main.get_config("test_instance_id")
@@ -666,7 +567,6 @@ traces: [{}]
             ttask.file_dep.extend([Main.get_config("test_config_file")])
             newtask.file_dep.extend([Main.get_config("test_config_file")])
             ttask.name = "trace-" + ttask.name
-            #ttask.actions = [CmdTask("sleep 10", [], [], "sleep")] + ttask.actions
             tasks.extend([newtask, ttask])
         sys.path.pop()
         if self.print_cmds:
@@ -732,6 +632,147 @@ traces: [{}]
                 gdb_targets, done_commands, done_targets)
 
 
+class TraceTaskPrepLoader(ResultsLoader):
+    def __init__(self, instrumentation_task, trace_name, create, run_tasks,
+                 print_cmds):
+        self.print_cmds = print_cmds
+        test_id = Main.get_config("test_instance_id")
+        print "trace task prep run %s" % run_tasks
+        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", run_tasks)
+        self.test_root = Main.get_config("test_instance_root")
+        self.create = create
+        if self.create:
+            self.trace_id = self.create_new_id()
+        elif trace_name is None:  # get last id
+            self.trace_id = sorted(self.existing_trace_ids())[0]
+        else:
+            existing = sorted(self.existing_trace_ids())
+            if trace_name not in existing:
+                res = difflib.get_close_matches(trace_name, existing, 1, 0)
+                if not res:
+                    self.trace_id = existing[-1]
+                else:
+                    self.trace_id = res[0]
+            else:
+                self.trace_id = trace_name
+
+        self.config_path = self._test_path("config.yml")
+        print "create %s instrum task %s %s" % (create, instrumentation_task, trace_name)
+
+        if create:
+            self.stagenames = instrumentation_task['stages']
+            self.hwname = instrumentation_task['hw']
+            self.tracenames = instrumentation_task['traces']
+        else:
+            with open(self.config_path, 'r') as f:
+                settings = yaml.load(f)
+                self.stagenames = settings['stages']
+                self.hwname = settings['hw']
+                self.tracenames = settings['traces']
+        self.hw = Main.get_hardwareclass_config().hardware_type_cfgs[self.hwname]
+        self.stages = [Main.stage_from_name(s) for s in self.stagenames]
+        self.name = "%s.%s.%s" % (self.hwname,
+                                  "-".join(self.tracenames), "-".join(self.stagenames))
+        self.namefile = self._test_path(self.name)
+
+        Main.set_config("trace_name", self.name)
+        Main.set_config("trace_stages", self.stages)
+        Main.set_config("trace_hw", self.hw)
+        Main.set_config("trace_traces", self.tracenames)
+        Main.set_config("trace_id", self.trace_id)
+        self.task_adders = [self._setup_tasks, self._openocd_tasks]
+        self._add_tasks()
+
+    def _format_id(self, num):
+        return str(num).zfill(8)
+
+    def _openocd_tasks(self):
+        tasks = []
+        tracefile = {}
+
+        if not self.hw.host_software == "openocd":
+            return tasks
+
+        d = Main.get_config("test_instance_root", "openocd")
+        tasks.append(self._mkdir(d))
+        Main.set_config("openocd_data_dir", d)
+        ocd_cached = os.path.join(d, "ocdinit")
+        sw = os.path.join(Main.object_config_lookup("Software",
+                                                    "openocd"))
+        search = os.path.join(sw.root, "tcl")
+        jtag_config = self.hw.default_jtag
+        jtagfile = Main.object_config_lookup("JtagConfig", "flyswatter2")
+        hw_config = os.path.join(self.hw.openocd_cfg)
+        hdir = os.path.join(Main.hw_info_path, Main.get_hardwareclass_config().name)
+        ocdinit = os.path.join(hdir, "ocdinit")
+        print ocd_cached
+        print ocdinit
+        Main.set_config("openocd_init_file", ocd_cached)
+        tasks.append(self._copy_file(ocdinit, ocd_cached))
+        Main.set_config("openocd_init_file", ocd_cached)
+        Main.set_config('openocd_jtag_config_path', jtagfile.cfg_path)
+        Main.set_config('openocd_hw_config_path', hw_config)
+        Main.set_config('openocd_search_path', search)
+        return tasks
+
+    def create_new_id(self):
+        num = 0
+        existing = sorted(self.existing_trace_ids())
+        if len(existing) == 0:
+            return self._format_id(0)
+        while True:
+            if self._format_id(num) in existing:
+                num += 1
+            else:
+                break
+        return self._format_id(num)
+
+    def existing_trace_ids(self):
+        for f in glob.glob("%s/*" % self._dest_dir_root_path()):
+            if os.path.isdir(f):
+                yield os.path.basename(f)
+
+    def _dest_dir_root_path(self, rel=""):
+        return os.path.join(self.test_root, "trace_data", rel)
+
+    def _test_path(self, rel=""):
+        return os.path.join(self._dest_dir_root_path(self.trace_id), rel)
+
+    def _setup_tasks(self):
+        tasks = []
+        deps = []
+        tasks.append(self._mkdir(self._test_path()))
+        Main.set_config("trace_data_root", self._test_path())
+        symlink_dir = os.path.join(self._dest_dir_root_path(), "trace_data-by_name")
+        tasks.append(self._mkdir(symlink_dir))
+        target_dir = os.path.join(symlink_dir, os.path.basename(self.namefile))
+        tasks.append(self._mkdir(target_dir))
+        target_file = os.path.join(target_dir, self.trace_id)
+        tasks.append(CmdTask(["ln -s -f %s %s" % (target_file, self._test_path())],
+                             [], [target_file], "symlink-%s" % target_file))
+        Main.set_config("trace_data_dir", self._test_path())
+        contents = """
+stages: [{}]
+hw: {}
+traces: [{}]
+"""
+        filecontents = contents.format(", ".join(self.stagenames), self.hwname,
+                                       ", ".join(self.tracenames))
+
+        def write(f, c):
+            with open(f, "w") as fconfig:
+                fconfig.write(c)
+        Main.set_config("test_config_file", self.config_path)
+        a = ActionListTask([(write, [self.config_path, filecontents])],
+                           [], [self.config_path], "test_config_file")
+        tasks.append(a)
+        c = CmdTask(["touch %s" % self.namefile], [],
+                    [self.namefile], "test_name_file")
+        c.other = {'uptodate': [False]}
+        tasks.append(c)
+        return tasks
+
+
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
                  enabled_stages, create, gitinfo):
@@ -755,6 +796,7 @@ class InstrumentationTaskLoader(ResultsLoader):
                                    "bootloaderdata": bootdir}
         Main.set_config("hardware_data_dir",  hdir)
         Main.set_config("bootloader_data_dir",  bootdir)
+        Main.set_config("stages_with_policies", {})  # none yet
         self.task_adders = [self._image_tasks, self._reg_tasks, self._qemu_tasks,
                             self._staticanalysis_tasks, self._addr_map_tasks]
         self._add_tasks()
@@ -785,7 +827,7 @@ class InstrumentationTaskLoader(ResultsLoader):
                                                             "qemu").root, "trace-events")
         cached_events = self._full_path("qemu-trace-events")
         tasks.append(self._copy_file(all_events, cached_events))
-        tasks.append(self.save_config("all_qemu_evnts", cached_events))
+        Main.set_config("all_qemu_evnts", cached_events)
         return tasks
 
     def _reg_tasks(self):
@@ -804,24 +846,21 @@ class InstrumentationTaskLoader(ResultsLoader):
                 parse_am37x_register_tables.parse(pdf, default_reglist)
 
             return os.system("cp %s %s" % (default_reglist, reglist)) == 0
-        tasks.append(self.save_config(regkey, reglist))
+        Main.set_config(regkey, reglist)
         rtask = ActionListTask([(regaction, )], deps, [reglist], "create_reg_csv")
         tasks.append(rtask)
         return tasks
 
     def _addr_map_tasks(self):
         tasks = []
-        if not MkdirTask.exists(self.test_data_path):
-            tasks.append(self._mkdir(self.test_data_path))
         dstdir = self._full_path("mmap")
         actions = []
-        tasks.append(self.save_config("mmap_dir", dstdir))
-        if not MkdirTask.exists(dstdir):
-            tasks.append(self._mkdir(dstdir))
+        Main.set_config("mmap_dir", dstdir)
+        tasks.append(self._mkdir(dstdir))
         mmapdb_path = os.path.join(dstdir, "mmap.h5")
         mmapdb_done_path = os.path.join(dstdir, "mmap.completed")
-        tasks.append(self.save_config("mmapdb", mmapdb_path))
-        tasks.append(self.save_config("mmapdb_done", mmapdb_done_path))
+        Main.set_config("mmapdb", mmapdb_path)
+        Main.set_config("mmapdb_done", mmapdb_done_path)
 
         class addr_space_setup():
             def __call__(self):
@@ -834,11 +873,12 @@ class InstrumentationTaskLoader(ResultsLoader):
         a = DelTargetAction(addr_space_setup())
 
         actions.append(a)
-        deps = [Main.get_config("stage_elf", s) for s in Main.get_config('enabled_stages')]
+        deps = [Main.get_config("stage_elf", s) for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]]
 
         rtask = ActionListTask(actions, deps,
                                [mmapdb_path, mmapdb_done_path], "generate_addr_info")
         tasks.append(rtask)
+
         return tasks
 
     def _staticanalysis_tasks(self):
@@ -846,18 +886,12 @@ class InstrumentationTaskLoader(ResultsLoader):
         # db name for each stage
         staticdb = {}
         staticdb_done = {}
-        for s in Main.get_config('enabled_stages'):
+        for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             staticdb[s.stagename] = self._full_path("static-analysis-%s.h5" % s.stagename)
             staticdb_done[s.stagename] = self._full_path("static-analysis-%s.completed"
                                                          % s.stagename)
-
-        def getstaticdb(s):
-            return staticdb[s.stagename]
-
-        def getstaticdb_done(s):
-            return staticdb_done[s.stagename]
-        Main.set_config("staticdb", getstaticdb)
-        Main.set_config("staticdb_done", getstaticdb_done)
+        Main.set_config("staticdb", lambda x: staticdb[x.stagename])
+        Main.set_config("staticdb_done", lambda x: staticdb_done[x.stagename])
 
         # calculate thumb ranges on demand
         def get_thumb_ranges(stage):
@@ -897,7 +931,7 @@ class InstrumentationTaskLoader(ResultsLoader):
             return v
 
         Main.set_config("labels", get_labels)
-        for s in Main.get_config('enabled_stages'):
+        for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             n = s.stagename
             target = staticdb[n]
             done_target = staticdb_done[n]
@@ -923,17 +957,19 @@ class InstrumentationTaskLoader(ResultsLoader):
 
     def _image_tasks(self):
         tasks = []
-        if not MkdirTask.exists(self.test_data_path):
-            tasks.append(self._mkdir(self.test_data_path))
-        if not MkdirTask.exists(self._full_path()):
-            tasks.append(self._mkdir(self._full_path()))
-        tasks.append(self.save_config("test_instance_root", self._full_path()))
+        bootimages = []
+        bootelfs = []
+        imgsrcs = []
+        elfdst = {}
+        imgdst = {}
+        deps = []
+        tasks.append(self._mkdir(self.test_data_path))
+        tasks.append(self._mkdir(self._full_path()))
+        Main.set_config("test_instance_root", self._full_path())
         dstdir = self._full_path("images")
-        if not MkdirTask.exists(dstdir):
-            tasks.append(self._mkdir(dstdir))
+        tasks.append(self._mkdir(dstdir))
         self.config_path = self._full_path("config.yml")
         Main.set_config("instance_config_file", self.config_path)
-        #if self.create:
         if not os.path.exists(self.config_path):
             # self.remote = self.gitinfo['remote']
             self.local = self.gitinfo['local']
@@ -957,14 +993,8 @@ sha1: {}
                 # self.remote = settings['remote']
                 self.local = settings['local']
                 self.sha = settings['sha1']
-        # tasks.append(self.save_config("instance_git_remote", self.remote))
-        tasks.append(self.save_config("instance_git_local", self.local))
-        tasks.append(self.save_config("instance_git_sha", self.sha))
-        bootimages = []
-        bootelfs = []
-        imgsrcs = []
-        elfdst = {}
-        imgdst = {}
+        Main.set_config("instance_git_local", self.local)
+        Main.set_config("instance_git_sha", self.sha)
         for i in self.boot_stages:
             bootelfs.append(self._boot_src_path(i.elf))
             bootimages.append(self._boot_src_path(i.image))
@@ -993,8 +1023,7 @@ sha1: {}
         cp_final = "cp %s %s" % (tmpsd, sdtarget)
         rmtmp = "sudo rm -r %s" % tmpdir
         cmds = [cp, mkdir, mnt] + update_mnt + [umount, cp_final, rmtmp]
-        tasks.append(self.save_config('sd_image', sdtarget))
-        deps = []
+        Main.set_config('sd_image', sdtarget)
         for f in imgdst.itervalues():
             deps.append(f)
         mksd = CmdTask(cmds,
@@ -1006,9 +1035,10 @@ sha1: {}
         tasks.append(mksd)
         if 'all' in self.enabled_stages or self.enabled_stages is None:
             Main.set_config('enabled_stages',
-                            list(Main.get_bootloader_cfg().supported_stages.itervalues()))
+                            [s.stagename for
+                             s in list(Main.get_bootloader_cfg().supported_stages.itervalues())])
         else:
-            ss = [v for v in
+            ss = [v if isinstance(v, str) else v.stagename for v in
                   Main.get_bootloader_cfg().supported_stages.itervalues()
                   if v.stagename in self.enabled_stages]
             Main.set_config('enabled_stages', ss)
@@ -1021,8 +1051,7 @@ sha1: {}
                 if os.path.exists(e):
                     setattr(stage, t, e)
         for stage in Main.get_config('enabled_stages'):
-            stage.post_build_setup()
-
+            Main.stage_from_name(stage).post_build_setup()
         return tasks
 
 
@@ -1030,7 +1059,6 @@ class PolicyTaskLoader(ResultsLoader):
     def __init__(self, policies, run_tasks):
         print "policy task loader run %s" % (run_tasks)
         test_id = Main.get_config("test_instance_id")
-        test_ = Main.get_config("test_instance_id")
         super(PolicyTaskLoader, self).__init__(test_id, "policy", run_tasks)
         self.policies = policies
         self.instance_dir = Main.get_config("test_instance_root")
@@ -1050,21 +1078,18 @@ class PolicyTaskLoader(ResultsLoader):
         names = {}
         dbs = {}
         dbs_done = {}
+        stages_with_policies = []
         pname = "substages.yml"
         rname = "memory_map.yml"
-        if not MkdirTask.exists(self._policy_root()):
-            tasks.append(self._mkdir(self._policy_root()))
-        stages_with_policies = []
-        for s in Main.get_config('enabled_stages'):
+        tasks.append(self._mkdir(self._policy_root()))
+        for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             s_policy = None
             s_regions = None
             n = s.stagename
             policy_file_name = "substages-%s.yml" % n
             regions_file_name = "memory_map-%s.yml" % n
             policystagedir = self._full_path(s)
-            if not MkdirTask.exists(self._full_path(s)):
-                tasks.append(self._mkdir(self._full_path(s)))
-
+            tasks.append(self._mkdir(policystagedir))
             stages_with_policies.append(s)
             if n not in self.policies:
                 policy_entry = None
@@ -1105,22 +1130,18 @@ class PolicyTaskLoader(ResultsLoader):
             regions[n] = os.path.join(datadir, regions_file_name)
             dbs_done[n] = os.path.join(datadir, "policy-%s.completed" % n)
             dbs[n] = os.path.join(datadir, "policy-%s.h5" % n)
-            if not MkdirTask.exists(datadir):
-                tasks.append(self._mkdir(datadir, "%s_data" % n))
-            if not s_policy == policies[n]:
-                tasks.append(self._copy_file(s_policy,
-                                             policies[n], "%s_policy" % n))
-            if not s_regions == regions[n]:
-                tasks.append(self._copy_file(s_regions,
-                                             regions[n], "%s_regions" % n))
+            tasks.append(self._mkdir(datadir, "%s_data" % n))
+            tasks.append(self._copy_file(s_policy,
+                                         policies[n], "%s_policy" % n))
+            tasks.append(self._copy_file(s_regions,
+                                         regions[n], "%s_regions" % n))
         Main.set_config("policy_file", lambda s: policies[s.stagename])
         Main.set_config("regions_file", lambda s: regions[s.stagename])
         Main.set_config("policy_name", lambda s: names[s.stagename])
         Main.set_config("policy_db", lambda s: dbs[s.stagename])
         Main.set_config("policy_db_done", lambda s: dbs_done[s.stagename])
         Main.set_config("stages_with_policies", stages_with_policies)
-        for s in Main.get_config('enabled_stages'):
-
+        for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             n = s.stagename
             if n not in self.policies:
                 continue

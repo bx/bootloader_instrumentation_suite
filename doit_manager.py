@@ -40,7 +40,7 @@ class TaskManager():
     def __init__(self, do_build, create_test, enabled_stages,
                  policies, quick, run_trace, select_trace, import_policies,
                  post_trace_processing=[], open_instance=None, run=True,
-                 print_cmds=False):
+                 print_cmds=False, hook=False):
         if not do_build:
             (print_build_cmd, build_source) = ([], [])
         else:
@@ -61,6 +61,9 @@ class TaskManager():
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
                 uptodate = False
+                self.boot_task.build.uptodate = [False]
+            else:
+                self.boot_task.build.uptodate = [True]
             # rebuild bootloader now to ensure we have its elf/images available
             #self.boot_task.build.uptodate = [False]
             self.src_manager.builds.append(bootloader.software)
@@ -80,33 +83,32 @@ class TaskManager():
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
-                                                                            create_test and not uptodate,
+                                                                            (create_test or not uptodate),
                                                                             gitinfo)
 
-        instrumentation_results_manager.PolicyTaskLoader(policies,
-                                                         (create_test and not print_cmds) or
-                                                         import_policies or
-                                                         len(post_trace_processing) > 0 or
-                                                         run_trace)
+        print "run trace %s select trace %s" % (run_trace, select_trace)
+        self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
+                                                                      select_trace,
+                                                                      not hook,
+                                                                      create_test,
+                                                                      self.print_cmds)
+
+        self.pt = instrumentation_results_manager.PolicyTaskLoader(policies, not quick and (
+                                                                   import_policies or
+                                                                   len(post_trace_processing) > 0 or
+                                                                   run_trace))
+        self.rt = instrumentation_results_manager.TraceTaskLoader(self.tp.stages,
+                                                                  self.tp.hw,
+                                                                  self.tp.tracenames,
+                                                                  self.tp.trace_id,
+                                                                  not self.print_cmds,
+                                                                  quick,
+                                                                  not self.print_cmds,
+                                                                  self.print_cmds)
 
         if create_test:
             self.loaders.append(instrumentation_results_manager.task_manager())
             return
-        trace_create = False
-        if run_trace:
-            trace_create = True
-
-        trace = True
-        if (len(post_trace_processing) > 0) or create_test or import_policies:
-            trace = False
-        if create_test:
-            trace_create = True
-        self.rt = instrumentation_results_manager.TraceTaskLoader(run_trace,
-                                                                  select_trace,
-                                                                  trace_create,
-                                                                  quick,
-                                                                  trace and not self.print_cmds,
-                                                                  self.print_cmds)
         if post_trace_processing:
             self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)
         self.loaders.append(instrumentation_results_manager.task_manager())
@@ -169,7 +171,6 @@ class TaskManager():
         return ret
 
     def run_trace(self):
-
         if self.print_cmds:
             return 0
         nm = self.rt.get_build_name()

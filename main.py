@@ -65,12 +65,12 @@ if __name__ == '__main__':
             self.tracing_methods = {k: v.tracing_methods for k, v in hw_classes.iteritems()}
             self.nargs = 3
             self.selected = False
-            self.d = {'stages': "spl",
+            self.d = {'stages': ["spl"],
                       "traces": ["breakpoint", "calltrace"],
                       "hw": "bbxmqemu",
             }
 
-            kwargs['default'] = None
+            kwargs['default'] = self.d
             super(TraceAction, self).__init__(option_strings, dest, **kwargs)
 
         def __call__(self, parser, namespace, values, option_string=None):

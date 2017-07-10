@@ -27,7 +27,7 @@ import os
 import sys
 path = gdb.os.getcwd()
 sys.path.append(path)
-# sys.path.append(os.path.join(path, ".."))
+sys.path.append(os.path.join(path))
 version = os.path.join(path, ".python-version")
 if os.path.exists(version):
     with open(version, 'r') as pv:
@@ -72,13 +72,10 @@ class FlushDatabase():
             return
         db_info.get(self.stage).flush_tracedb()
 
-        # print "consolidating write intervals\n"
-        # start = time.time()
         global start
-        # db_info.get(self.stage).consoladate_trace_write_table()
         db_info.get(self.stage).flush_tracedb()
         stop = time.time()
-        print ".. finished in %f minutes\n" % ((stop-start)/60)
+        gdb.write(".. finished in %f minutes\n" % ((stop-start)/60), gdb.STDOUT)
         db_written = True
 
     def __call__(self):
@@ -173,7 +170,6 @@ class HookWrite(gdb_tools.GDBBootController):
         return False
 
     def stage_finish(self, now=False):
-        #print "posting stage finish event %s" % self.current_stage
         fd = FlushDatabase(self.current_stage)
         gdb.flush()
         if now:
@@ -187,11 +183,6 @@ class HookWrite(gdb_tools.GDBBootController):
     def endstop_hook(self, bp, ret):
         controller = bp.controller
         controller.stage_finish()
-        # controller.tracedb.close()
-        # controller.analysisdb.close()
-        # disable bp in case it is hit agan
-        # otherwise we will have problems
-        # with tables since the are now closed
         return True
 
     def _setup_parsers(self):
@@ -201,7 +192,6 @@ class HookWrite(gdb_tools.GDBBootController):
         sp.add_argument("stagename")
 
     def _go_stage(self, stage):
-        #print "go stage"
         pass
 
     def baremetal(self, args):
@@ -212,12 +202,8 @@ class HookWrite(gdb_tools.GDBBootController):
 
     def process_write(self, writeinfo, relocated, stage, substage):
         pc = writeinfo['pc']
-        inspc = pc - relocated
         cpsr = writeinfo["cpsr"]
         lr = self.get_reg_value('lr')
-        thumb = writeinfo['thumb']
-        i = writeinfo['i']
-        ins = writeinfo['ins']
         size = writeinfo['end'] - writeinfo['start']
         dst = writeinfo['start']
         pid = 0
@@ -228,17 +214,9 @@ class HookWrite(gdb_tools.GDBBootController):
     def writeinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage):
         global stepnum
         stepnum += 1
-        #self.gdb_print("%s, " % substage)
         gdb.post_event(WriteDatabase(time.time(),
                                      pid, size, writedst, pc, lr,
                                      cpsr, stepnum, origpc, stage, substage))
 
-    # def stop (self):
-    #     self.hw.process_write(self.relocated)
-    #     return False
-
 
 hookwrite = HookWrite()
-# gdb.events.cont.connect(hookwrite.handle_continue)
-# gdb.events.stop.connect(hookwrite.handle_stop)
-# signal.signal(signal.SIGINT, hookwrite.handle_stop)

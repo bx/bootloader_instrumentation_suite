@@ -265,7 +265,7 @@ class DBInfo():
                 for r in self._sdb.db.longwritestable.iterrows()]
 
     def smcs_info(self):
-        fields = self._sdb.db.smcsstable.colnames
+        fields = self._sdb.db.smcstable.colnames
 
         def smcs_dict(r):
             d = {}
