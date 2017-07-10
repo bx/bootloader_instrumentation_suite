@@ -556,11 +556,12 @@ class TraceTaskLoader(ResultsLoader):
                 newtask.file_dep.extend([Main.get_config("policy_file", s),
                                          Main.get_config("regions_file", s)])
                 newtask.file_dep.extend([Main.get_config("test_config_file")])
-
+            newtask.file_dep.append(Main.get_config("test_config_file"))
             tasks.append(newtask)
         else:
             newtask.actions.extend(done_commands)
             newtask.targets.extend(done_targets)
+            newtask.file_dep.append(Main.get_config("test_config_file"))
             for s in self.stages:
                 ttask.file_dep.extend([Main.get_config("policy_file", s),
                                        Main.get_config("regions_file", s)])
@@ -634,11 +635,11 @@ class TraceTaskLoader(ResultsLoader):
 
 class TraceTaskPrepLoader(ResultsLoader):
     def __init__(self, instrumentation_task, trace_name, create, run_tasks,
-                 print_cmds):
+                 print_cmds, hook=False):
         self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
-        print "trace task prep run %s" % run_tasks
-        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", run_tasks)
+        print "trace task prep run %s %s" % (run_tasks, trace_name)
+        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not self.print_cmds)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
         if self.create:
@@ -646,18 +647,21 @@ class TraceTaskPrepLoader(ResultsLoader):
         elif trace_name is None:  # get last id
             self.trace_id = sorted(self.existing_trace_ids())[0]
         else:
-            existing = sorted(self.existing_trace_ids())
-            if trace_name not in existing:
-                res = difflib.get_close_matches(trace_name, existing, 1, 0)
-                if not res:
-                    self.trace_id = existing[-1]
+            if not hook:
+                existing = sorted(self.existing_trace_ids())
+                if trace_name not in existing:
+                    res = difflib.get_close_matches(trace_name, existing, 1, 0)
+                    if not res:
+                        self.trace_id = existing[-1]
+                    else:
+                        self.trace_id = res[0]
                 else:
-                    self.trace_id = res[0]
+                    self.trace_id = trace_name
             else:
                 self.trace_id = trace_name
 
         self.config_path = self._test_path("config.yml")
-        print "create %s instrum task %s %s" % (create, instrumentation_task, trace_name)
+        print "create %s instrum task %s %s %s" % (create, instrumentation_task, trace_name, self.config_path)
 
         if create:
             self.stagenames = instrumentation_task['stages']
@@ -1131,10 +1135,13 @@ class PolicyTaskLoader(ResultsLoader):
             dbs_done[n] = os.path.join(datadir, "policy-%s.completed" % n)
             dbs[n] = os.path.join(datadir, "policy-%s.h5" % n)
             tasks.append(self._mkdir(datadir, "%s_data" % n))
-            tasks.append(self._copy_file(s_policy,
-                                         policies[n], "%s_policy" % n))
-            tasks.append(self._copy_file(s_regions,
-                                         regions[n], "%s_regions" % n))
+
+            if not s_policy == policies[n]:
+                tasks.append(self._copy_file(s_policy,
+                                             policies[n], "%s_policy" % n))
+            if not s_regions == regions[n]:
+                tasks.append(self._copy_file(s_regions,
+                                             regions[n], "%s_regions" % n))
         Main.set_config("policy_file", lambda s: policies[s.stagename])
         Main.set_config("regions_file", lambda s: regions[s.stagename])
         Main.set_config("policy_name", lambda s: names[s.stagename])

@@ -113,7 +113,8 @@ def breakpoint(main, configs,
 
     for s in stages:
         gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
-                         " -ex 'hookwrite until -s %s'" % s.stagename])
+                         " -ex 'hookwrite until _main'"])
+                         # " -ex 'hookwrite until -s %s'" % s.stagename])
     for (s, v) in policies.iteritems():
         gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s, v))
     gdb_cmds.append("-ex 'hookwrite go -p'")
@@ -299,7 +300,7 @@ def bbxmbaremetal(main, boot_config,
     main_cfgs["openocd_log"] = lambda st: logs[st.stagename]
     targets.append(logs[s.stagename])
 
-    c = "%s -f %s -f %s -l %s -s %s -d=1 &" % (openocd, jtag_config,
+    c = "%s -f %s -f %s -l %s -s %s &" % (openocd, jtag_config,
                                                ocd_hw_config, logs[s.stagename], search)
     cfg = {'gdb_commands': ["set tcp connect-timeout 120",
                             "set remotetimeout -1",

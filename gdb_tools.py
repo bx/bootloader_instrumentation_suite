@@ -41,7 +41,7 @@ import pure_utils
 import config
 import doit_manager
 import db_info
-
+import testsuite_utils as utils
 breakpoint_classes = {}
 
 gdb.execute('set pagination off')
@@ -258,18 +258,24 @@ class GDBBootController(gdb.Command):
         self.insert_stageend_breakpoints(stage)
         if self.isbaremetal:
             for s in db_info.get(stage).smcs_info():
-                print "nopping out smc call at 0x%x" % s['pc']
-                gdb.execute("x/i 0x%x" % s['pc'])
-                gdb.execute("mon mdb 0x%x 1" % s['pc'])
-                gdb.execute("mon mwb 0x%x 0" % s['pc'])
-                gdb.execute("mon mdb 0x%x 1" % s['pc'])
-                gdb.execute("mon mwb 0x%x 0xf0" % (s['pc'] + 1))
-                gdb.execute("x/i 0x%x" % s['pc'])
+                fnname = utils.addr2functionname(s['pc'], stage)
+                print "inserting return for smc %s at %s" % (fnname, s['pc'])
+                ReturnBreak(fnname, self, stage)
+            #ReturnBreak("omap_smc1", self, stage)
+            #ReturnBreak("do_omap3_emu_romcode_call", self, stage)
+                #print "nopping out smc call at 0x%x" % s['pc']
+                #gdb.execute("x/i 0x%x" % s['pc'])
+                #gdb.execute("mon mdb 0x%x 1" % s['pc'])
+                #gdb.execute("mon mwb 0x%x 0" % s['pc'])
+                #gdb.execute("mon mdb 0x%x 1" % s['pc'])
+                #gdb.execute("mon mwb 0x%x 0xf0" % (s['pc'] + 1))
+                #gdb.execute("x/i 0x%x" % s['pc'])
 
     def insert_stageend_breakpoints(self, stage):
         s_info = self._stages[stage.stagename]
         end = s_info.stoppoint
         if end:
+            print "stopping at %s" % end
             s_info.endbreaks.append(StageEndBreak(end, self, stage, True))
         for (addr, line, success) in db_info.get(stage).stage_exits():
             s_info.endbreaks.append(StageEndBreak(addr, self, stage, success))
@@ -551,6 +557,18 @@ class BootFinishBreakpoint(gdb.FinishBreakpoint, BootBreak):
             self._stop()
         gdb.post_event(self.delete)
 
+
+class ReturnBreak(BootBreak):
+    def __init__(self, spec, controller, stage):
+        if not isinstance(spec, str):
+            spec = "*(0x%x)" % spec
+        BootBreak.__init__(self, spec, controller, True, stage)
+
+    def _stop(self, ret):
+        cont = self.controller
+        print "RETURN"
+        gdb.execute("return")
+        return False
 
 class WriteBreak(BootBreak):
     def __init__(self, spec, controller, stage):

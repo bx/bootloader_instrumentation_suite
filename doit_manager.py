@@ -89,9 +89,9 @@ class TaskManager():
         print "run trace %s select trace %s" % (run_trace, select_trace)
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
-                                                                      not hook,
-                                                                      create_test,
-                                                                      self.print_cmds)
+                                                                      not hook and len(post_trace_processing) == 0,
+                                                                      create_test or select_trace,
+                                                                      self.print_cmds, hook)
 
         self.pt = instrumentation_results_manager.PolicyTaskLoader(policies, not quick and (
                                                                    import_policies or
@@ -103,7 +103,7 @@ class TaskManager():
                                                                   self.tp.trace_id,
                                                                   not self.print_cmds,
                                                                   quick,
-                                                                  not self.print_cmds,
+                                                                  len(post_trace_processing) == 0 and not self.print_cmds,
                                                                   self.print_cmds)
 
         if create_test:

@@ -46,7 +46,6 @@ def infoline(line, stage):
 def line2addrs(line, stage):
     output = infoline(line, stage)
     startat = output[0]
-    # print output
     assembly = False
     isataddr = None
     restart = None
