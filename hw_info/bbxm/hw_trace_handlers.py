@@ -308,7 +308,7 @@ def bbxmbaremetal(main, boot_config,
     ocdc = [
         "gdb_port pipe", "log_output %s" % logs[s.stagename],
         "gdb_report_data_abort enable",
-        "gdb_memory_map enable",
+        "gdb_memory_map disable",
         "gdb_flash_program disable",
         "init",
         "reset init",
@@ -335,7 +335,7 @@ def bbxmbaremetal(main, boot_config,
         # "bp 0x40200800 4 hw",
         #"gdb_report_data_abort enable",
 
-        "gdb_breakpoint_override soft",
+        "gdb_breakpoint_override disable",
 
     ]
 

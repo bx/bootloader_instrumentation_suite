@@ -449,7 +449,7 @@ class TraceTaskLoader(ResultsLoader):
         self.create = create
 	self.toprint = []
         self.quick = quick
-        self.quit = False
+        self.quit = True
         self.trace_id = trace_name
         self.stages = stages
         self.tracenames = tracenames
@@ -550,7 +550,7 @@ class TraceTaskLoader(ResultsLoader):
 
         if gdb_commands:
             gdb = " ".join(gdb_commands)
-            #gdb += " -ex 'c'"
+            gdb += " -ex 'c'"
             if self.quit:
                 gdb += " -ex 'monitor quit' -ex 'q'"
 

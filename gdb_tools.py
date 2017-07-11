@@ -664,19 +664,25 @@ class StageStartBreak(BootBreak):
             spec = "*(0x%x)" % realstart
         else:
             spec = realstart
+        if controller.isbaremetal:
+            gdb.execute("set arm force-mode thumb")
+            gdb.execute("mon arm core_state thumb")
         controller.gdb_print("StartStageBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage)
         if controller.isbaremetal:
             #gdb.execute("mon poll on"),
-            #gdb.execute("mon bp 0x%x 1 hw" % realstart)
+            gdb.execute("mon bp 0x%x 1 hw" % realstart)
             #gdb.execute("hbreak *0x%x" % realstart)
             #gdb.execute("mon resume")
             #gdb.execute("mon wait_halt 40000")
-            #gdb.execute("set arm force-mode arm")
-            #Qgdb.execute("mon arm core_state arm")
-            while self.controller.get_reg_value("pc") < 0x40200800:
-                gdb.execute("mon step")
-            gdb.execute("mon gdb_sync")
+            gdb.execute("set arm force-mode arm")
+            gdb.execute("mon arm core_state arm")
+
+            #gdb.execute("set arm force-mode thumb")
+            #gdb.execute("mon arm core_state thumb")
+            #while self.controller.get_reg_value("pc") < 0x40200800:
+            #   gdb.execute("mon step")
+            #gdb.execute("mon gdb_sync")
             #self.continue_stage()
             #gdb.execute("break *0x40200860")
             #gdb.execute("break _start")
@@ -689,6 +695,7 @@ class StageStartBreak(BootBreak):
 
     def continue_stage(self):
         cont = self.controller
+        gdb.post_event(self.breakpoint.delete)
         if not gdb.current_progspace().filename:
             elf = Main.get_config("stage_elf", self.stage)
             gdb.execute("file %s" % elf)
@@ -700,7 +707,7 @@ class StageStartBreak(BootBreak):
             #gdb.execute("mon poll on"),
             #gdb.execute("mon resume")
             #gdb.execute("mon wait_halt 90000")
-            gdb.execute("mon rbp 0x%x" % self.realstart)
+            #gdb.execute("mon rbp 0x%x" % self.realstart)
             #gdb.execute("set arm force-mode arm")
             #gdb.execute("mon arm core_state arm")
             #gdb.execute("mon gdb_sync")
@@ -710,7 +717,7 @@ class StageStartBreak(BootBreak):
         cont.gdb_print("Done setting breakpoints\n")
         if self.controller.stage_hook:
             self.controller.stage_hook(self.stage)
-        self.breakpoint.enabled = False
+
 
     def _stop(self, ret):
         self.continue_stage()
