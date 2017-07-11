@@ -670,28 +670,9 @@ class StageStartBreak(BootBreak):
         controller.gdb_print("StartStageBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage)
         if controller.isbaremetal:
-            #gdb.execute("mon poll on"),
             gdb.execute("mon bp 0x%x 1 hw" % realstart)
-            #gdb.execute("hbreak *0x%x" % realstart)
-            #gdb.execute("mon resume")
-            #gdb.execute("mon wait_halt 40000")
             gdb.execute("set arm force-mode arm")
             gdb.execute("mon arm core_state arm")
-
-            #gdb.execute("set arm force-mode thumb")
-            #gdb.execute("mon arm core_state thumb")
-            #while self.controller.get_reg_value("pc") < 0x40200800:
-            #   gdb.execute("mon step")
-            #gdb.execute("mon gdb_sync")
-            #self.continue_stage()
-            #gdb.execute("break *0x40200860")
-            #gdb.execute("break _start")
-            #self.breakpoint.enabled = False
-            #gdb.execute("mon rbp 0x%x" % realstart)
-
-            #gdb.execute("mon gdb_sync")
-            #gdb.execute("si")
-            pass
 
     def continue_stage(self):
         cont = self.controller
@@ -703,21 +684,10 @@ class StageStartBreak(BootBreak):
         cont.gdb_print("Inserting breakpoints for %s %s ...\n" % (self.controller.name,
                                                                   self.stage.stagename))
         cont.current_substage = 0
-        if cont.isbaremetal:
-            #gdb.execute("mon poll on"),
-            #gdb.execute("mon resume")
-            #gdb.execute("mon wait_halt 90000")
-            #gdb.execute("mon rbp 0x%x" % self.realstart)
-            #gdb.execute("set arm force-mode arm")
-            #gdb.execute("mon arm core_state arm")
-            #gdb.execute("mon gdb_sync")
-            #gdb.execute("si")
-            pass
         cont.insert_breakpoints(self.stage)
         cont.gdb_print("Done setting breakpoints\n")
         if self.controller.stage_hook:
             self.controller.stage_hook(self.stage)
-
 
     def _stop(self, ret):
         self.continue_stage()
