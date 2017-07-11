@@ -158,6 +158,8 @@ class HookWrite(gdb_tools.GDBBootController):
         lr = bp.controller.get_reg_value('lr')
         cpsr = bp.controller.get_reg_value('cpsr')
         pid = 2
+        if bp.controller.isbaremetal:
+            gdb.post_event(WriteLog("\n<%x longwrite..." % writepc))
         if bp.relocated > 0:
             pid = 3
         for i in range(start, end, bp.writesize):
@@ -167,6 +169,8 @@ class HookWrite(gdb_tools.GDBBootController):
             bp.controller.writeinfo(waddr, bp.writesize, writepc,
                                     lr, cpsr, pid, writepc - bp.relocated,
                                     bp.stage, num)
+        if bp.controller.isbaremetal:
+            gdb.post_event(WriteLog(">\n"))
         return False
 
     def stage_finish(self, now=False):
@@ -210,6 +214,7 @@ class HookWrite(gdb_tools.GDBBootController):
         if relocated > 0:
             pid = 1
         self.writeinfo(dst, size, pc, lr, cpsr, pid, pc - relocated, stage, substage)
+        gdb.post_event(WriteLog("."))
 
     def writeinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage):
         global stepnum

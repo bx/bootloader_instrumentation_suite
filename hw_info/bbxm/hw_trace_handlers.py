@@ -94,27 +94,27 @@ def breakpoint(main, configs,
     gdb_cmds.append("-ex 'hookwrite kill'")
     if not hwname == "bbxmqemu":
         gdb_cmds.append(" -ex 'set mem inaccessible-by-default off'")
-        # gdb_cmds.append(" -ex 'mon gdb_memory_map disable'")
         gdb_cmds.append(" -ex 'hookwrite baremetal'")
-        gdb_cmds.append(" -ex 'mon dap apsel 0'")
-        gdb_cmds.append(" -ex 'mon init'")
-        gdb_cmds.append(" -ex 'mon reset init'")
-        gdb_cmds.append(" -ex 'mon arm core_state arm'")
-        gdb_cmds.append(" -ex 'mon dap apsel 1'")
-        gdb_cmds.append(" -ex 'mon reg r0 0x4020dff0'")
-        gdb_cmds.append(" -ex 'mon mwb 0x4020DFF2 1'")
-        gdb_cmds.append(" -ex 'mon mwb 0x4020DFF4 6'")
-        gdb_cmds.append(" -ex 'mon dap apsel 0'")
-        gdb_cmds.append(" -ex 'mon step 0x402007FC'")
-        gdb_cmds.append(" -ex 'mon reg r0 0x4020dff0'")
-        gdb_cmds.append(" -ex 'mon mwb 0x4020DFF2 1'")
-        gdb_cmds.append(" -ex 'mon mwb 0x4020DFF4 6'")
-        gdb_cmds.append(" -ex 'mon dap apsel 1'")
+        # gdb_cmds.append(" -ex 'mon dap apsel 0'")
+        # gdb_cmds.append(" -ex 'mon init'")
+        # gdb_cmds.append(" -ex 'mon reset init'")
+        # gdb_cmds.append(" -ex 'mon arm core_state arm'")
+        # gdb_cmds.append(" -ex 'mon dap apsel 1'")
+        # gdb_cmds.append(" -ex 'mon reg r0 0x4020dff0'")
+        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF2 1'")
+        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF4 6'")
+        # gdb_cmds.append(" -ex 'mon dap apsel 0'")
+        # gdb_cmds.append(" -ex 'mon step 0x402007FC'")
+        # gdb_cmds.append(" -ex 'mon reg r0 0x4020dff0'")
+        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF2 1'")
+        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF4 6'")
+        # gdb_cmds.append(" -ex 'mon dap apsel 1'")
 
     for s in stages:
         gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
-                         " -ex 'hookwrite until _main'"])
-                         # " -ex 'hookwrite until -s %s'" % s.stagename])
+                         " -ex 'hookwrite until -s %s'" % s.stagename])
+                         #" -ex 'hookwrite until _main'"])
+
     for (s, v) in policies.iteritems():
         gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s, v))
     gdb_cmds.append("-ex 'hookwrite go -p'")
@@ -129,6 +129,8 @@ def breakpoint(main, configs,
         done = trace_db_done[s.stagename]
         done_commands.append("touch %s" % done)
         done_targets.append(done)
+        if not hwname == "bbxmqemu":
+            targets.append(main.get_config("openocd_log", s))
     main_cfgs["trace_db"] = lambda s: trace_dbs[s.stagename]
     main_cfgs["trace_db_done"] = lambda s: trace_db_done[s.stagename]
 
@@ -189,7 +191,6 @@ def calltrace(main, configs,
     main_cfgs = {}
     main_cfgs["calltrace_db"] = lambda s: orgfiles[s.stagename]
     main_cfgs["calltrace_done"] = lambda s: done[s.stagename]
-
     return [("gdb_commands", cmds),
             ("gdb_targets", gdb_targets),
             ("set_config", main_cfgs), ("targets", targets),
@@ -286,32 +287,76 @@ def bbxmbaremetal(main, boot_config,
                   is_watchpoint,
                   quick):
     openocd = os.path.join(host_software_config.root, host_software_config.binary)
-    if len(stages) > 1:
-        return []
     targets = []
-    cmds = []
-    s = stages[0]
     logs = {}
     main_cfgs = {}
+
+    for s in [main.stage_from_name(st) for st in main.get_config('enabled_stages')]:
+        logs[s.stagename] = os.path.join(data_root, "openocd.log")
+        main_cfgs["openocd_log"] = lambda st: logs[st.stagename]
+        targets.append(logs[s.stagename])
+
+    if len(stages) > 1:
+        return []
+
+    cmds = []
+    s = stages[0]
+
     jtag_config = main.get_config('openocd_jtag_config_path')
     ocd_hw_config = main.get_config('openocd_hw_config_path')
     search = main.get_config('openocd_search_path')
-    logs[s.stagename] = os.path.join(data_root, "openocd.log")
-    main_cfgs["openocd_log"] = lambda st: logs[st.stagename]
-    targets.append(logs[s.stagename])
+    ocdc = [
+        "gdb_port pipe", "log_output %s" % logs[s.stagename],
+        "gdb_report_data_abort enable",
+        "gdb_memory_map enable",
+        "gdb_flash_program disable",
+        "init",
+        "reset init",
+        #"arm core_state arm",
+        "amdm37x_dbginit dm37x.cpu",
+        #"dap apsel 1",
+        #
+        #"reg r0 0x4020dff0",
+        #"mwb 0x4020DFF2 1",
+        #"mwb 0x4020DFF4 6",
+        #"dap apsel 0",
+        #"reg r0 0x4020dff0",
+        #"mwb 0x4020DFF2 1",
+        #"mwb 0x4020DFF4 6",
+        #"dap apsel 1",
+        #"reg pc 0x40200800",
+        #"bp 0x40200800 4 hw",
+        #"wait_halt 40000",
+        # "step 0x402007FC",
+        # "reset",
+        # "resume",
+        # "wait_halt 200000",
+        #"rbp 0x40200800",
+        # "bp 0x40200800 4 hw",
+        #"gdb_report_data_abort enable",
 
-    c = "%s -f %s -f %s -l %s -s %s &" % (openocd, jtag_config,
-                                               ocd_hw_config, logs[s.stagename], search)
+        "gdb_breakpoint_override soft",
+
+    ]
+
+    c = "%s  -f %s -f %s -s %s " \
+        "-c \"%s\"" % (openocd,
+                       jtag_config,
+                       ocd_hw_config,
+                       search,
+                       "; ".join(ocdc))
+
     cfg = {'gdb_commands': ["set tcp connect-timeout 120",
                             "set remotetimeout -1",
                             "set python print-stack full",
                             "set pagination off",
                             'set height unlimited',
                             'set confirm off',
-                            "target extended-remote :3333"]}
+                            "target extended-remote | %s" % c]}
     #cmds.append(c)
-    return [("targets", targets), ('configs', cfg),
-            ("long_running", c)]
+    print c
+    return [("set_config", main_cfgs), ('configs', cfg),]
+            #("long_running", c)]
 
 
 def framac(main,

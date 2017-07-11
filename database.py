@@ -357,6 +357,7 @@ class TraceTable():
     def close(self, flush_only=False):
         db_info.get(self.stage).flush_staticdb()
         self.h5file.flush()
+        print "%s number of writes" % self.writestable.nrows
         if not flush_only:
             self.h5file.close()
 

@@ -301,6 +301,7 @@ class PostTraceLoader(ResultsLoader):
                             self._process_tasks]
         self._add_tasks()
 
+
     def _test_path(self, rel=""):
         return os.path.join(self.data_dir, rel)
 
@@ -446,7 +447,9 @@ class TraceTaskLoader(ResultsLoader):
         super(TraceTaskLoader, self).__init__(test_id, "trace", run_tasks)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
+	self.toprint = []
         self.quick = quick
+        self.quit = False
         self.trace_id = trace_name
         self.stages = stages
         self.tracenames = tracenames
@@ -547,7 +550,10 @@ class TraceTaskLoader(ResultsLoader):
 
         if gdb_commands:
             gdb = " ".join(gdb_commands)
-            gdb += " -ex 'c' -ex 'monitor quit' -ex 'q'"
+            #gdb += " -ex 'c'"
+            if self.quit:
+                gdb += " -ex 'monitor quit' -ex 'q'"
+
             c = CmdTask([Interactive(gdb)] + done_commands,
                         gdb_file_dep,
                         gdb_targets + done_targets, "gdb_tracing")
@@ -571,13 +577,19 @@ class TraceTaskLoader(ResultsLoader):
             tasks.extend([newtask, ttask])
         sys.path.pop()
         if self.print_cmds:
-            print "----------------------------------------"
-            for a in newtask.actions:
-                print a
-            print "----------------------------------------"
+            self.toprint = newtask
             return []
         else:
             return tasks
+
+    def do_print_cmds(self):
+        if not self.toprint:
+            return
+        print "----------------------------------------"
+        for a in self.toprint.actions:
+            print a
+        print "----------------------------------------"
+
 
     def merge_tasks(self, t1, t2):
         for i in ["file_dep", "actions", "targets"]:
@@ -639,7 +651,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
         print "trace task prep run %s %s" % (run_tasks, trace_name)
-        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not self.print_cmds)
+        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", True)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
         if self.create:

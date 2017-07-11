@@ -191,7 +191,6 @@ class TraceDB(DBObj):
 
     def flush(self):
         if self._db:
-            print "%s number of writes" % self._db.writestable.nrows
             self._db.close(True)
 
 

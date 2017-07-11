@@ -251,6 +251,10 @@ class GDBBootController(gdb.Command):
                 if hasattr(b, "companion") and any(map(lambda c: isinstance(b, c), cls))]
 
     def insert_breakpoints(self, stage):
+        #if self.isbaremetal:
+            #self.gdb_print("syncing")
+            #gdb.execute("mon gdb_sync")
+        # self.gdb_print("syncd")
         self.insert_write_breakpoints(stage)
         self.insert_reloc_breakpoints(stage)
         self.insert_longwrites_breakpoints(stage)
@@ -261,6 +265,7 @@ class GDBBootController(gdb.Command):
                 fnname = utils.addr2functionname(s['pc'], stage)
                 print "inserting return for smc %s at %s" % (fnname, s['pc'])
                 ReturnBreak(fnname, self, stage)
+            ReturnBreak("omap3_invalidate_l2_cache_secure", self, stage)
             #ReturnBreak("omap_smc1", self, stage)
             #ReturnBreak("do_omap3_emu_romcode_call", self, stage)
                 #print "nopping out smc call at 0x%x" % s['pc']
@@ -322,7 +327,7 @@ class GDBBootController(gdb.Command):
                 if self.isbaremetal:
                     # check to see this address isn't in a skip range
                     if db_info.get(stage).skip_pc(pc):
-                        self.gdb_print("not inserting breakpoint st 0x%x\n" % pc)
+                        self.gdb_print("not inserting breakpoint @ 0x%x\n" % pc)
                         # don't insert WriteBreak
                         continue
 
@@ -412,7 +417,11 @@ class GDBBootController(gdb.Command):
             s.breakpoint.enabled = False
             s.continue_stage()
         else:
-            StageStartBreak(self, stage)
+            s = StageStartBreak(self, stage)
+            #if self.isbaremetal:
+            #    s.continue_stage()
+            #    gdb.post_event(s.breakpoint.delete)
+
 
     def finalize(self, args):
         substage_names = {s.stagename: self._stages[s.stagename].substages
@@ -431,7 +440,6 @@ class GDBBootController(gdb.Command):
             self.isbaremetal = False
         else:
             self.isbaremetal = True
-        print "hw %s %s" % (self.hw.name, self.isbaremetal)
         if len(self.stage_order) == 0:
             self.stage_order = [Main.stage_from_name(s) for s in list(self._stages.iterkeys())]
         for stage in self.stage_order:
@@ -453,6 +461,10 @@ class GDBBootController(gdb.Command):
         self.finalize(args)
         stage = self.stage_order[0]
         gdb.events.exited.connect(self.gdb_exit)
+        #if self.isbaremetal:
+        #    gdb.execute("mon gdb_sync")
+        #    time.sleep(2)
+
         self.prepare_stage(stage, False)
         self.gdb_print("%s plugin is ready to go\n" % self.name)
         if not args.prepare_only:
@@ -530,6 +542,9 @@ class BootBreak():
 
     def stop(self):
         ret = False
+        #if self.controller.isbaremetal:
+        #    gdb.execute("mon gdb_sync")
+        #    gdb.execute("mon gdb_sync")
         if hasattr(self, '_stop'):
             ret = self._stop(ret)
 
@@ -569,6 +584,7 @@ class ReturnBreak(BootBreak):
         print "RETURN"
         gdb.execute("return")
         return False
+
 
 class WriteBreak(BootBreak):
     def __init__(self, spec, controller, stage):
@@ -624,8 +640,14 @@ class SubstageEntryBreak(BootBreak):
         self.fnname = fnname
         self.substagenum = substagenum
         self.controller = controller
-        self.fnloc = int(gdb.execute("x/x %s" % self.fnname, to_string=True).split()[0], 0)
-        spec = "*(0x%x)" % self.fnloc
+        try:
+            self.fnloc = int(gdb.execute("x/x %s" % self.fnname, to_string=True).split()[0], 0)
+        except Exception:
+            self.fnloc = ""
+        if self.fnloc:
+            spec = "*(0x%x)" % self.fnloc
+        else:
+            spec = fnname
         BootBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, ret):
@@ -637,12 +659,33 @@ class SubstageEntryBreak(BootBreak):
 class StageStartBreak(BootBreak):
     def __init__(self, controller, stage):
         realstart = controller._stages[stage.stagename]._startpoint
+        self.realstart = realstart
         if not isinstance(realstart, str):
             spec = "*(0x%x)" % realstart
         else:
             spec = realstart
         controller.gdb_print("StartStageBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage)
+        if controller.isbaremetal:
+            #gdb.execute("mon poll on"),
+            #gdb.execute("mon bp 0x%x 1 hw" % realstart)
+            #gdb.execute("hbreak *0x%x" % realstart)
+            #gdb.execute("mon resume")
+            #gdb.execute("mon wait_halt 40000")
+            #gdb.execute("set arm force-mode arm")
+            #Qgdb.execute("mon arm core_state arm")
+            while self.controller.get_reg_value("pc") < 0x40200800:
+                gdb.execute("mon step")
+            gdb.execute("mon gdb_sync")
+            #self.continue_stage()
+            #gdb.execute("break *0x40200860")
+            #gdb.execute("break _start")
+            #self.breakpoint.enabled = False
+            #gdb.execute("mon rbp 0x%x" % realstart)
+
+            #gdb.execute("mon gdb_sync")
+            #gdb.execute("si")
+            pass
 
     def continue_stage(self):
         cont = self.controller
@@ -653,10 +696,21 @@ class StageStartBreak(BootBreak):
         cont.gdb_print("Inserting breakpoints for %s %s ...\n" % (self.controller.name,
                                                                   self.stage.stagename))
         cont.current_substage = 0
+        if cont.isbaremetal:
+            #gdb.execute("mon poll on"),
+            #gdb.execute("mon resume")
+            #gdb.execute("mon wait_halt 90000")
+            gdb.execute("mon rbp 0x%x" % self.realstart)
+            #gdb.execute("set arm force-mode arm")
+            #gdb.execute("mon arm core_state arm")
+            #gdb.execute("mon gdb_sync")
+            #gdb.execute("si")
+            pass
         cont.insert_breakpoints(self.stage)
         cont.gdb_print("Done setting breakpoints\n")
         if self.controller.stage_hook:
             self.controller.stage_hook(self.stage)
+        self.breakpoint.enabled = False
 
     def _stop(self, ret):
         self.continue_stage()
