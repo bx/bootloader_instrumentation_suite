@@ -237,4 +237,3 @@ if __name__ == '__main__':
         task_mgr.postprocess_trace()
     if args.print_cmds:
         task_mgr.rt.do_print_cmds()
-        pass

@@ -116,42 +116,63 @@ def task_manager(test_id=None):
                 task_lists = [item for sublist in vallists for item in sublist]
                 alldeps = []
                 for (subgroup, tasks) in self.tasks.iteritems():
+                    if subgroup == self.ALL_GROUPS:
+                        continue
+                    subfiles = []
                     if subgroup in self.enabled:
                         for t in tasks:
-                            print "enable %s %s" % (self.task_name(t, subgroup), t.file_dep)
-                            alldeps.append(self.task_name(t, subgroup))
-                else:
+                            print "enable %s:::::%s %s -> %s" % (t.name, self.task_name(t, subgroup), t.file_dep, t.targets)
+                            subfiles.extend(t.file_dep) # .append(self.task_name(t, subgroup))
+                            alldeps.append(self.build_name(subgroup))
+
                     yield {
-                        'basename': "all_subroups",
+                        'basename': subgroup,
                         'name': None,
-                        'task_dep': alldeps,
+
+                        'file_dep': subfiles,
                     }
+                # yield {
+                #     # 'basename': self.ALL_GROUPS,
+                #     'basename': self.ALL_GROUPS,
+                #     'name': None,
+                #     'task_dep': alldeps,
+                # }
             else:
                 for inst in self.tasks[subgroup]:
                     r = {
-                        'basename': self.task_name(inst, subgroup),
-                        'name': self.test_id,
                         'actions': inst.actions,
                         'targets': inst.targets,
                         'file_dep': inst.file_dep
                     }
+                    if not inst.unique:
+                        r['basename'] = inst.name
+                        r['name'] = self.build_name(subgroup)
+                    else:
+                        r['name'] = inst.name
                     r.update(inst.other)
+                    #for d in inst.taskdep:
+                    #    for p in self._list_tasks(d):
+                    #        r['file_dep'].extend(p['file_dep'])
+                    #    r['file_dep'] = list(set(r['file_dep']))
                     if subgroup not in self.enabled:
-                        print "disable %s" % r['basename']
                         del r['targets']
                         del r['actions']
                         del r['file_dep']
                     else:
+                        print "enable :--:%s %s -> %s" % (self.task_name(inst, subgroup), r['file_dep'], r['targets'])
                         yield r
 
         def task_name(self, task, subgroup):
-            return "%s:%s" % (subgroup, task.name)
+            if task.unique:
+                return task.name
+            else:
+                return "%s:%s" % (task.name, self.build_name(subgroup))
 
         def build_name(self, subgroup=""):
             if not subgroup:
                 return self.test_id
             else:
-                return "%s:%s" % (self.test_id, subgroup)
+                return "%s:%s" % (subgroup, self.test_id)
 
     global _manager_singleton
     if not _manager_singleton:
@@ -162,8 +183,12 @@ def task_manager(test_id=None):
 
 
 class TestTask(object):
-    def __init__(self, name):
-        self.name = "%s_%s" % (name, self.__class__.__name__)
+    def __init__(self, name, unique=False):
+        self.unique = unique
+        if self.unique:
+            self.name = name
+        else:
+            self.name = "%s_%s" % (name, self.__class__.__name__)
         for i in ["actions", "targets", "file_dep", "other"]:
             if not hasattr(self, i):
                 default = {} if i == 'other' else []
@@ -174,6 +199,7 @@ class TestTask(object):
                     val = getattr(self, listname)() if hasattr(self, listname) else default
                 setattr(self, i, val)
         self.verbosity = 2
+        self.taskdep = []
 
 
 class CopyFileTask(TestTask):
@@ -181,11 +207,12 @@ class CopyFileTask(TestTask):
     #    return os.path.exists(self.dst)
 
     def __init__(self, src, dst, name):
-        super(CopyFileTask, self).__init__(name)
+        super(CopyFileTask, self).__init__(name, True)
         self.src = src
         self.dst = dst
         #self.other = {'uptodate': [(self.uptodate, )]}
         self.file_dep = [self.src]
+        self.task_deps = [self.dst if self.dst in MkdirTask.dirs else os.path.dirname(self.dst)]
         self.actions = ["cp -f %s %s" % (self.src, self.dst)]
         if self.src == self.dst:
             self.other = {'uptodate': [True]}
@@ -203,12 +230,14 @@ class MkdirTask(TestTask):
     def exists(cls, d):
         return d in cls.dirs
 
-    def __init__(self, d, name):
+    def __init__(self, d):
         self.dst = d
         # self.other = {'uptodate': [(self.uptodate, )]}
         self.actions = [(create_folder, [self.dst])]
         MkdirTask.dirs.add(d)
-        super(MkdirTask, self).__init__(name)
+        self.targets = [d]
+        super(MkdirTask, self).__init__(self.dst, True)
+
 
 class CmdTask(TestTask):
     def __init__(self, cmds, file_deps, tgts, name):
@@ -268,7 +297,7 @@ class ResultsLoader(object):
 
     def _mkdir(self, path, name=None):
         name = path if name is None else name
-        return MkdirTask(path, name)
+        return MkdirTask(path)
 
     def save_config(self, k, v):
         Main.set_config(k,  v)
@@ -300,7 +329,6 @@ class PostTraceLoader(ResultsLoader):
         self.task_adders = [self._setup_tasks,
                             self._process_tasks]
         self._add_tasks()
-
 
     def _test_path(self, rel=""):
         return os.path.join(self.data_dir, rel)
@@ -389,6 +417,7 @@ class PostTraceLoader(ResultsLoader):
             a = ActionListTask([PythonInteractiveAction(Do(s, outfile))],
                                deps, [outfile], name)
             outs[s.stagename] = outfile
+            # a.file_dep = [os.path.dirname(deps[0]]
             tasks.append(a)
         Main.set_config("consolidate_writes_done", lambda s: outs[s.stagename])
         return tasks
@@ -418,22 +447,12 @@ class PostTraceLoader(ResultsLoader):
             tp_db_done[n] = self._process_path(name, "policy-tracedb-%s.completed" % n)
             el_file[n] = self._process_path(name, "substages-%s.el" % n)
             fns[n] = self._process_path(name, "%s_fn_lists" % n)
-            tasks.append(self._mkdir(fns[n]))
-            #if any(map(lambda x: "barebones" in x, self.tracenames)):
-            #    print "NO CALLTRACE"
-            #    pass
-            #elif "framac" not in self.tracenames:
-            #    ct = Main.get_config("calltrace_db", s)
-            #    if ct is None:
-            #        raise Exception('calltrace required')
-            #    deps = [Main.get_config("calltrace_db", s)]
-            #else:
-            #    deps = [Main.get_config('framac_callstacks', s)]
-            deps.append(Main.get_config("consolidate_writes_done", s))
+            # deps.append(Main.get_config("consolidate_writes_done", s))
             a = ActionListTask([PythonInteractiveAction(Do(s)),
                                 "touch %s" % tp_db_done[n]],
                                deps, [tp_db_done[n], tp_db[n], el_file[n]],
                                "%s_postprocess_trace_policy" % (n))
+            a.task_dep = ["%s_postprocess_trace_policy" % n]
             tasks.append(a)
         Main.set_config("policy_trace_db", lambda s: tp_db[s.stagename])
         Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
@@ -685,7 +704,7 @@ class TraceTaskPrepLoader(ResultsLoader):
 
         self.config_path = self._test_path("config.yml")
 
-        if create:
+        if instrumentation_task:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
             self.tracenames = instrumentation_task['traces']
@@ -765,8 +784,8 @@ class TraceTaskPrepLoader(ResultsLoader):
     def _setup_tasks(self):
         tasks = []
         deps = []
-        tasks.append(self._mkdir(self._test_path()))
         Main.set_config("trace_data_root", self._test_path())
+        tasks.append(self._mkdir(self._test_path()))
         symlink_dir = os.path.join(self._dest_dir_root_path(), "trace_data-by_name")
         tasks.append(self._mkdir(symlink_dir))
         target_dir = os.path.join(symlink_dir, os.path.basename(self.namefile))
@@ -789,6 +808,11 @@ traces: [{}]
         Main.set_config("test_config_file", self.config_path)
         a = ActionListTask([(write, [self.config_path, filecontents])],
                            [], [self.config_path], "test_config_file")
+        try:
+            os.makedirs(self._test_path())
+        except Exception as e:
+            pass
+
         tasks.append(a)
         c = CmdTask(["touch %s" % self.namefile], [],
                     [self.namefile], "test_name_file")
@@ -1080,9 +1104,9 @@ sha1: {}
 
 
 class PolicyTaskLoader(ResultsLoader):
-    def __init__(self, policies, run_tasks):
+    def __init__(self, policies):
         test_id = Main.get_config("test_instance_id")
-        super(PolicyTaskLoader, self).__init__(test_id, "policy", run_tasks)
+        super(PolicyTaskLoader, self).__init__(test_id, "policy", True)
         self.policies = policies
         self.instance_dir = Main.get_config("test_instance_root")
         self.task_adders = [self._policy_tasks]

@@ -99,7 +99,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     def __init__(self, name, controller, stage, entry):
         self.name = name
         self.entry = entry
-        print "exit %s %s" % (self.name, self.entry)
+        # print "exit %s %s" % (self.name, self.entry)
         try:
             gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
         except ValueError:

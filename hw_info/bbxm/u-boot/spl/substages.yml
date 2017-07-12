@@ -42,7 +42,7 @@ _main_finish:
   reclassified_regions:
     SRAM.heap: "patching"
     SRAM.bss: "future"
-    SRAM.nonbss: "readonly"    
+    SRAM.nonbss: "readonly"
   undefined_regions: ["SRAM.bss.sram_test"]
     
 clear_bss:
@@ -51,11 +51,16 @@ clear_bss:
 
 board_init_r:
   substage_type: "patching"
-  allowed_symbols: ["mem_malloc_start", "mem_malloc_end", "mem_malloc_brk", "gpmc_cfg", "_u_boot_list_2_i2c_2_omap24_0", "spl_boot_list", "mmc_devices", "mem_malloc_brk", "current_mallinfo", "sbrk_base", "av_", "max_sbrked_mem", "max_total_mem", "cur_dev", "fat_registered", "spl_image", "cur_dev_num"]
   reclassified_regions:
+    RAM.downloaded_image.remainder: "stack"   
+    RAM.downloaded_image.public_stack: "stack"
     SRAM.bss: "bookkeeping"
     SRAM.image: "future"
-  comment: "mem_malloc_init -> mem_malloc_*; gpmc_init->gpmc_cfg; omap24_i2c_setspeed->_u_boot_list_2_i2c_2_omap24_0; board_boot_order->spl_boot_list; mmc_initialize->mmc_devices, cur_dev_num; sbrk->mem_malloc_nrk,mem_malloc_brk; malloc_extend_top->current_mallinfo,sbrk_base,av_,max_sbrked_mem,max_total_mem; malloc->av_ ; mmc_create->(heap); fat_register_device->cur_dev; spl_register_fat_device->fat_registered; free->av_; spl_parse_image_header->spl_image"    
+    SRAM.image_header: "patching"
+  allowed_symbols: ["mem_malloc_start", "mem_malloc_end", "mem_malloc_brk", "gpmc_cfg", "_u_boot_list_2_i2c_2_omap24_0", "spl_boot_list", "mmc_devices", "mem_malloc_brk", "current_mallinfo", "sbrk_base", "av_", "max_sbrked_mem", "max_total_mem", "cur_dev", "fat_registered", "spl_image", "cur_dev_num", "do_fat_read_at_block", "get_contents_vfatname_block", "cur_part_info"]
+  undefined_regions:  ["RAM.downloaded_image.public_stack.beginning", "RAM.downloaded_image.public_stack.cpy_clk_code", "RAM.downloaded_image.public_stack.stack_rest"]
+
+  comment: "mem_malloc_init -> mem_malloc_*; gpmc_init->gpmc_cfg; omap24_i2c_setspeed->_u_boot_list_2_i2c_2_omap24_0; board_boot_order->spl_boot_list; mmc_initialize->mmc_devices, cur_dev_num; sbrk->mem_malloc_nrk,mem_malloc_brk; malloc_extend_top->current_mallinfo,sbrk_base,av_,max_sbrked_mem,max_total_mem; malloc->av_ ; mmc_create->(heap); fat_register_device->cur_dev; spl_register_fat_device->fat_registered; free->av_; spl_parse_image_header->spl_image.mmc_read_data.  Stack ends up clobbering cpy_clk_code region at during this stage, which is after any chance the function in there is called (although it never is called, which can be statically determined)"    
     
 spl_after_load_image:
   substage_type: "bookkeeping"

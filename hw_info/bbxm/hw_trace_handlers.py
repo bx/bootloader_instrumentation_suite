@@ -94,8 +94,8 @@ def breakpoint(main, configs,
     gdb_cmds.append("-ex 'hookwrite test_trace %s'" % test_id)
     gdb_cmds.append("-ex 'hookwrite kill'")
     for s in stages:
-        gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
-                         " -ex 'hookwrite until -s %s'" % s.stagename])
+        gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename])
+                         # " -ex 'hookwrite until -s %s'" % s.stagename])
                          #" -ex 'hookwrite until _main'"])
 
     for (s, v) in policies.iteritems():

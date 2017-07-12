@@ -63,9 +63,12 @@ regions:
             addresses: [[0x80000000, 0x80000008], [0x80000400, 0x80000404]]
           bss_rest:
             addresses: "remainder"
+      image_header:
+        name: "disk image's header"
+        addresses: ["CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header", "CONFIG_SYS_TEXT_BASE"]
       image:
         name: "Next stage's disk image"
-        addresses: [0x80100000, "0x80100000 + main.image_size"]
+        addresses: ["CONFIG_SYS_TEXT_BASE", "CONFIG_SYS_TEXT_BASE + main.image_size"]
       heap:
         addresses: ["CONFIG_SYS_SPL_MALLOC_START", "CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE"]
       nonbss:
@@ -102,5 +105,7 @@ values:
   ROM_STACK_END: 0x40200800
   CONFIG_SYS_SPL_MALLOC_START: 0x80208000
   CONFIG_SYS_SPL_MALLOC_SIZE: 0x100000
+  CONFIG_SYS_TEXT_BASE: 0x80100000
+  sizeof_struct_image_header: 64
 
 stagename: "spl"

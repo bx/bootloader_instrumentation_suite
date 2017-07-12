@@ -780,13 +780,14 @@ class WriteSearch():
         self.longwritestable = self.group.longwrites
         self.verbose = True
         # try:
-        #      self.h5file.remove_node(self.group, "skips")
-        #  except:
-        #      pass
+        #     self.h5file.remove_node(self.group, "stageexits")
+        # except:
+        #     pass
 
-        #  print "create skips table"
-        #  self.create_skips_table()
-        #  self.skipstable.flush()
+        # print "create exits table"
+        # self.create_stageexit_table()
+        # self.stageexits.flush()
+        # self.stageexits = self.group.stageexits
         self.skipstable = self.group.skips
 
     def print_relocs_table(self):
@@ -1117,11 +1118,11 @@ class WriteSearch():
         self.stageexits = self.h5file.create_table(self.group, 'stageexits',
                                                    StageExitInfo, "stage exit info")
         sls = WriteSearch.find_labels(labeltool.StageinfoLabel, "EXIT", self.stage, "")
-        sls = WriteSearch.find_labels(labeltool.StageinfoLabel, "EXIT", self.stage, "")
         r = self.stageexits.row
         print "creating stage exit table"
         for l in sls:
-            lineno = self._get_real_lineno(l, False)
+            print l
+            lineno = self._get_real_lineno(l)
 
             loc = "%s:%d" % (l.filename, lineno)
             addr = utils.get_line_addr(loc, True, self.stage)

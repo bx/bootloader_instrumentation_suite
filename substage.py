@@ -205,6 +205,7 @@ class SubstagesInfo():
                 offset = roffset
                 varloc = intervaltree.Interval(varloc.begin + offset,
                                                varloc.end + offset)
+        print "++++++++=%s at %s" % (name, varloc)
         return varloc
 
     @classmethod
@@ -424,6 +425,7 @@ class SubstagesInfo():
                     break
                 addrs.append("[0x%08x, 0x%08x]" % (a['startaddr'], a['endaddr']))
                 numaddrs += 1
+            addrs.sort()
             print 'Region: %s%s @{%s} reclass=%s' % (name, longname,
                                                      ', '.join(addrs),
                                                      i['reclassifiable'])
@@ -506,27 +508,28 @@ class SubstagesInfo():
                     policy_row['symbol_name'] = ''
                     policy_row['symbol_elf_name'] = ''
                     policy_row.append()
-            if s.is_cooking_substage() or s.is_patching_substage():
-                for v in s.allowed_symbols:
-                    pat = "^(%s)(.[\d]{5})?$" % v
-                    for r in db_info.get(self.stage).symbol_names_with(v):
-                        res = re.match(pat, r)
-                        if res is not None:
-                            rname = self.region_name_from_symbol(v)
-                            policy_row['default_perms'] = getattr(perms, 'rwx')
-                            policy_row['short_name'] = rname
-                            policy_row['symbol_elf_name'] = r
-                            policy_row['symbol_name'] = v
-                            policy_row['region_type'] = getattr(region_types, 'symbol')
-                            policy_row['substagenum'] = s.num
-                            policy_row['new'] = False
-                            policy_row['defined'] = False
-                            policy_row['undefined'] = False
-                            policy_row['writable'] = True
-                            policy_row['reclassified'] = False
-                            policy_row['allowed_symbol'] = True
-                            policy_row.append()
-                            break
+                    #if s.is_cooking_substage() or s.is_patching_substage():
+            for v in s.allowed_symbols:
+                pat = "^(%s)(.[\d]{5})?$" % v
+                for r in db_info.get(self.stage).symbol_names_with(v):
+                    res = re.match(pat, r)
+                    print "matching v %s with %s (%s)" % (v, r, res)
+                    if res is not None:
+                        rname = self.region_name_from_symbol(v)
+                        policy_row['default_perms'] = getattr(perms, 'rwx')
+                        policy_row['short_name'] = rname
+                        policy_row['symbol_elf_name'] = r
+                        policy_row['symbol_name'] = v
+                        policy_row['region_type'] = getattr(region_types, 'symbol')
+                        policy_row['substagenum'] = s.num
+                        policy_row['new'] = False
+                        policy_row['defined'] = False
+                        policy_row['undefined'] = False
+                        policy_row['writable'] = True
+                        policy_row['reclassified'] = False
+                        policy_row['allowed_symbol'] = True
+                        policy_row.append()
+                        break
         policy_table.flush()
         policy_table.cols.short_name.create_index(kind="full")
         policy_table.cols.substagenum.create_index(kind="full")
@@ -675,6 +678,7 @@ class SubstagesInfo():
         drs = self.substage_region_policy_table.where(query)
         iis = intervaltree.IntervalTree()
         for region in drs:
+            # print "%s: %s (%s)" % (region['short_name'], region['allowed_symbol'], substage)
             if region['allowed_symbol']:
                 sname = region['symbol_elf_name']
                 iis.add(self.lookup_symbol_interval(sname, n))
@@ -685,6 +689,7 @@ class SubstagesInfo():
                                                   r['endaddr']))
         iis.merge_overlaps()
         iis.merge_equals()
+        print iis
         return iis
 
     def check_trace(self, table):
@@ -694,10 +699,8 @@ class SubstagesInfo():
             allowed_writes = self.allowed_writes(n)
 
             for r in table.tables[n].where("substage == %d" % n):
-                i = intervaltree.IntervalTree([intervaltree.Interval(r['dstlo'], r['dsthi'])])
-                union = allowed_writes.union(i)
-                union.merge_overlaps()
-                if not (union == allowed_writes):
+                # i = intervaltree.Interval
+                if not len(allowed_writes.search(r['dstlo'], r['dsthi'])) == 1:
                     write = r['writepc'] if r['writepc'] else r['line']
                     print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,
                                                                            r['dstlo'],

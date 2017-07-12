@@ -86,7 +86,7 @@ class TaskManager():
                                                                             (create_test or not uptodate),
                                                                             gitinfo)
 
-        print "run trace %s select trace %s" % (run_trace, select_trace)
+        # print "run trace %s select trace %s create %s hook %s, post %s" % (run_trace, select_trace, create_test, hook, post_trace_processing)
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
@@ -95,10 +95,7 @@ class TaskManager():
                                                                       create_test,
                                                                       hook)
 
-        self.pt = instrumentation_results_manager.PolicyTaskLoader(policies, not quick and (
-                                                                   import_policies or
-                                                                   len(post_trace_processing) > 0 or
-                                                                   run_trace))
+        self.pt = instrumentation_results_manager.PolicyTaskLoader(policies)
         self.rt = instrumentation_results_manager.TraceTaskLoader(self.tp.stages,
                                                                   self.tp.hw,
                                                                   self.tp.tracenames,
