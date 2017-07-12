@@ -152,12 +152,6 @@ class MmapFileParser():
             numresolved = len(resolved)
         resolved.update([r for r in self.regions.itervalues() if r.addresses_resolved])
         numresolved = len(resolved)
-        if numresolved == total:
-            print "All addresses were resolved"
-        else:
-            print "Did not resolve %s" % [(n, v._raw_addresses)
-                                          for (n, v) in self.regions.iteritems()
-                                          if not v.addresses_resolved]
 
 
 class SubstagesConfig():

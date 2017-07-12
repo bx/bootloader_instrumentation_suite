@@ -99,6 +99,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     def __init__(self, name, controller, stage, entry):
         self.name = name
         self.entry = entry
+        print "exit %s %s" % (self.name, self.entry)
         try:
             gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
         except ValueError:
@@ -107,7 +108,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     def out_of_scope(self):
         if self.entry.no_rec:
             self.entry.breakpoint.enabled = True
-        self.gdb_print("exit breakpoint for %s out of scope\n" % self.name)
+        self.controller.gdb_print("exit breakpoint for %s out of scope\n" % self.name)
 
     def _stop(self):
         c = self.controller

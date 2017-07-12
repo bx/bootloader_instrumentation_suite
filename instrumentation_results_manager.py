@@ -118,7 +118,7 @@ def task_manager(test_id=None):
                 for (subgroup, tasks) in self.tasks.iteritems():
                     if subgroup in self.enabled:
                         for t in tasks:
-                            print "enable %s" % self.task_name(t, subgroup)
+                            print "enable %s %s" % (self.task_name(t, subgroup), t.file_dep)
                             alldeps.append(self.task_name(t, subgroup))
                 else:
                     yield {
@@ -419,10 +419,16 @@ class PostTraceLoader(ResultsLoader):
             el_file[n] = self._process_path(name, "substages-%s.el" % n)
             fns[n] = self._process_path(name, "%s_fn_lists" % n)
             tasks.append(self._mkdir(fns[n]))
-            if "framac" not in self.tracenames:
-                deps = [Main.get_config("calltrace_db", s)]
-            else:
-                deps = [Main.get_config('framac_callstacks', s)]
+            #if any(map(lambda x: "barebones" in x, self.tracenames)):
+            #    print "NO CALLTRACE"
+            #    pass
+            #elif "framac" not in self.tracenames:
+            #    ct = Main.get_config("calltrace_db", s)
+            #    if ct is None:
+            #        raise Exception('calltrace required')
+            #    deps = [Main.get_config("calltrace_db", s)]
+            #else:
+            #    deps = [Main.get_config('framac_callstacks', s)]
             deps.append(Main.get_config("consolidate_writes_done", s))
             a = ActionListTask([PythonInteractiveAction(Do(s)),
                                 "touch %s" % tp_db_done[n]],
@@ -443,7 +449,6 @@ class TraceTaskLoader(ResultsLoader):
                  print_cmds):
         self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
-        print "trace task run %s" % run_tasks
         super(TraceTaskLoader, self).__init__(test_id, "trace", run_tasks)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
@@ -480,6 +485,7 @@ class TraceTaskLoader(ResultsLoader):
         file_dep = []
         gdb_tasks = []
         tasks = []
+        gdb_setup = []
         handler_path = os.path.join(Main.hw_info_path, Main.hardwareclass, Main.task_handlers)
         sys.path.append(os.path.dirname(handler_path))
         name = re.sub(".py", "", os.path.basename(handler_path))
@@ -508,10 +514,11 @@ class TraceTaskLoader(ResultsLoader):
                                     "watchpoint" in self.tracenames,
                                     self.quick)
 
-            (newtask, c, g, gdep,
+            (newtask, c, g_setup, g, gdep,
              gtargets, d, dtargets) = self._process_handler(handler_tasks,
                                                             "hardware_handler", True)
             config.update(c)
+            gdb_setup.extend(g_setup)
             # ignore any gdb/done commands/deps/targets
             hwtaskname = newtask.name
         for tracename in self.hw.tracing_methods:
@@ -527,18 +534,20 @@ class TraceTaskLoader(ResultsLoader):
                                               self.trace_id,
                                               self._test_path(),
                                               self.quick)
-            (ttask, c, g, gdep,
+            (ttask, c, g_setup, g, gdep,
              gtargets, d,
              dtargets) = self._process_handler(trace_output,
                                                "tracing_hardware_handler-%s" % tracename,
                                                tracename in self.tracenames)
             config.update(c)
+            gdb_setup.extend(g_setup)
             if tracename in self.tracenames:
                 if g:
                     if gdb_commands:
                         gdb_commands.extend(g[1:])
                     else:
                         gdb_commands = g
+                    gdb_commands.extend(g_setup)
                     gdb_tasks.append(newtask)
                     done_commands.extend(d)
                     gdb_file_dep.extend(gdep)
@@ -552,7 +561,7 @@ class TraceTaskLoader(ResultsLoader):
             gdb = " ".join(gdb_commands)
             gdb += " -ex 'c'"
             if self.quit:
-                gdb += " -ex 'monitor quit' -ex 'q'"
+                gdb += " -ex 'monitor quit' -ex 'monitor exit' -ex 'q'"
 
             c = CmdTask([Interactive(gdb)] + done_commands,
                         gdb_file_dep,
@@ -603,6 +612,7 @@ class TraceTaskLoader(ResultsLoader):
         actions = []
         configs = {}
         gdb_commands = []
+        gdb_setup = []
         done_commands = []
         gdb_targets = []
         gdb_file_dep = []
@@ -624,6 +634,8 @@ class TraceTaskLoader(ResultsLoader):
                 targets.extend(c)
             elif n == "gdb_commands":
                 gdb_commands.extend(c)
+            elif n == "gdb_setup":
+                gdb_setup.extend(c)
             elif n == "file_dep":
                 deps.extend(c)
             elif n == "done_commands":
@@ -640,18 +652,17 @@ class TraceTaskLoader(ResultsLoader):
                 actions.append(a)
         task = ActionListTask(actions, deps,
                               targets, name)
-        return (task, configs, gdb_commands,
+        return (task, configs, gdb_setup, gdb_commands,
                 gdb_file_dep,
                 gdb_targets, done_commands, done_targets)
 
 
 class TraceTaskPrepLoader(ResultsLoader):
     def __init__(self, instrumentation_task, trace_name, create, run_tasks,
-                 print_cmds, hook=False):
+                 print_cmds, create_test_only, hook=False):
         self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
-        print "trace task prep run %s %s" % (run_tasks, trace_name)
-        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", True)
+        super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not create_test_only)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
         if self.create:
@@ -673,7 +684,6 @@ class TraceTaskPrepLoader(ResultsLoader):
                 self.trace_id = trace_name
 
         self.config_path = self._test_path("config.yml")
-        print "create %s instrum task %s %s %s" % (create, instrumentation_task, trace_name, self.config_path)
 
         if create:
             self.stagenames = instrumentation_task['stages']
@@ -721,8 +731,6 @@ class TraceTaskPrepLoader(ResultsLoader):
         hw_config = os.path.join(self.hw.openocd_cfg)
         hdir = os.path.join(Main.hw_info_path, Main.get_hardwareclass_config().name)
         ocdinit = os.path.join(hdir, "ocdinit")
-        print ocd_cached
-        print ocdinit
         Main.set_config("openocd_init_file", ocd_cached)
         tasks.append(self._copy_file(ocdinit, ocd_cached))
         Main.set_config("openocd_init_file", ocd_cached)
@@ -1073,7 +1081,6 @@ sha1: {}
 
 class PolicyTaskLoader(ResultsLoader):
     def __init__(self, policies, run_tasks):
-        print "policy task loader run %s" % (run_tasks)
         test_id = Main.get_config("test_instance_id")
         super(PolicyTaskLoader, self).__init__(test_id, "policy", run_tasks)
         self.policies = policies

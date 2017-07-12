@@ -908,6 +908,7 @@ class WriteSearch():
             SkipDescriptorGenerator("__udelay", self),
             SkipDescriptorGenerator("_set_gpio_direction", self),
             SkipDescriptorGenerator("_get_gpio_direction", self),
+            SkipDescriptorGenerator("omap3_invalidate_l2_cache_secure", self),
             SkipDescriptorGenerator("_get_gpio_value", self),
             SkipDescriptorGenerator("get_sdr_cs_size", self),
             SkipDescriptorGenerator("get_sdr_cs_offset", self),
@@ -917,7 +918,7 @@ class WriteSearch():
             SkipDescriptorGenerator("get_osc_clk_speed", self),
             SkipDescriptorGenerator("per_clocks_enable", self),
             SkipDescriptorGenerator("timer_init", self),
-            SkipDescriptorGenerator("mmc_board_init", self),
+            #SkipDescriptorGenerator("mmc_board_init", self),
             SkipDescriptorGenerator("go_to_speed", self),
         ]
 

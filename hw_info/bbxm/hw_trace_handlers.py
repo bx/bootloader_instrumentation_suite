@@ -83,6 +83,7 @@ def breakpoint(main, configs,
     trace_db_done = {}
     targets = []
     other_cmds = []
+    #gdb_setup = []
     gdb = main.cc + "gdb"
     hwname = main.get_config("trace_hw").name
     hookwrite_src = os.path.join(main.test_suite_path, "hook_write.py")
@@ -92,24 +93,6 @@ def breakpoint(main, configs,
     gdb_cmds.append("-ex 'hookwrite test_instance %s'" % instance_id)
     gdb_cmds.append("-ex 'hookwrite test_trace %s'" % test_id)
     gdb_cmds.append("-ex 'hookwrite kill'")
-    if not hwname == "bbxmqemu":
-        gdb_cmds.append(" -ex 'set mem inaccessible-by-default off'")
-        gdb_cmds.append(" -ex 'hookwrite baremetal'")
-        # gdb_cmds.append(" -ex 'mon dap apsel 0'")
-        # gdb_cmds.append(" -ex 'mon init'")
-        # gdb_cmds.append(" -ex 'mon reset init'")
-        # gdb_cmds.append(" -ex 'mon arm core_state arm'")
-        # gdb_cmds.append(" -ex 'mon dap apsel 1'")
-        # gdb_cmds.append(" -ex 'mon reg r0 0x4020dff0'")
-        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF2 1'")
-        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF4 6'")
-        # gdb_cmds.append(" -ex 'mon dap apsel 0'")
-        # gdb_cmds.append(" -ex 'mon step 0x402007FC'")
-        # gdb_cmds.append(" -ex 'mon reg r0 0x4020dff0'")
-        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF2 1'")
-        # gdb_cmds.append(" -ex 'mon mwb 0x4020DFF4 6'")
-        # gdb_cmds.append(" -ex 'mon dap apsel 1'")
-
     for s in stages:
         gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
                          " -ex 'hookwrite until -s %s'" % s.stagename])
@@ -134,7 +117,7 @@ def breakpoint(main, configs,
     main_cfgs["trace_db"] = lambda s: trace_dbs[s.stagename]
     main_cfgs["trace_db_done"] = lambda s: trace_db_done[s.stagename]
 
-    return [("gdb_commands", gdb_cmds),
+    return [("gdb_commands", gdb_cmds), #("gdb_setup", gdb_setup),
             ("set_config", main_cfgs), ("gdb_targets", gdb_targets),
             ("done_targets", done_targets), ('targets', targets), ('file_dep', deps),
             ("gdb_file_dep", gdb_deps), ("done_commands", done_commands)] + other_cmds
@@ -159,6 +142,19 @@ def calltrace(main, configs,
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
     blacklist = {'spl': ['__s_init_from_arm'],
                  'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag']}
+    if "baremetal" in hw_config.name:
+        for v in blacklist.itervalues():
+            v.append('c_runtime_cpu_setup')
+            v.append('cpu_init_cp15')
+            v.append('cpu_init_crit')
+            v.append('save_boot_params')
+            v.append('omap_smc1')
+            v.append('do_omap3_emu_romcode_call')
+            v.append('cpy_clk_code')
+            v.append('lowlevel_init')
+            v.append('lowlevel_init_finish')
+            v.append('get_36x_mpu_dpll_param')
+            v.append('get_36x_iva_dpll_param')
     norec = ['sdelay']
     for s in stages:
         t = os.path.join(data_root,
@@ -307,13 +303,13 @@ def bbxmbaremetal(main, boot_config,
     search = main.get_config('openocd_search_path')
     ocdc = [
         "gdb_port pipe", "log_output %s" % logs[s.stagename],
-        "gdb_report_data_abort enable",
-        "gdb_memory_map disable",
-        "gdb_flash_program disable",
+        #"gdb_report_data_abort enable",
+        #"gdb_memory_map disable",
+        #"gdb_flash_program disable",
         "init",
         "reset init",
-        "amdm37x_dbginit dm37x.cpu",
-        "gdb_breakpoint_override disable",
+        #"amdm37x_dbginit dm37x.cpu",
+        #"gdb_breakpoint_override disable",
 
     ]
 
@@ -330,11 +326,25 @@ def bbxmbaremetal(main, boot_config,
                             "set pagination off",
                             'set height unlimited',
                             'set confirm off',
-                            "target extended-remote | %s" % c]}
-    #cmds.append(c)
-    print c
-    return [("set_config", main_cfgs), ('configs', cfg),]
-            #("long_running", c)]
+                            "target extended-remote | %s" % c,
+                            'set mem inaccessible-by-default off',
+                            'mon dap apsel 0',
+                            'mon init',
+                            'mon reset init',
+                            'mon arm core_state arm',
+                            'mon dap apsel 1',
+                            'mon reg r0 0x4020dff0',
+                            'mon mwb 0x4020DFF2 1',
+                            'mon mwb 0x4020DFF4 6',
+                            'mon dap apsel 0',
+                            'mon step 0x402007FC',
+                            'mon reg r0 0x4020dff0',
+                            'mon mwb 0x4020DFF2 1',
+                            'mon mwb 0x4020DFF4 6',
+                            'mon dap apsel 1',]}
+                            #"set arm force-mode thumb",
+                            #"mon arm core_state thumb"]}
+    return [("set_config", main_cfgs), ('configs', cfg)]
 
 
 def framac(main,

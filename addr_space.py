@@ -114,7 +114,7 @@ class AddrSpaceInfo():
         self._create_reg_table(csv)
         for stage in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             self._create_var_table(stage)
-        print "CREATE"
+
 
     def create_substage_memmap_table(self, substagecsv):
         with open(substagecsv) as csvfile:
@@ -234,7 +234,7 @@ class AddrSpaceInfo():
         for stage in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             self.var_table[stage.stagename] = getattr(self.h5group, self._var_tablename(stage))
         self.reg_table = getattr(self.h5group, self.reg_tablename)
-        print "OPEN"
+
 
     def close_dbs(self, flush_only=False):
         for v in self.var_table.itervalues():
@@ -267,7 +267,6 @@ class AddrSpaceInfo():
             hi = i.end
             # find partial overlaps
             query = format_string.format(**{'lo': lo, 'hi': hi})
-            #print query
             for r in table.where(query):
                 (start, end) = intervalfn(r)
 

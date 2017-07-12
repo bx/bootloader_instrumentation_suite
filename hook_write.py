@@ -122,12 +122,11 @@ class HookWrite(gdb_tools.GDBBootController):
                     'LongwriteBreak': self.longwrite_stophook,
                     'StageEndBreak': self.endstop_hook}
         gdb_tools.GDBBootController.__init__(self, "hookwrite", bp_hooks,
-                                             stage_hook=self._go_stage,
                                              f_hook=self.f_hook,
                                              create_trace=True, open_dbs_ro=False,
                                              exit_hook=self._exit_hook)
         self.ranges = intervaltree.IntervalTree()
-        self.isbaremetal = False
+        # self.isbaremetal = False
         self.create_trace_table = True
         self.calculate_write_dst = True
         self.open_dbs_ro = False
@@ -191,15 +190,9 @@ class HookWrite(gdb_tools.GDBBootController):
 
     def _setup_parsers(self):
         self.add_subcommand_parser("flushall")
-        self.add_subcommand_parser("baremetal")
+        # self.add_subcommand_parser("baremetal")
         sp = self.add_subcommand_parser("stage")
         sp.add_argument("stagename")
-
-    def _go_stage(self, stage):
-        pass
-
-    def baremetal(self, args):
-        self.isbaremetal = True
 
     def flushall(self, args):
         gdb.post_event(FlushDatabase(self.current_stage, now=True))
@@ -214,7 +207,8 @@ class HookWrite(gdb_tools.GDBBootController):
         if relocated > 0:
             pid = 1
         self.writeinfo(dst, size, pc, lr, cpsr, pid, pc - relocated, stage, substage)
-        gdb.post_event(WriteLog("."))
+        if self.isbaremetal:
+            gdb.post_event(WriteLog("."))
 
     def writeinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage):
         global stepnum

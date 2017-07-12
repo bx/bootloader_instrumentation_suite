@@ -91,7 +91,9 @@ class TaskManager():
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
                                                                       create_test or select_trace,
-                                                                      self.print_cmds, hook)
+                                                                      self.print_cmds,
+                                                                      create_test,
+                                                                      hook)
 
         self.pt = instrumentation_results_manager.PolicyTaskLoader(policies, not quick and (
                                                                    import_policies or
@@ -103,7 +105,7 @@ class TaskManager():
                                                                   self.tp.trace_id,
                                                                   not self.print_cmds,
                                                                   quick,
-                                                                  len(post_trace_processing) == 0 and not self.print_cmds,
+                                                                  len(post_trace_processing) == 0 and not self.print_cmds and not create_test,
                                                                   self.print_cmds)
 
         if create_test:

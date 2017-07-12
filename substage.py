@@ -241,7 +241,8 @@ class SubstagesInfo():
         substages = self._substages_entrypoints()
         substagesname = self.substages_names()
         tracename = Main.get_config("trace_traces")
-        if 'framac' not in tracename:
+
+        if 'framac' not in tracename and Main.get_config("calltrace_db", self.stage) is not None:
             path = Main.get_config("policy_trace_el", self.stage)
             calltrace_path = Main.get_config("calltrace_db", self.stage)
             substage_linenos = [0]
@@ -275,7 +276,7 @@ class SubstagesInfo():
         name = self.substages_names()
         substageresultsdir = Main.get_config("policy_trace_fnlist_dir", self.stage)
         tracename = Main.get_config("trace_traces")
-        if 'framac' not in tracename:
+        if 'framac' not in tracename and Main.get_config("calltrace_db", self.stage) is not None:
             calltrace_path = Main.get_config("calltrace_db", self.stage)
             if not noprepare:
                 el_path = Main.get_config("policy_trace_el", self.stage)
@@ -314,7 +315,7 @@ class SubstagesInfo():
                         row["substagenum"] = s
                         row["functionname"] = f
                         row.append()
-        else:
+        elif "baremetal" not in tracename:
             raws = self.get_raw_files(False)
             for (num, f) in raws.iteritems():
                 fopen = open(f, "r")
