@@ -916,7 +916,7 @@ class FramaCDstPluginManager():
                 db_info.get(self.stage).add_range_dsts_entry(r)
             print '-----------'
             db_info.get(self.stage).print_range_dsts_info()
-            db_info.get(self.stage).consoladate_trace_write_table()
+            db_info.get(self.stage).consolidate_trace_write_table()
             db_info.get(self.stage).flush_tracedb()
 
     def print_results(self):

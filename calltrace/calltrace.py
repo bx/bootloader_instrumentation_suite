@@ -127,6 +127,7 @@ class CallEntryBreak(gdb_tools.BootBreak):
     def __init__(self, name, controller, stage, no_rec):
         self.name = name
         self.no_rec = no_rec
+        self.stage = stage
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
         except gdb.error as e:
@@ -143,11 +144,23 @@ class CallEntryBreak(gdb_tools.BootBreak):
 
     def _stop(self, ret):
         c = self.controller
+        c.gdb_print("entering %s\n" % self.name)
         gdb.post_event(WriteResults(c.depth,
                                     self.name, "entry", self.fnloc,
                                     self.line,
                                     c._minimal))
         c.depth += 1
+        if c.isbaremetal:
+            frame = gdb.selected_frame()
+            older = frame.older()
+            pc = older.pc()
+            c.gdb_print("%s called from %x" % (self.name, pc))
+            (ts, arms, ds) = Main.get_config("thumb_ranges", self.stage)
+            if not (ts.search(pc) or arms.search(pc)):
+                c.gdb_print(" -- invalid addr\n")
+                return False
+            else:
+                c.gdb_print("\n")
         CallExitBreak(self.name, c, self.stage, self)
         if self.no_rec:
             self.breakpoint.enabled = False

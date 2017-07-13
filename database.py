@@ -191,13 +191,13 @@ class WriteDstResult():
         if substage_name is None and callstack:
             policy = Main.get_config('policy_file', self.stage)
             self.substages = substage.SubstagesInfo.substages_entrypoints(policy)
-            substages[0] = "frama_go"
+            self.substages[0] = "frama_go"
             called_fns = callstack.split("->")
             called_fns = filter(len, called_fns)
             called_fns.reverse()
             for f in called_fns:
-                if f in substages:
-                    substage_name = substages.index(f)
+                if f in self.substages:
+                    substage_name = self.substages.index(f)
                     break
         self.substage = substage_name
 

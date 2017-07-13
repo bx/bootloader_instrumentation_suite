@@ -155,6 +155,7 @@ def calltrace(main, configs,
             v.append('lowlevel_init_finish')
             v.append('get_36x_mpu_dpll_param')
             v.append('get_36x_iva_dpll_param')
+            v.append('go_to_speed')
     norec = ['sdelay']
     for s in stages:
         t = os.path.join(data_root,
