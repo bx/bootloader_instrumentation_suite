@@ -205,7 +205,6 @@ class SubstagesInfo():
                 offset = roffset
                 varloc = intervaltree.Interval(varloc.begin + offset,
                                                varloc.end + offset)
-        print "++++++++=%s at %s" % (name, varloc)
         return varloc
 
     @classmethod
@@ -689,7 +688,6 @@ class SubstagesInfo():
                                                   r['endaddr']))
         iis.merge_overlaps()
         iis.merge_equals()
-        print iis
         return iis
 
     def check_trace(self, table):
