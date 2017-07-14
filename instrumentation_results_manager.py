@@ -33,6 +33,7 @@ from doit.cmd_base import TaskLoader
 from doit.action import PythonAction
 import sys
 import time
+import IPython
 import os
 import re
 import atexit
@@ -311,6 +312,8 @@ class PostTraceLoader(ResultsLoader):
                                                "_histogram",},
                         'policy_check': {'fn':
                                          "_policy_check",},
+                        'browse_db': {'fn':
+                                         "_browse_db",},
                         'process_watchpoints': {"fn":
                                                 "_watchpoints",
                                                 "traces": ["watchpoint"]}}
@@ -396,6 +399,21 @@ class PostTraceLoader(ResultsLoader):
                                         "import_watchpoints_to_tracedb"))
         Main.set_config("trace_db", lambda s: test_db[s.stagename])
         Main.set_config("trace_db_done", lambda s: test_db_done[s.stagename])
+        return tasks
+
+    def _browse_db(self, name):
+        tasks = []
+
+        class Do():
+            def __init__(self):
+                pass
+
+            def __call__(self):
+                rwe = self
+                IPython.embed()
+        a = ActionListTask([PythonInteractiveAction(Do())],
+                           [], [], name)
+        tasks.append(a)
         return tasks
 
     def _histogram(self, name):

@@ -35,10 +35,10 @@ def bbxmqemu(main, boot_config,
              quick):
     qemu = os.path.join(host_software_config.root, host_software_config.binary)
     cmds = []
-    run_cmd = "%s -M %s -sd %s -clock vm " \
-              "-S -s" % (qemu, hw_config.machinename,
-                         main.get_config('sd_image'))
-    cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1", "target extended-remote :1234"]}
+    run_cmd = "%s -gdb stdio -M %s -sd %s -clock vm " \
+              "-S" % (qemu, hw_config.machinename,
+                       main.get_config('sd_image'))
+
     deps = []
     targets = []
     main_cfgs = {}
@@ -52,11 +52,11 @@ def bbxmqemu(main, boot_config,
             targets = [f]
             n = main.get_config("trace_events_file", s)
             deps = [n]
-            run_cmd += " -nographic -trace events=%s,file=%s &" % (n, f)
-        cmds.append(("long_running", run_cmd))
-    else:
-        run_cmd += " -daemonize"
-        cmds.append(("long_running", run_cmd))
+            run_cmd += " -trace events=%s,file=%s" % (n, f)
+    #else:
+    #    run_cmd += " -daemonize"
+    cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1",
+                            "target extended-remote | exec %s" % run_cmd]}
     deps.append(qemu)
     ret = cmds + [('configs', cfg), ("set_config", main_cfgs),
                   ('file_dep', deps), ("targets", targets)]
@@ -117,7 +117,7 @@ def breakpoint(main, configs,
     main_cfgs["trace_db"] = lambda s: trace_dbs[s.stagename]
     main_cfgs["trace_db_done"] = lambda s: trace_db_done[s.stagename]
 
-    return [("gdb_commands", gdb_cmds), #("gdb_setup", gdb_setup),
+    return [("gdb_commands", gdb_cmds),
             ("set_config", main_cfgs), ("gdb_targets", gdb_targets),
             ("done_targets", done_targets), ('targets', targets), ('file_dep', deps),
             ("gdb_file_dep", gdb_deps), ("done_commands", done_commands)] + other_cmds
@@ -263,6 +263,10 @@ def watchpoint(main,
     targets = []
     done_commands = []
     s = stages[0]
+    #
+    gdb_cmds.append('set pagination off')
+    gdb_cmds.append('set height unlimited')
+    gdb_cmds.append('set confirm off')
     breakpoint = "*0x%x" % s.exitpc
     gdb_cmds.append("-ex 'break %s'" % breakpoint)
     gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
