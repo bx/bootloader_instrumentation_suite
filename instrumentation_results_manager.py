@@ -707,7 +707,7 @@ class TraceTaskPrepLoader(ResultsLoader):
 
         self.config_path = self._test_path("config.yml")
 
-        if instrumentation_task or create:
+        if instrumentation_task:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
             self.tracenames = instrumentation_task['traces']

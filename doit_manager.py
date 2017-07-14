@@ -87,6 +87,11 @@ class TaskManager():
                                                                             gitinfo)
 
         # print "run trace %s select trace %s create %s hook %s, post %s" % (run_trace, select_trace, create_test, hook, post_trace_processing)
+        if create_test:
+            self.pt = instrumentation_results_manager.PolicyTaskLoader(policies)
+            self.loaders.append(instrumentation_results_manager.task_manager())
+            return
+
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
@@ -105,9 +110,6 @@ class TaskManager():
                                                                   len(post_trace_processing) == 0 and not self.print_cmds and not create_test,
                                                                   self.print_cmds)
 
-        if create_test:
-            self.loaders.append(instrumentation_results_manager.task_manager())
-            return
         if post_trace_processing:
             self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)
         self.loaders.append(instrumentation_results_manager.task_manager())
