@@ -90,7 +90,7 @@ class TaskManager():
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
-                                                                      create_test or select_trace,
+                                                                      select_trace,
                                                                       self.print_cmds,
                                                                       create_test,
                                                                       hook)
