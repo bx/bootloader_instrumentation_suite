@@ -27,7 +27,7 @@ import sys
 import time
 import os
 import pathlib
-from doit.action import CmdAction
+from doit.action import CmdAction, LongRunningAction
 import git_mgr
 
 
@@ -110,7 +110,7 @@ class CodeTaskClean(CodeTask):
     def __init__(self, cfg):
         super(CodeTaskClean, self).__init__('do_clean', cfg)
         self.actions = [(self.save_timestamp,),
-                        CmdAction(self.format_command(self.gf("clean")),
+                        LongRunningAction(self.format_command(self.gf("clean")),
                                   cwd=self.root_dir, save_out='cleaned')]
         self.uptodate = [run_once]
 

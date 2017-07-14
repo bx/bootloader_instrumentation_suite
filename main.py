@@ -222,7 +222,7 @@ if __name__ == '__main__':
         ret = task_mgr.build(targets, True if args.build else False)
         if args.buildcommands:
             for r in ret:
-                for task in r:
+                for task in r.tasks:
                     print "to %s %s:" % (task.name, task.basename)
                     for action in task.list_tasks()['actions']:
                         if isinstance(action, CmdAction):
