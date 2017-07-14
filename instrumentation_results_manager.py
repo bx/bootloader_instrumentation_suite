@@ -410,8 +410,9 @@ class PostTraceLoader(ResultsLoader):
                 self.o = o
 
             def __call__(self):
-                db_info.get(self.s).generate_write_range_file(self.o)
+                db_info.get(self.s).reopen(append=True)
                 db_info.get(self.s).consolidate_trace_write_table()
+                db_info.get(self.s).generate_write_range_file(self.o)
         outs = {}
         for s in self.stages:
             deps = [Main.get_config('trace_db_done', s)]

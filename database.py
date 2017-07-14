@@ -392,7 +392,7 @@ class TraceTable():
             rangetable.cols.index.create_index(kind='full')
             rangetable.cols.index.reindex()
             rs = rangetable.read_sorted('index')
-        for rangerow in rs:
+        for rangetable in rs:
             # irow = next(row for row in itable.where("pc == 0x%x" % rangerow['pc']))
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
@@ -523,6 +523,7 @@ class TraceTable():
             group.writerange.remove()
         histotable = self.h5file.create_table(group, 'writerange',
                                               TraceWriteRange, "qemu memory write ranges")
+        self.writerangetable = histotable
         histotable.cols.index.create_index(kind='full')
         relocatedpc = 0
         relocatedlr = 0
@@ -612,7 +613,7 @@ class TraceTable():
 
         if currentrow is not None:
             currentrow.append()  # append last row
-        self.writerangetable.flush_table()
+
         histotable.flush()
         histotable.reindex()
         histotable.flush()

@@ -109,7 +109,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
             self.controller.disable_breakpoint(self.entry.breakpoint, disable=False)
         self.controller.gdb_print("exit breakpoint for %s out of scope\n" % self.name)
 
-    def _stop(self):
+    def _stop(self, ret):
         c = self.controller
         c.depth -= 1
         gdb.post_event(WriteResults(c.depth,
@@ -127,8 +127,6 @@ class CallEntryBreak(gdb_tools.BootBreak):
         self.name = name
         self.no_rec = no_rec
         self.stage = stage
-        if controller.isbaremetal:
-            controller.set_mode()
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
         except gdb.error as e:
@@ -152,7 +150,6 @@ class CallEntryBreak(gdb_tools.BootBreak):
         c.depth += 1
         CallExitBreak(self.name, c, self.stage, self)
         if self.no_rec and self.breakpoint:
-            self.controller.set_mode(self.breakpoint.location)
             self.controller.disable_breakpoint(self.breakpoint, delete=False)
         return False
 

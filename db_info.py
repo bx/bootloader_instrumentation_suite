@@ -88,9 +88,9 @@ class DBObj():
         if not self._db:
             self._open()
 
-    def _reopen(self):
+    def _reopen(self, append=True):
         self.close()
-        self._open()
+        self._open(append=True)
 
     def create(self):
         if self._db:
@@ -361,14 +361,13 @@ class DBInfo():
         self._tdb.db.histograminfo(h)
 
     def generate_write_range_file(self, out):
-        self._tdb.close()
-        self._tdb._open(True)
-        self._sdb.close()
-        self._sdb._open(append=True)
+        self._tdb._reopen(append=True)
+        self._sdb._reopen(append=True)
         self._tdb.db.histogram()
         self.trace_histograminfo(out)
 
     def consolidate_trace_write_table(self):
+        self._tdb.db.histogram()
         self._tdb.db.consolidate_write_table()
 
     def flush_tracedb(self):
