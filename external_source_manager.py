@@ -112,7 +112,7 @@ class CodeTaskClean(CodeTask):
         super(CodeTaskClean, self).__init__('do_clean', cfg)
         self.actions = [(self.save_timestamp,),
                         LongRunning(self.format_command(self.gf("clean")),
-                                  cwd=self.root_dir, save_out='cleaned')]
+                                    cwd=self.root_dir, save_out='cleaned'), (lambda: True,)]
         self.uptodate = [run_once]
 
 
