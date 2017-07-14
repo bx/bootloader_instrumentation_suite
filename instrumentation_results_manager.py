@@ -109,7 +109,6 @@ def task_manager(test_id=None):
             ts.append(("task_%s_subgroup_all_" % self.build_name(),
                        List(self, self.ALL_GROUPS).list_tasks))
             return ts
-#                     self._list_tasks(subgroup_only, all_groups))
 
         def _list_tasks(self, subgroup):
             if subgroup == self.ALL_GROUPS:
@@ -122,8 +121,10 @@ def task_manager(test_id=None):
                     subfiles = []
                     if subgroup in self.enabled:
                         for t in tasks:
-                            print "enable %s:::::%s %s -> %s" % (t.name, self.task_name(t, subgroup), t.file_dep, t.targets)
-                            subfiles.extend(t.file_dep) # .append(self.task_name(t, subgroup))
+                            print "enable %s:::::%s %s -> %s" % (t.name,
+                                                                 self.task_name(t, subgroup),
+                                                                 t.file_dep, t.targets)
+                            subfiles.extend(t.file_dep)
                             alldeps.append(self.build_name(subgroup))
 
                     yield {
@@ -132,12 +133,6 @@ def task_manager(test_id=None):
 
                         'file_dep': subfiles,
                     }
-                # yield {
-                #     # 'basename': self.ALL_GROUPS,
-                #     'basename': self.ALL_GROUPS,
-                #     'name': None,
-                #     'task_dep': alldeps,
-                # }
             else:
                 for inst in self.tasks[subgroup]:
                     r = {
@@ -151,16 +146,14 @@ def task_manager(test_id=None):
                     else:
                         r['name'] = inst.name
                     r.update(inst.other)
-                    #for d in inst.taskdep:
-                    #    for p in self._list_tasks(d):
-                    #        r['file_dep'].extend(p['file_dep'])
-                    #    r['file_dep'] = list(set(r['file_dep']))
                     if subgroup not in self.enabled:
                         del r['targets']
                         del r['actions']
                         del r['file_dep']
                     else:
-                        print "enable :--:%s %s -> %s" % (self.task_name(inst, subgroup), r['file_dep'], r['targets'])
+                        print "enable :--:%s %s -> %s" % (self.task_name(inst,
+                                                                         subgroup),
+                                                          r['file_dep'], r['targets'])
                         yield r
 
         def task_name(self, task, subgroup):
@@ -204,14 +197,10 @@ class TestTask(object):
 
 
 class CopyFileTask(TestTask):
-    #def uptodate(self):
-    #    return os.path.exists(self.dst)
-
     def __init__(self, src, dst, name):
         super(CopyFileTask, self).__init__(name, True)
         self.src = src
         self.dst = dst
-        #self.other = {'uptodate': [(self.uptodate, )]}
         self.file_dep = [self.src]
         self.task_deps = [self.dst if self.dst in MkdirTask.dirs else os.path.dirname(self.dst)]
         self.actions = ["cp -f %s %s" % (self.src, self.dst)]
@@ -224,16 +213,12 @@ class CopyFileTask(TestTask):
 class MkdirTask(TestTask):
     dirs = set()
 
-    # def uptodate(self):
-    #     return os.path.exists(self.dst)
-
     @classmethod
     def exists(cls, d):
         return d in cls.dirs
 
     def __init__(self, d):
         self.dst = d
-        # self.other = {'uptodate': [(self.uptodate, )]}
         self.actions = [(create_folder, [self.dst])]
         MkdirTask.dirs.add(d)
         self.targets = [d]
@@ -394,7 +379,7 @@ class PostTraceLoader(ResultsLoader):
             test_db_done[n] = self._test_path("tracedb-%s.completed" % n)
             tasks.append(ActionListTask([PythonInteractiveAction(Do(s, events, raw_output)),
                                          "touch %s" % test_db_done[n]],
-                                        [raw_output, events, events],
+                                        [raw_output, events],
                                         [test_db_done[n], test_db[n]],
                                         "import_watchpoints_to_tracedb"))
         Main.set_config("trace_db", lambda s: test_db[s.stagename])
@@ -436,6 +421,8 @@ class PostTraceLoader(ResultsLoader):
                                deps, [outfile], name)
             outs[s.stagename] = outfile
             # a.file_dep = [os.path.dirname(deps[0]]
+            if "watchpoint" in self.tracenames:
+                a.task_deps = ["import_watchpoints_to_tracedb"]
             tasks.append(a)
         Main.set_config("consolidate_writes_done", lambda s: outs[s.stagename])
         return tasks
@@ -465,7 +452,6 @@ class PostTraceLoader(ResultsLoader):
             tp_db_done[n] = self._process_path(name, "policy-tracedb-%s.completed" % n)
             el_file[n] = self._process_path(name, "substages-%s.el" % n)
             fns[n] = self._process_path(name, "%s_fn_lists" % n)
-            # deps.append(Main.get_config("consolidate_writes_done", s))
             a = ActionListTask([PythonInteractiveAction(Do(s)),
                                 "touch %s" % tp_db_done[n]],
                                deps, [tp_db_done[n], tp_db[n], el_file[n]],
@@ -489,7 +475,7 @@ class TraceTaskLoader(ResultsLoader):
         super(TraceTaskLoader, self).__init__(test_id, "trace", run_tasks)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
-	self.toprint = []
+        self.toprint = []
         self.quick = quick
         self.quit = True
         self.trace_id = trace_name
@@ -593,13 +579,13 @@ class TraceTaskLoader(ResultsLoader):
                 else:
                     newtask.actions.extend(d)
                     newtask.targets.extend(dtargets)
-
+        print "DONE %s" % done_commands
         if gdb_commands:
             gdb = " ".join(gdb_commands)
             gdb += " -ex 'c'"
             if self.quit:
                 gdb += " -ex 'monitor quit' -ex 'monitor exit' -ex 'q'"
-
+            print done_commands
             c = CmdTask([Interactive(gdb)] + done_commands,
                         gdb_file_dep,
                         gdb_targets + done_targets, "gdb_tracing")
@@ -635,7 +621,6 @@ class TraceTaskLoader(ResultsLoader):
         for a in self.toprint.actions:
             print a
         print "----------------------------------------"
-
 
     def merge_tasks(self, t1, t2):
         for i in ["file_dep", "actions", "targets"]:
@@ -939,7 +924,9 @@ class InstrumentationTaskLoader(ResultsLoader):
         a = DelTargetAction(addr_space_setup())
 
         actions.append(a)
-        deps = [Main.get_config("stage_elf", s) for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]]
+        deps = [Main.get_config("stage_elf", s) for s in
+                [Main.stage_from_name(st)
+                 for st in Main.get_config('enabled_stages')]]
 
         rtask = ActionListTask(actions, deps,
                                [mmapdb_path, mmapdb_done_path], "generate_addr_info")

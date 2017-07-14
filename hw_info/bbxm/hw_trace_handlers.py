@@ -45,18 +45,19 @@ def bbxmqemu(main, boot_config,
     if is_watchpoint:
         if len(stages) == 1:
             s = stages[0]
-            f = os.path.join(data_root, "trace-events.raw")
+            f = os.path.join(data_root, "trace-events-%s.raw" % s.stagename)
             main_cfgs["trace_events_output"] = f
-            d = os.path.join(data_root, "trace-events.completed")
+            d = os.path.join(data_root, "trace-events-%s.completed" % s.stagename)
             main_cfgs["trace_events_done"] = d
             targets = [f]
             n = main.get_config("trace_events_file", s)
             deps = [n]
             run_cmd += " -trace events=%s,file=%s" % (n, f)
-    #else:
-    #    run_cmd += " -daemonize"
+            # run_cmd += " && touch %s" % main_cfgs['trace_events_done']
+
     cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1",
-                            "target extended-remote | exec %s" % run_cmd]}
+                            "target extended-remote | exec %s" % (run_cmd)]}
+
     deps.append(qemu)
     ret = cmds + [('configs', cfg), ("set_config", main_cfgs),
                   ('file_dep', deps), ("targets", targets)]
@@ -83,7 +84,6 @@ def breakpoint(main, configs,
     trace_db_done = {}
     targets = []
     other_cmds = []
-    #gdb_setup = []
     gdb = main.cc + "gdb"
     hwname = main.get_config("trace_hw").name
     hookwrite_src = os.path.join(main.test_suite_path, "hook_write.py")
@@ -96,7 +96,6 @@ def breakpoint(main, configs,
     for s in stages:
         gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename])
                          # " -ex 'hookwrite until -s %s'" % s.stagename])
-                         #" -ex 'hookwrite until _main'"])
 
     for (s, v) in policies.iteritems():
         gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s, v))
@@ -142,22 +141,6 @@ def calltrace(main, configs,
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
     blacklist = {'spl': ['__s_init_from_arm'],
                  'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag']}
-    #if "baremetal" in hw_config.name:
-    #    for v in blacklist.itervalues():
-    #        v.append('_aebi_udivmod')
-    #        v.append('_aebi_idiv0')
-    #        v.append('_aebi_uidiv')
-    # v.append('cpu_init_cp15')
-    # v.append('cpu_init_crit')
-    # v.append('save_boot_params')
-    # v.append('omap_smc1')
-    # v.append('do_omap3_emu_romcode_call')
-    # v.append('cpy_clk_code')
-    # v.append('lowlevel_init')
-    # v.append('lowlevel_init_finish')
-    # v.append('get_36x_mpu_dpll_param')
-    # v.append('get_36x_iva_dpll_param')
-    # v.append('go_to_speed')
 
     norec = ['sdelay']
     for s in stages:
@@ -264,16 +247,17 @@ def watchpoint(main,
     done_commands = []
     s = stages[0]
     #
-    gdb_cmds.append('set pagination off')
-    gdb_cmds.append('set height unlimited')
-    gdb_cmds.append('set confirm off')
+    gdb_cmds.append('-ex "set pagination off"')
+    gdb_cmds.append('-ex "set height unlimited"')
+    gdb_cmds.append('-ex "set confirm off"')
     breakpoint = "*0x%x" % s.exitpc
     gdb_cmds.append("-ex 'break %s'" % breakpoint)
     gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
     f = main.get_config('trace_events_file', s)
     deps.append(f)
     done = main.get_config("trace_events_done")
-    done_commands.append(("command", "touch %s" % done))
+    done_commands.append(("done_commands", ["touch %s" % done]))
+    done_commands.append(("done_targets", [done]))
     targets.append(done)
 
     return done_commands + [("targets", targets),
@@ -311,14 +295,8 @@ def bbxmbaremetal(main, boot_config,
     search = main.get_config('openocd_search_path')
     ocdc = [
         "gdb_port pipe", "log_output %s" % logs[s.stagename],
-        #"gdb_report_data_abort enable",
-        #"gdb_memory_map disable",
-        #"gdb_flash_program disable",
         "init",
         "reset init",
-        #"amdm37x_dbginit dm37x.cpu",
-        #"gdb_breakpoint_override disable",
-
     ]
 
     c = "%s  -f %s -f %s -s %s " \
@@ -351,8 +329,6 @@ def bbxmbaremetal(main, boot_config,
                             'mon mwb 0x4020DFF2 1',
                             'mon mwb 0x4020DFF4 6',
                             'mon dap apsel 1',]}
-                            #"set arm force-mode thumb",
-                            #"mon arm core_state thumb"]}
     return [("set_config", main_cfgs), ('configs', cfg)]
 
 

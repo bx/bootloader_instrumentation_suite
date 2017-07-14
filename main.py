@@ -70,7 +70,7 @@ if __name__ == '__main__':
                       "hw": "bbxmqemu",
             }
 
-            kwargs['default'] = self.d
+            kwargs['default'] = {}
             super(TraceAction, self).__init__(option_strings, dest, **kwargs)
 
         def __call__(self, parser, namespace, values, option_string=None):

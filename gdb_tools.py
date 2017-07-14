@@ -102,6 +102,7 @@ class BootStageData(gdb.Command):
                 pass
         self._startpoint = val
 
+
 class StartNextStage():
     def __init__(self, controller, stage):
         self.controller = controller
