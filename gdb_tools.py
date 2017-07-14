@@ -43,13 +43,13 @@ import config
 import doit_manager
 import db_info
 import testsuite_utils as utils
-breakpoint_classes = {}
 
+breakpoint_classes = {}
+now = False
 gdb.execute('set pagination off')
 gdb.execute('set height unlimited')
 gdb.execute('set confirm off')
 
-breakpoints_set = False
 
 class BreakpointRegistrar(type):
     def __new__(cls, clsname, bases, attrs):
@@ -57,7 +57,6 @@ class BreakpointRegistrar(type):
         global breakpoint_classes
         if clsname not in breakpoint_classes.keys():
             breakpoint_classes[clsname] = newcls
-        # newcls.name = newcls
         return newcls
 
 
@@ -103,13 +102,15 @@ class BootStageData(gdb.Command):
                 pass
         self._startpoint = val
 
-
 class StartNextStage():
     def __init__(self, controller, stage):
         self.controller = controller
         self.stage = stage
+        global now
+        if now:
+            self.do()
 
-    def __call__(self):
+    def do(self):
         cont = self.controller
         stage_index = cont.stage_order.index(self.stage)
         next_stage = cont.stage_order[stage_index + 1]
@@ -117,6 +118,11 @@ class StartNextStage():
         self.controller.gdb_print("starting next stage deleting breakpoing for %s\n" %
                                   self.stage.stagename)
         cont.prepare_stage(next_stage, True)
+
+    def __call__(self):
+        global now
+        if not now:
+            self.do()
 
 
 class GDBBootController(gdb.Command):
@@ -192,13 +198,6 @@ class GDBBootController(gdb.Command):
                         for s in Main.get_bootloader_cfg().supported_stages.itervalues()}
         self.exit_hook = exit_hook
         self.hw = None
-        #def break_created(bp):
-        #    self.gdb_print("+BP: %s" % bp.__dict__)
-        #def break_mod(bp):
-        #    self.gdb_print("--BP: %s" % bp.__dict__)
-        #print dir(gdb.events)
-        #gdb.events.breakpoint_created.connect(break_created)
-        #gdb.events.breakpoint_modified.connect(break_mod)
 
     def gdb_exit(self, event):
         gdb.flush()
@@ -241,8 +240,25 @@ class GDBBootController(gdb.Command):
         else:
             self._kill = False
 
+    def set_mode(self):
+        if self.isbaremetal:
+            addr = self.get_reg_value('pc')
+            (ts, arms, ds) = Main.get_config("thumb_ranges", self.current_stage)
+            # hack
+            if utils.addr2functionname(addr, self.current_stage) == "clear_bss":
+                typ = "thumb"
+            elif arms.search(addr):
+                typ = "arm"
+            else:
+                typ = "thumb"
+            if not typ == self.core_state:
+                self.core_state = typ
+                gdb.execute("mon arm core_state %s" % typ, to_string=True)
+
     def get_instr_value(self, addr, thumb):
         size = 'w'
+        if self.isbaremetal:
+            gdb.execute("mon gdb_sync")
         val = (gdb.execute("x/1%sx 0x%x" % (size, addr), to_string=True).split(':'))[-1].strip()
         # strip off leading '0x'
         val = val[2:]
@@ -252,6 +268,8 @@ class GDBBootController(gdb.Command):
         return val
 
     def get_reg_value(self, reg):
+        if self.isbaremetal:
+            gdb.execute("mon gdb_sync")
         return int(gdb.execute("print/x $%s" % reg, to_string=True).split()[2], 16)
 
     def get_breaks(self, cls):
@@ -266,29 +284,13 @@ class GDBBootController(gdb.Command):
         self.insert_longwrites_breakpoints(stage)
         self.insert_substagestart_breakpoints(stage)
         self.insert_stageend_breakpoints(stage)
-        #if self.isbaremetal:
-            #gdb.execute("si")
-            #for s in db_info.get(stage).smcs_info():
-            #    fnname = utils.addr2functionname(s['pc'], stage)
-                # if not BootBreak.breakpoint_exists(s['pc'], ReturnBreak, stage):
-                # ReturnBreak(fnname, self, stage)
-            #n = "omap3_invalidate_l2_cache_secure"
-            # loc = utils.get_symbol_location(n, stage)
-            # if not BootBreak.breakpoint_exists(loc, ReturnBreak, stage):
-            # it doesn't seem to be happy if we don't return from here either
-            #ReturnBreak(n, self, stage)
-            # print self.breakpoints
-            # print "%s write breakpoints" % len(self.get_breaks(WriteBreak))
-            # gdb.execute("info break")
 
     def insert_stageend_breakpoints(self, stage):
         s_info = self._stages[stage.stagename]
         end = s_info.stoppoint
         if end:
-            # self.gdb_print("stopping at %s" % end)
             s_info.endbreaks.append(StageEndBreak(end, self, stage, True))
         for (addr, line, success) in db_info.get(stage).stage_exits():
-            # self.gdb_print("exit breakpoint at 0x%x %s" % (addr, success))
             s_info.endbreaks.append(StageEndBreak(addr, self, stage, success))
 
     def insert_substagestart_breakpoints(self, stage):
@@ -299,31 +301,25 @@ class GDBBootController(gdb.Command):
         substages = s_info.substages_entrypoints
         self.current_substage_name = substages[0] if substages else ""
         for i in range(0, len(substages)):
-            # loc = utils.get_symbol_location(substages[i], stage)
-            # if not BootBreak.breakpoint_exists(loc, SubstageEntryBreak, stage):
             SubstageEntryBreak(substages[i], i, self, stage)
 
     def insert_longwrites_breakpoints(self, stage):
         if any(map(lambda x: issubclass(LongwriteBreak, x), self.disabled_breakpoints)):
             return
         for r in db_info.get(stage).longwrites_info():
-            # if not BootBreak.breakpoint_exists(r['contaddr'], LongwriteBreak, stage):
             LongwriteBreak(self, r, stage)
 
     def insert_reloc_breakpoints(self, stage):
         if any(map(lambda x: issubclass(RelocBreak, x), self.disabled_breakpoints)):
             return
         for r in db_info.get(stage).reloc_info():
-            # if not BootBreak.breakpoint_exists(r['relocpc'], RelocBreak, stage):
             RelocBreak(self, stage, r)
 
     def enable_write_breaks(self, stage, enable=True):
         for bp in self.breakpoints:
             b = bp.companion
-            if isinstance(b, WriteBreak):
-                b.breakpoint.enabled = enable
-            elif isinstance(b, LongwriteBreak):
-                b.breakpoint.enabled = enable
+            if isinstance(b, WriteBreak) or isinstance(b, LongwriteBreak):
+                self.disable_breakpoint(b.breakpoint, disable=not enable, delete=False)
 
     def insert_write_breakpoints(self, stage):
         if any(map(lambda x: issubclass(WriteBreak, x), self.disabled_breakpoints)):
@@ -333,11 +329,9 @@ class GDBBootController(gdb.Command):
         self.gdb_print("%d write breakpoints\n" % n)
         for (pc, halt) in db_info.get(stage).write_info():
             if halt is True:
-                i = i + 1
                 if self.isbaremetal:
                     # check to see this address isn't in a skip range
                     if db_info.get(stage).skip_pc(pc):
-                        # self.gdb_print("not inserting breakpoint @ 0x%x\n" % pc)
                         # don't insert WriteBreak
                         continue
 
@@ -347,8 +341,9 @@ class GDBBootController(gdb.Command):
                     self.gdb_print("write pc 0x%x is part of a longwrite, not adding breakpoint.\n"
                                    % pc)
                     continue
-                #if not BootBreak.breakpoint_exists(pc, WriteBreak, stage):
+                i = i + 1
                 WriteBreak(pc, self, stage)
+        self.gdb_print("actually inserted %s of %s write breakpoints\n" % (i, n))
 
     def until(self, args):
         stagename = args.stage
@@ -419,16 +414,14 @@ class GDBBootController(gdb.Command):
 
     def enable_current_stage_end_break(self, enable=True):
         for e in self._stages[self.current_stage.stagename].endbreaks:
-            e.breakpoint.enabled = enable
+            self.disable_breakpoint(e.breakpoint, disable=not enable, delete=False)
 
     def prepare_stage(self, stage, cont=False):
         self.current_stage = stage
         s = StageStartBreak(self, stage)
         if cont:
-            s.breakpoint.enabled = False
+            self.disable_breakpoint(s.breakpoint, delete=False)
             s.continue_stage()
-        # if not BootBreak.breakpoint_exists(StageStartBreak.get_addr(self, stage),
-        #                                  StageStartBreak, stage):
 
     def finalize(self, args):
         substage_names = {s.stagename: self._stages[s.stagename].substages
@@ -460,16 +453,42 @@ class GDBBootController(gdb.Command):
 
         for b in self.get_breaks(list(breakpoint_classes.itervalues())):
             if b.stage == stage:
-                b.breakpoint.enabled = False
-                if not isinstance(b, StageEndBreak):
-                    gdb.post_event(b.breakpoint.delete)
+                self.disable_breakpoint(b.breakpoint, delete=isinstance(b, StageEndBreak))
+
+    def spec_to_addr(self, spec):
+        addr = -1
+        if not isinstance(spec, str):
+            addr = spec
+        else:
+            if spec.startswith("*") or spec.startswith("0x"):
+                i = re.sub("[()*]+", "", spec)
+            else:
+                if self.isbaremetal:
+                    gdb.execute("mon gdb_sync")
+                i = gdb.execute("x/x %s" % spec, to_string=True).split(":")[0]
+                i = i.split()[0]
+            addr = long(i, 0)
+        if addr == -1:
+            print "failed to get addr for spec %s" % spec
+        return addr
+
+    def disable_breakpoint(self, bp, disable=True, delete=True):
+        addr = self.spec_to_addr(bp.location)
+        bp.enabled = not disable
+        if disable and delete:
+            gdb.post_event(lambda: self._delete_bp(bp, addr))
+
+    def _delete_bp(self, bp, addr):
+        if not self.isbaremetal:
+            bp.delete()
 
     def go(self, args):
         self.finalize(args)
         stage = self.stage_order[0]
         gdb.events.exited.connect(self.gdb_exit)
         self.prepare_stage(stage, False)
-        self.gdb_print("%s plugin is ready to go\n" % self.name)
+        self.set_mode()
+        self.gdb_print("ready to go\n")
         if not args.prepare_only:
             gdb.execute("c")
 
@@ -478,33 +497,12 @@ class CompanionBreakpoint(gdb.Breakpoint):
     def __init__(self, spec, twin, typ=None):
         self._stop = twin.stop
         self.companion = twin
-        (ts, arms, ds) = Main.get_config("thumb_ranges", self.companion.stage)
-        if self.companion.controller.isbaremetal:
-            addr = self.companion.addr
-            if ts.search(addr):
-                typ = "thumb"
-            elif arms.search(addr):
-                typ = "arm"
-            else:
-                typ = "thumb"
-            if not typ == self.companion.controller.core_state:
-                self.companion.controller.core_state = typ
-                gdb.execute("mon arm core_state %s" % typ)
         gdb.Breakpoint.__init__(self, spec, internal=True)
 
-        if self.companion.controller.isbaremetal:
-            pc = self.companion.controller.get_reg_value("pc")
-            if ts.search(pc):
-                typ = "thumb"
-            elif arms.search(pc):
-                typ = "arm"
-            else:
-                typ = "thumb"
-            gdb.execute("mon arm core_state %s" % typ)
-
-
     def stop(self):
-        return self._stop()
+        self.companion.controller.set_mode()
+        ret = self._stop()
+        return ret
 
 
 class BootBreak():
@@ -512,7 +510,6 @@ class BootBreak():
 
     def __init__(self, spec, controller, needs_relocation, stage, **kwargs):
         self.stage = stage
-        self.addr = -1
         self.relocated = 0
         self.needs_relocation = needs_relocation
         if 'r' in kwargs.iterkeys():
@@ -524,26 +521,16 @@ class BootBreak():
         for (k, v) in kwargs.iteritems():
                 setattr(self, k, v)
         if not isinstance(spec, str):
-            self.addr = spec
             spec = "*(0x%x)" % spec
         else:
-            i = ""
-            if spec.startswith("*") or spec.startswith("0x"):
-                i = re.sub("[()*]+", "", spec)
-                if not spec.startswith("*"):
-                    spec = "*(%s)" % spec
-            else:
-                try:
-                    i = gdb.execute("x/x %s" % spec, to_string=True).split(":")[0]
-                    i = i.split()[0]
-                except gdb.error as e:
-                    controller.gdb_print("%s\n" % e)
-                    return
-            self.addr = long(i, 0)
+            if (spec.startswith("*") or spec.startswith("0x")) \
+               and not spec.startswith("*"):
+                spec = "*(%s)" % spec
+
+        self.addr = controller.spec_to_addr(spec)
         self.breakpoint = CompanionBreakpoint(spec, self)
         if any(map(lambda x: isinstance(self, x), controller.disabled_breakpoints)):
-            self.breakpoint.enabled = False
-            gdb.post_event(self.breakpoint.delete)
+            controller.disable_breakpoint(self.breakpoint, delete=False)
         controller.breakpoints.append(self)
 
     def move(self, offset, mod, delorig=False):
@@ -556,10 +543,8 @@ class BootBreak():
                 self.addr = (self.addr + offset) % mod
             spec = "*(0x%x)" % self.addr
             self.relocated = offset
-            self.breakpoint.enabled = False
             if delorig:
-                gdb.post_event(self.breakpoint.delete)
-                self.breakpoint = None
+                self.controller.disable_breakpoint(self.breakpoint)
             self.breakpoint = CompanionBreakpoint(spec, self)
             if hasattr(self, '_move'):
                 self._move(offset, mod, delorig)
@@ -567,18 +552,20 @@ class BootBreak():
     def msg(self, m):
         self.controller.gdb_print(m)
 
+    def _stop(self, ret):
+        return True
+
     def stop(self):
         ret = False
-        if self.controller.isbaremetal:
-            gdb.execute("mon gdb_sync")
+        self.controller.set_mode()
         if hasattr(self, '_stop'):
             ret = self._stop(ret)
-
         if self.stophook:
             ret = self.stophook(self, ret)
         if self.final_event:
             self.final_event()
             self.final_event = None
+        self.controller.set_mode()
         return ret
 
 
@@ -591,12 +578,23 @@ class BootFinishBreakpoint(gdb.FinishBreakpoint, BootBreak):
         self.final_event = None
         for (k, v) in kwargs.iteritems():
             setattr(self, k, v)
-        gdb.FinishBreakpoint.__init__(self, internal=True)
+        if controller.isbaremetal:
+            pc = controller.get_reg_value("lr")
+            (ts, arms, ds) = Main.get_config("thumb_ranges", self.stage)
+            if not (ts.search(pc) or arms.search(pc)):
+                self.breakpoint = None
+                return
+        self.breakpoint = gdb.FinishBreakpoint.__init__(self, internal=True)
 
     def stop(self):
+        self.controller.set_mode()
+        ret = False
         if hasattr(self, '_stop'):
-            self._stop()
-        gdb.post_event(self.delete)
+            ret = self._stop(ret)
+        if self.breakpoint:
+            self.controller.disable_breakpoint(self.breakpoint)
+        self.controller.set_mode()
+        return ret
 
 
 class ReturnBreak(BootBreak):
@@ -606,8 +604,7 @@ class ReturnBreak(BootBreak):
         BootBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, ret):
-        self.controller.gdb_print("RETURN %x\n" % self.addr)
-        # gdb.execute("return")
+        gdb.execute("return")
         return False
 
 
@@ -657,7 +654,7 @@ class WriteBreak(BootBreak):
                 'i': i,
                 'ins': ins,
             }
-        return ret
+        return False
 
 
 class SubstageEntryBreak(BootBreak):
@@ -675,7 +672,7 @@ class SubstageEntryBreak(BootBreak):
     def _stop(self, ret):
         self.controller.current_substage = self.substagenum
         self.controller.current_substage_name = self.fnname
-        return ret
+        return False
 
 
 class StageStartBreak(BootBreak):
@@ -691,12 +688,12 @@ class StageStartBreak(BootBreak):
             spec = "*(0x%x)" % realstart
         else:
             spec = realstart
-        controller.gdb_print("StageStartBreak %s at %s ...\n" % (stage.stagename, spec))
         BootBreak.__init__(self, spec, controller, True, stage)
 
     def continue_stage(self):
         cont = self.controller
-        gdb.post_event(self.breakpoint.delete)
+        cont.disable_breakpoint(self.breakpoint)
+
         if not gdb.current_progspace().filename:
             elf = Main.get_config("stage_elf", self.stage)
             gdb.execute("file %s" % elf)
@@ -723,7 +720,6 @@ class StageEndBreak(BootBreak):
         self.starttime = time.time()
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
-        # controller.gdb_print("exit breakpoint at %s" % spec)
         BootBreak.__init__(self, spec, controller, True, stage, success=success)
 
     def _stop(self, ret):
@@ -738,8 +734,6 @@ class StageEndBreak(BootBreak):
             ret = True
         else:
             ret = False
-            global breakpoints_set
-            breakpoints_set = False
             self.final_event = StartNextStage(cont, self.stage)
         return ret
 
@@ -750,15 +744,13 @@ class EndLongwriteBreak(BootBreak):
         controller = lwbreak.controller
         self.addr = lwbreak.contaddr
         spec = "*(0x%x)" % self.addr if not isinstance(self.addr, str) else self.addr
-        lwbreak.breakpoint.enabled = False
-        print "creating longwrite end at %s" % spec
         BootBreak.__init__(self, spec, controller, False, stage, lwbreak=lwbreak)
+        controller.disable_breakpoint(lwbreak.breakpoint, delete=False)
 
     def _stop(self, ret):
-        self.lwbreak.breakpoint.enabled = True
-        self.breakpoint.enabled = False
-        gdb.post_event(self.breakpoint.delete)
-        return ret
+        self.controller.disable_breakpoint(self.lwbreak.breakpoint, disable=False)
+        self.controller.disable_breakpoint(self.breakpoint, delete=False)
+        return False
 
 
 class LongwriteBreak(BootBreak):
@@ -793,6 +785,8 @@ class LongwriteBreak(BootBreak):
             str2 = None
             if needs_string:
                 self.msg("getting string at 0x%x\n" % sum(eregs))
+                if self.isbaremetal:
+                    gdb.execute("mon gdb_sync")
                 str2 = gdb.execute("print/s (char *) $%s" % eregs[0], to_string=True)
                 str2 = str2.split("\"")[1]
                 self.msg("string %s\n" % str2)
@@ -806,7 +800,7 @@ class LongwriteBreak(BootBreak):
                  str2)
             self.writeinfo['pc'] = self.writeaddr
             EndLongwriteBreak(self, self.stage)
-        return ret
+        return False
 
     def _move(self, offset, mod, d):
         self.breakaddr = (self.breakaddr + offset) % mod
@@ -819,6 +813,7 @@ class RelocBreak(BootBreak):
         self.relocpc = r['relocpc']
         spec = "*(0x%x)" % (self.relocpc)
         self.reldelorig = r['reldelorig']
+        controller.gdb_print("relocation bp starts at %s\n" % spec)
         BootBreak.__init__(self, spec, controller, False, stage, r=r)
 
     def addr_in_reloc_range(self, breakaddr):
@@ -837,5 +832,5 @@ class RelocBreak(BootBreak):
         # make sure final breakpoint is still enabled
         controller.enable_current_stage_end_break()
         self.msg("continuing execution\n")
-        self.breakpoint.enabled = False
-        return ret
+        self.controller.disable_breakpoint(self.breakpoint, delete=False)
+        return False

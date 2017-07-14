@@ -132,11 +132,6 @@ class PolicyDB(DBObj):
         self._db.create_dbs(True, trace)
         self._db.print_substage_tables()
 
-# class PolicyTraceDB(PolicyDB):
-#     def _create(self):
-#         self._db = substage.SubstagesInfo(self.stage)
-#         self._db.create_dbs(True, True)
-
 
 class MMapDB(DBObj):
     def _open(self, append=False):
@@ -206,16 +201,14 @@ class DBInfo():
         if self.key == "all" or self.key is None:
             self._sdb = None
             self._pdb = None
-            # self._ptdb = None
             self._tdb = None
         else:
             self._sdb = StaticDB(self.stage)
             self._pdb = PolicyDB(self.stage)
-            # self._ptdb = PolicyTraceDB(self.stage)
             self._tdb = TraceDB(self.stage)
 
     def _closeall(self):
-        for db in [self._mdb, self._sdb, self._pdb, self._tdb]:  # , self._ptdb]:
+        for db in [self._mdb, self._sdb, self._pdb, self._tdb]:
             if db:
                 db.close()
 
@@ -286,7 +279,6 @@ class DBInfo():
         return calculator(row, regs, sregs, eregs, string)
 
     def is_longwrite_string(self, rangetype):
-        # calculator = staticanalysis.LongWriteRangeType.range_calculator(rangetype)
         return (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestrn)) \
             or (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestr))
 
@@ -373,7 +365,6 @@ class DBInfo():
         self._tdb._open(True)
         self._sdb.close()
         self._sdb._open(append=True)
-        #if not self._tdb.db.has_histogram():
         self._tdb.db.histogram()
         self.trace_histograminfo(out)
 
@@ -402,7 +393,6 @@ class DBInfo():
 
     def _get_writerangetable(self):
         return self._tdb.db.writerangetable_consolidated
-
 
     def function_locations(self, name):
         return [(r['startaddr'], r['endaddr'])

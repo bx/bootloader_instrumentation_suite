@@ -791,7 +791,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         target_dir = os.path.join(symlink_dir, os.path.basename(self.namefile))
         tasks.append(self._mkdir(target_dir))
         target_file = os.path.join(target_dir, self.trace_id)
-        tasks.append(CmdTask(["ln -s -f %s %s" % (target_file, self._test_path())],
+        tasks.append(CmdTask(["ln -s -f %s %s" % (self._test_path(), target_file)],
                              [], [target_file], "symlink-%s" % target_file))
         Main.set_config("trace_data_dir", self._test_path())
         contents = """

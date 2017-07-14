@@ -99,7 +99,6 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     def __init__(self, name, controller, stage, entry):
         self.name = name
         self.entry = entry
-        # print "exit %s %s" % (self.name, self.entry)
         try:
             gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
         except ValueError:
@@ -107,7 +106,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
 
     def out_of_scope(self):
         if self.entry.no_rec:
-            self.entry.breakpoint.enabled = True
+            self.controller.disable_breakpoint(self.entry.breakpoint, disable=False)
         self.controller.gdb_print("exit breakpoint for %s out of scope\n" % self.name)
 
     def _stop(self):
@@ -119,7 +118,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
                                     c._minimal))
 
         if self.entry.no_rec:
-            self.entry.breakpoint.enabled = True
+            self.controller.disable_breakpoint(self.entry.breakpoint, disable=False)
         return False
 
 
@@ -128,6 +127,8 @@ class CallEntryBreak(gdb_tools.BootBreak):
         self.name = name
         self.no_rec = no_rec
         self.stage = stage
+        if controller.isbaremetal:
+            controller.set_mode()
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
         except gdb.error as e:
@@ -144,26 +145,15 @@ class CallEntryBreak(gdb_tools.BootBreak):
 
     def _stop(self, ret):
         c = self.controller
-        c.gdb_print("entering %s\n" % self.name)
         gdb.post_event(WriteResults(c.depth,
                                     self.name, "entry", self.fnloc,
                                     self.line,
                                     c._minimal))
         c.depth += 1
-        if c.isbaremetal:
-            frame = gdb.selected_frame()
-            older = frame.older()
-            pc = older.pc()
-            c.gdb_print("%s called from %x" % (self.name, pc))
-            (ts, arms, ds) = Main.get_config("thumb_ranges", self.stage)
-            if not (ts.search(pc) or arms.search(pc)):
-                c.gdb_print(" -- invalid addr\n")
-                return False
-            else:
-                c.gdb_print("\n")
         CallExitBreak(self.name, c, self.stage, self)
-        if self.no_rec:
-            self.breakpoint.enabled = False
+        if self.no_rec and self.breakpoint:
+            self.controller.set_mode(self.breakpoint.location)
+            self.controller.disable_breakpoint(self.breakpoint, delete=False)
         return False
 
 
@@ -221,7 +211,7 @@ class CallTrace(gdb_tools.GDBBootController):
         self.blacklisted[args.stage] = args.fns
 
     def pc(self):
-        return int(gdb.selected_frame().pc())
+        return self.get_reg_value('pc')
 
     def setup_breakpoints(self, stage):
         if not gdb.current_progspace().filename:
@@ -239,22 +229,19 @@ class CallTrace(gdb_tools.GDBBootController):
             if (not hasblacklist) or (hasblacklist and
                                       (name not in self.blacklisted[stage.stagename])):
                 norec = name in self.no_rec_funs
-                c = CallEntryBreak(name, self, stage, norec)
+                CallEntryBreak(name, self, stage, norec)
 
     def stop_end(self, bp, ret):
         if bp is None:
             self.gdb_print("quitting\n")
         if bp is not None:
-            stage = self.current_stage
             controller = bp.controller
         else:
             controller = self
-            stage = controller.current_stage
         if controller.results_written:
             return ret
         global open_log
         if open_log:
-            sname = controller.current_stage.stagename
             self.gdb_print("results written to %s\n" % open_log.name)
             controller.results_written = True
             # use event to make sure log is closed after all write events

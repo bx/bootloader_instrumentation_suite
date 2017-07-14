@@ -142,20 +142,23 @@ def calltrace(main, configs,
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
     blacklist = {'spl': ['__s_init_from_arm'],
                  'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag']}
-    if "baremetal" in hw_config.name:
-        for v in blacklist.itervalues():
-            v.append('c_runtime_cpu_setup')
-            v.append('cpu_init_cp15')
-            v.append('cpu_init_crit')
-            v.append('save_boot_params')
-            v.append('omap_smc1')
-            v.append('do_omap3_emu_romcode_call')
-            v.append('cpy_clk_code')
-            v.append('lowlevel_init')
-            v.append('lowlevel_init_finish')
-            v.append('get_36x_mpu_dpll_param')
-            v.append('get_36x_iva_dpll_param')
-            v.append('go_to_speed')
+    #if "baremetal" in hw_config.name:
+    #    for v in blacklist.itervalues():
+    #        v.append('_aebi_udivmod')
+    #        v.append('_aebi_idiv0')
+    #        v.append('_aebi_uidiv')
+    # v.append('cpu_init_cp15')
+    # v.append('cpu_init_crit')
+    # v.append('save_boot_params')
+    # v.append('omap_smc1')
+    # v.append('do_omap3_emu_romcode_call')
+    # v.append('cpy_clk_code')
+    # v.append('lowlevel_init')
+    # v.append('lowlevel_init_finish')
+    # v.append('get_36x_mpu_dpll_param')
+    # v.append('get_36x_iva_dpll_param')
+    # v.append('go_to_speed')
+
     norec = ['sdelay']
     for s in stages:
         t = os.path.join(data_root,
@@ -332,6 +335,7 @@ def bbxmbaremetal(main, boot_config,
                             'mon dap apsel 0',
                             'mon init',
                             'mon reset init',
+                            'mon debug_level 3',
                             'mon arm core_state arm',
                             'mon dap apsel 1',
                             'mon reg r0 0x4020dff0',

@@ -43,20 +43,25 @@ from gdb_tools import *
 import db_info
 
 stepnum = 0
+now = False
+db_written = False
+start = time.time()
 
 
 class WriteLog():
     def __init__(self, msg):
         self.message = msg
+        global now
+        if now:
+            self.do()
 
-    def __call__(self):
+    def do(self):
         gdb.write(self.message, gdb.STDLOG)
 
-
-db_written = False
-now = True
-
-start = time.time()
+    def __call__(self):
+        global now
+        if not now:
+            self.do()
 
 
 class FlushDatabase():
@@ -126,7 +131,6 @@ class HookWrite(gdb_tools.GDBBootController):
                                              create_trace=True, open_dbs_ro=False,
                                              exit_hook=self._exit_hook)
         self.ranges = intervaltree.IntervalTree()
-        # self.isbaremetal = False
         self.create_trace_table = True
         self.calculate_write_dst = True
         self.open_dbs_ro = False
@@ -157,8 +161,8 @@ class HookWrite(gdb_tools.GDBBootController):
         lr = bp.controller.get_reg_value('lr')
         cpsr = bp.controller.get_reg_value('cpsr')
         pid = 2
-        if bp.controller.isbaremetal:
-            gdb.post_event(WriteLog("\n<%x longwrite..." % writepc))
+        # if bp.controller.isbaremetal:
+        #    gdb.post_event(WriteLog("\n<%x longwrite..." % writepc))
         if bp.relocated > 0:
             pid = 3
         for i in range(start, end, bp.writesize):
@@ -168,8 +172,8 @@ class HookWrite(gdb_tools.GDBBootController):
             bp.controller.dowriteinfo(waddr, bp.writesize, writepc,
                                       lr, cpsr, pid, writepc - bp.relocated,
                                       bp.stage, num)
-        if bp.controller.isbaremetal:
-            gdb.post_event(WriteLog(">\n"))
+        # if bp.controller.isbaremetal:
+        #     gdb.post_event(WriteLog(">\n"))
         return False
 
     def stage_finish(self, now=False):
@@ -190,7 +194,6 @@ class HookWrite(gdb_tools.GDBBootController):
 
     def _setup_parsers(self):
         self.add_subcommand_parser("flushall")
-        # self.add_subcommand_parser("baremetal")
         sp = self.add_subcommand_parser("stage")
         sp.add_argument("stagename")
 
@@ -207,8 +210,8 @@ class HookWrite(gdb_tools.GDBBootController):
         if relocated > 0:
             pid = 1
         self.dowriteinfo(dst, size, pc, lr, cpsr, pid, pc - relocated, stage, substage)
-        if self.isbaremetal:
-            gdb.post_event(WriteLog("."))
+        # if self.isbaremetal:
+        #     gdb.post_event(WriteLog("."))
 
     def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage):
         global stepnum
