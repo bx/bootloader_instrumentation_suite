@@ -446,7 +446,7 @@ class TraceTable():
         sortindex = 'line' if framac else 'writepc'
         intervals = intervaltree.IntervalTree()
         r = None
-        self.writerangetable.flush_table()
+
         substagenums = self.writerangetable.substagenums()
         writepc = None
         line = None
