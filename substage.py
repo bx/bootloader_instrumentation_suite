@@ -40,7 +40,6 @@ import db_info
 import pymacs_request
 import testsuite_utils as utils
 
-
 def int_repr(self):
     return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
@@ -154,9 +153,11 @@ class SubstagesInfo():
     def create_dbs(self, create_policy=False):
         self.open_dbs()
         if create_policy and not self.mmap_created:
-            self.populate_substage_policy_tables()
             self.mmap_created = True
-        self.print_substage_tables()
+            self.populate_substage_policy_tables()
+            self.h5mmap.flush()
+        if self.mmap_created:
+            self.print_substage_tables()
         if create_policy:
             self.write_substages_file()
         if self.h5file:
@@ -422,7 +423,9 @@ class SubstagesInfo():
         substage_info = substages_parser.SubstagesFileParser(self.stage,
                                                              self.substage_file_path,
                                                              mmap_info)
-
+        if self.substage_mmap_info_table.nrows > 0:
+            self.mmap_created = False
+            return
         self.populate_mmap_tables(mmap_info, self.substage_mmap_info_table,
                                   self.substage_mmap_addr_table)
         self.populate_substage_reloc_info_table(substage_info,
@@ -503,12 +506,21 @@ class SubstagesInfo():
             ws = ', '.join(['(%s, %s, %s)' % (r, rowinfo[r][0], rowinfo[r][1]) for r in writable])
             cs = ', '.join(['(%s, %s, %s)' % (r,
                                               rowinfo[r][0], rowinfo[r][1]) for r in reclassified])
-
-            print 'defined regions: %s' % ds
-            print 'new regions: %s' % ns
-            print 'undefined regions: %s' % us
-            print 'writable regions: %s' % ws
-            print 'reclassified regions: %s' % cs
+            ds = ds if ds else "[]"
+            ns = ns if ns else "[]"
+            us = us if us else "[]"
+            ws = ws if ws else "[]"
+            cs = cs if ds else "[]"
+            if ds:
+                print 'defined regions: %s' % ds
+            if ns:
+                print 'new regions: %s' % ns
+            if us:
+                print 'undefined regions: %s' % us
+            if ws:
+                print 'writable regions: %s' % ws
+            if cs:
+                print 'reclassified regions: %s' % cs
 
     def populate_policy_table(self, ss_info, mmap_info, policy_table):
         substages = list(ss_info.substages.iterkeys())
@@ -593,6 +605,7 @@ class SubstagesInfo():
         reloc_table.flush()
 
     def populate_substage_info_table(self, ss_info, info_table):
+
         info_row = info_table.row
         for (num, s) in ss_info.substages.iteritems():
             info_row['substagenum'] = s.num
@@ -752,10 +765,14 @@ class SubstagesInfo():
         iis.merge_equals()
         return iis
 
+    def substagenums(self):
+        policy = Main.get_config('policy_file', self.stage)
+        return range(len(SubstagesInfo.substages_entrypoints(policy)))
+
     def check_trace(self, table):
         violation = False
-        ss = self._substages_entrypoints()
-        for n in range(0, len(ss)):
+        snums = self.substagenums()
+        for n in snums:
             allowed_writes = self.allowed_writes(n)
             for r in db_info.get(self.stage).get_substage_writes(n):
                 size = r['reportedsize']

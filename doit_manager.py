@@ -57,6 +57,7 @@ class TaskManager():
         self.boot_task = [s for s in self.src_manager.code_tasks
                           if s.build_cfg.name == bootloader.software][0]
         uptodate = True
+        run = True
         if create_test:
             self.build(['u-boot'], True)
             if not self.boot_task.has_nothing_to_commit():
@@ -80,10 +81,11 @@ class TaskManager():
 
         update_existing = (create_test or (current_id == self.test_id)) \
                           and (len(post_trace_processing) == 0)
+
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
-                                                                            (create_test or not uptodate),
+                                                                            run,
                                                                             gitinfo)
 
         # print "run trace %s select trace %s create %s hook %s, post %s" % (run_trace, select_trace, create_test, hook, post_trace_processing)
@@ -91,27 +93,27 @@ class TaskManager():
             self.pt = instrumentation_results_manager.PolicyTaskLoader(policies)
             self.loaders.append(instrumentation_results_manager.task_manager())
             return
-
+        run = not create_test
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
-                                                                      select_trace,
+                                                                      run,
                                                                       self.print_cmds,
                                                                       create_test,
                                                                       hook)
 
         self.pt = instrumentation_results_manager.PolicyTaskLoader(policies)
+        run = run and (len(post_trace_processing) == 0)
         self.rt = instrumentation_results_manager.TraceTaskLoader(self.tp.stages,
                                                                   self.tp.hw,
                                                                   self.tp.tracenames,
                                                                   self.tp.trace_id,
                                                                   not self.print_cmds,
                                                                   quick,
-                                                                  len(post_trace_processing) == 0 and not self.print_cmds and not create_test,
+                                                                  run,
                                                                   self.print_cmds)
-
-        if post_trace_processing:
-            self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing)
+        run = (not create_test) and len(post_trace_processing) > 0
+        self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing, run)
         self.loaders.append(instrumentation_results_manager.task_manager())
 
     def _get_newest_id(self):

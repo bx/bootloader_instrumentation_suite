@@ -304,9 +304,9 @@ class PostTraceLoader(ResultsLoader):
                                                 "traces": ["watchpoint"]}}
     supported_types = _processes_types.iterkeys()
 
-    def __init__(self, processes):
+    def __init__(self, processes, run):
         test_id = Main.get_config("test_instance_id")
-        super(PostTraceLoader, self).__init__(test_id, "post_trace", True)
+        super(PostTraceLoader, self).__init__(test_id, "post_trace", run)
         self.trace_id = Main.get_config("trace_id")
         self.data_dir = Main.get_config("trace_data_dir")
         self.name = Main.get_config("trace_name")
@@ -451,7 +451,9 @@ class PostTraceLoader(ResultsLoader):
 
             def __call__(self):
                 if not Main.get_config("policy_trace_done", self.s):
+                    db_info.create(self.s, "policydb")
                     db_info.create(self.s, "policytracedb")
+                db_info.create(self.s, "policydb", create_policy=True)
                 db_info.get(self.s).check_trace()
 
         for s in Main.get_config("stages_with_policies"):
@@ -702,6 +704,14 @@ class TraceTaskPrepLoader(ResultsLoader):
             if not hook:
                 existing = sorted(self.existing_trace_ids())
                 if trace_name not in existing:
+                    try:
+                        i = int(trace_name)
+                    except:
+                        i = None
+                    if i is not None:
+                        i = self._format_id(i)
+                        if i in existing:
+                            trace_name = i
                     res = difflib.get_close_matches(trace_name, existing, 1, 0)
                     if not res:
                         self.trace_id = existing[-1]
@@ -711,7 +721,6 @@ class TraceTaskPrepLoader(ResultsLoader):
                     self.trace_id = trace_name
             else:
                 self.trace_id = trace_name
-
         self.config_path = self._test_path("config.yml")
 
         if instrumentation_task:
@@ -801,7 +810,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         target_dir = os.path.join(symlink_dir, os.path.basename(self.namefile))
         tasks.append(self._mkdir(target_dir))
         target_file = os.path.join(target_dir, self.trace_id)
-        tasks.append(CmdTask(["ln -s -f %s %s" % (self._test_path(), target_file)],
+        tasks.append(CmdTask(["ln -s -f %s %s" % (target_file, self._test_path())],
                              [], [target_file], "symlink-%s" % target_file))
         Main.set_config("trace_data_dir", self._test_path())
         contents = """
@@ -1024,7 +1033,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         imgdst = {}
         deps = []
         tasks.append(self._mkdir(self.test_data_path))
-        tasks.append(self._mkdir(self._full_path()))
+        # tasks.append(self._mkdir(self._full_path()))
         Main.set_config("test_instance_root", self._full_path())
         dstdir = self._full_path("images")
         tasks.append(self._mkdir(dstdir))

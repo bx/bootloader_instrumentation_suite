@@ -180,7 +180,7 @@ class TraceDB(DBObj):
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
-        print "nwrite %s" % self._db.writestable.nrows
+        print "nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
         self._db.close()
 
     def flush(self):
