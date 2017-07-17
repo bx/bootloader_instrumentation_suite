@@ -452,7 +452,6 @@ class TraceTable():
         line = None
         lvalue = None
         dst_not_in_ram = True
-        print substagenums
         for n in substagenums:
             if n not in self.writerangetable_consolidated.tables.keys():
                 self.writerangetable_consolidated._init_table(n)
@@ -642,15 +641,18 @@ class TraceTable():
         self.h5file.flush()
 
     def add_write_entry(self, time, pid, size,
-                        dest, pc, lr, cpsr, index=0, substage=None):
+                        dest, pc, lr, cpsr, index=0, num=None):
         o = qemusimpleparse.QemuParsedObject(time, pid, size,
-                                             dest, pc, lr, cpsr, substage)
-        TraceTable._add_write_entry(o, self.pcmin,
-                                    self.pcmax,
-                                    self.writestable, self.rinfos, index)
+                                             dest, pc, lr, cpsr)
+
+        self._add_write_entry(o, self.pcmin,
+                              self.pcmax,
+                              self.writestable, self.rinfos,
+                              index, num)
 
     @classmethod
-    def _add_write_entry(cls, o, pcmin, pcmax, table, rinfos, index=1, substage=None):
+    def _add_write_entry(cls, o, pcmin, pcmax, table,
+                         rinfos, index=1, num=None):
         if (o.pc <= pcmax) and (o.pc >= pcmin):
             # get relocation info from writesearch database
             r = table.row
@@ -667,8 +669,8 @@ class TraceTable():
             r['cpsr'] = o.cpsr
             r['pc'] = o.pc
             r['lr'] = o.lr
-            if substage is not None:
-                r['substage'] = substage
+            if num is not None:
+                r['substage'] = num
             for rinfo in rinfos:
                 offset = rinfo['reloffset']
                 start = (rinfo['startaddr']+offset)

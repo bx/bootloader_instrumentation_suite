@@ -765,7 +765,11 @@ class SubstagesInfo():
                 else:
                     start = r['dest']
                     end = start + size - 1
-                if not len(allowed_writes.search(start, end)) == 1:
+                if start == end:
+                    res = allowed_writes.search(start)
+                else:
+                    res = allowed_writes.search(start, end)
+                if not len(res) == 1:
                     write = r['relocatedpc']
                     print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,
                                                                            start,

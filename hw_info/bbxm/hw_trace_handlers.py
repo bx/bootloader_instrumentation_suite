@@ -54,9 +54,10 @@ def bbxmqemu(main, boot_config,
             deps = [n]
             run_cmd += " -trace events=%s,file=%s" % (n, f)
             # run_cmd += " && touch %s" % main_cfgs['trace_events_done']
-
+    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
     cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1",
-                            "target extended-remote | exec %s" % (run_cmd)]}
+                            "target extended-remote | exec %s" % (run_cmd),
+                            'python execfile(\"%s\")' % gdb_tools]}
 
     deps.append(qemu)
     ret = cmds + [('configs', cfg), ("set_config", main_cfgs),
@@ -141,8 +142,8 @@ def calltrace(main, configs,
     done_commands = []
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
-    blacklist = {'spl': ['__s_init_from_arm'],
-                 'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag']}
+    blacklist = {'spl': ['__s_init_from_arm', "get_timer"],
+                 'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag', "get_timer"]}
 
     norec = ['sdelay']
     for s in stages:
@@ -155,8 +156,7 @@ def calltrace(main, configs,
         done_commands.append("touch %s" % d)
         orgfiles[s.stagename] = t
         done[s.stagename] = d
-    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
-    cmds = ["%s %s" % (gdb, additional_cmds), "-ex 'python execfile(\"%s\")'" % gdb_tools]
+    cmds = ["%s %s" % (gdb, additional_cmds)]
     cmds.append("-ex 'gdb_tools plugin %s'" % calltrace_src)
     stagenames = [s.stagename for s in stages]
     for (k, v) in blacklist.iteritems():

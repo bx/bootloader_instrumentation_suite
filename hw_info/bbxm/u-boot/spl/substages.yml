@@ -7,20 +7,20 @@ lowlevel_init:
   substage_type: "bookkeeping"
   reclassified_regions:
     RAM.rest: "stack"
+    RAM.rom_stack: "readonly"
 
 cpy_clk_code:    
   substage_type: "loading"
-  reclassified_regions:
-    RAM.rest: "stack"
-    RAM.rom_stack: "readonly"
 
 lowlevel_init_finish:
   substage_type: "bookkeeping"
   reclassified_regions:
-    RAM.downloaded_image.remainder: "stack"
-    RAM.downloaded_image.public_stack.beginning: "stack"
     RAM.downloaded_image.public_stack.cpy_clk_code: "readonly"    
-    RAM.rest: "readonly"
+    RAM.downloaded_image.public_stack.stack_rest: "stack"
+    RAM.downloaded_image.public_stack.beginning: "readonly"        
+
+_main:
+  substage_type: "bookkeeping"
     
 board_init_f_mem:
   substage_type: "bookkeeping"
@@ -28,10 +28,10 @@ board_init_f_mem:
   reclassified_regions:
      RAM.downloaded_image.remainder: "readonly"
      RAM.downloaded_image.public_stack.beginning: "readonly"
+  new_regions: ["SRAM"]
   
 board_init_f_mem_finish:
   substage_type: "bookkeeping"
-  new_regions: ["SRAM"]
   
 board_init_f:
   comment: "get_board_revision writes to static var 'revision'"  

@@ -38,7 +38,7 @@ from gdb_tools import *
 import db_info
 
 stepnum = 0
-now = False
+now = True
 db_written = False
 start = time.time()
 
@@ -104,8 +104,6 @@ class WriteDatabase():
             self.do()
 
     def do(self):
-        if self.pc == 0x402009c4:
-            print "WRite CPY_CLK_CODE substage %s %s" % (self.substage_name, self.num)
         db_info.get(self.stage).add_trace_write_entry(self.time, self.pid,
                                                       self.size, self.dest,
                                                       self.pc, self.lr,

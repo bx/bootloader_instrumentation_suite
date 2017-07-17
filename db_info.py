@@ -180,6 +180,7 @@ class TraceDB(DBObj):
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
+        print "nwrite %s" % self._db.writestable.nrows
         self._db.close()
 
     def flush(self):
@@ -335,9 +336,9 @@ class DBInfo():
         return [srcs_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
 
     def add_trace_write_entry(self, time, pid, size,
-                              dest, pc, lr, cpsr, index=0, substate=None):
+                              dest, pc, lr, cpsr, index=0, num=None):
         self._tdb.db.add_write_entry(time, pid, size, dest, pc,
-                                     lr, cpsr, index, substage)
+                                     lr, cpsr, index, num)
 
     def get_write_pc_or_zero_from_dstinfo(self, dstinfo):
         return self._sdb.db._get_write_pc_or_zero(dstinfo)
@@ -359,8 +360,8 @@ class DBInfo():
             for f in fields:
                 d[f] = r[f]
             return d
-        query = "substage == 0x%x" % substage
-        return [writes_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
+        query = "substage == %s" % substage
+        return [writes_dict(r) for r in pytable_utils.query(self._tdb.db.writestable, query)]
 
     def trace_histogram(self):
         self._sdb._reopen(True)
