@@ -2,21 +2,23 @@ _start:
   substage_type: "bookkeeping"
   comments: "Saves pointer to input parameters, does some hardware initialization"
   new_regions: ["ROM", "RAM", "Registers", "missing_control_padconf0", "missing_control_padconf1", "missing_protection_mech_0"]
-
+  
 lowlevel_init:
   substage_type: "bookkeeping"
   reclassified_regions:
     RAM.rest: "stack"
-    RAM.rom_stack: "readonly"
 
 cpy_clk_code:    
   substage_type: "loading"
+  reclassified_regions:
+    RAM.rest: "stack"
+    RAM.rom_stack: "readonly"
 
 lowlevel_init_finish:
   substage_type: "bookkeeping"
   reclassified_regions:
     RAM.downloaded_image.remainder: "stack"
-    RAM.downloaded_image.public_stack.beginning: "stack"    
+    RAM.downloaded_image.public_stack.beginning: "stack"
     RAM.downloaded_image.public_stack.cpy_clk_code: "readonly"    
     RAM.rest: "readonly"
     
@@ -26,7 +28,6 @@ board_init_f_mem:
   reclassified_regions:
      RAM.downloaded_image.remainder: "readonly"
      RAM.downloaded_image.public_stack.beginning: "readonly"
-     RAM.downloaded_image.public_stack.stack_rest: "stack"         
   
 board_init_f_mem_finish:
   substage_type: "bookkeeping"
@@ -67,5 +68,6 @@ spl_after_load_image:
   reclassified_regions:
     SRAM.image: "readonly"
     SRAM.heap: "bookkeeping"
+
 jump_to_image_no_args:
   substage_type: "bookkeeping"

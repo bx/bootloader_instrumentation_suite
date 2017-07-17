@@ -58,6 +58,7 @@ class TaskManager():
                           if s.build_cfg.name == bootloader.software][0]
         uptodate = True
         if create_test:
+            self.build(['u-boot'], True)
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
                 uptodate = False
@@ -69,7 +70,6 @@ class TaskManager():
             self.src_manager.builds.append(bootloader.software)
             (self.test_id, gitinfo) = self._calculate_current_id()
             current_id = self.test_id
-            self.build(self.boot_task.basename, False)
         else:
             if open_instance is None:
                 self.test_id = self._get_newest_id()

@@ -231,8 +231,9 @@ class TraceWriteEntry(tables.IsDescription):
     lr = tables.UInt32Col()
     relocatedlr = tables.UInt32Col()
     time = tables.Float32Col()
-    reportedsize = tables.UInt32Col()
+    reportedsize = tables.Int32Col()
     cpsr = tables.UInt32Col()
+    substage = tables.UInt8Col()
 
 
 class TraceWriteRange(tables.IsDescription):
@@ -357,7 +358,6 @@ class TraceTable():
     def close(self, flush_only=False):
         db_info.get(self.stage).flush_staticdb()
         self.h5file.flush()
-        print "%s number of writes" % self.writestable.nrows
         if not flush_only:
             self.h5file.close()
 
@@ -392,7 +392,7 @@ class TraceTable():
             rangetable.cols.index.create_index(kind='full')
             rangetable.cols.index.reindex()
             rs = rangetable.read_sorted('index')
-        for rangetable in rs:
+        for rangerow in rs:
             # irow = next(row for row in itable.where("pc == 0x%x" % rangerow['pc']))
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
@@ -419,7 +419,7 @@ class TraceTable():
             outfile.close()
         return ret
 
-    def update_writes(self, line, pc, lo, hi, stage, origpc=None, substage=0):
+    def update_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):
         if not pc:
             (path, lineno) = line.split(':')
         else:
@@ -431,7 +431,7 @@ class TraceTable():
                            '',
                            [intervaltree.Interval(lo,
                                                   hi)],
-                           pc, origpc, substage_name=substage, stage=stage)
+                           pc, origpc, substage_name=substage)
         self.writerangetable.add_dsts_entry(w)
 
     def consolidate_write_table(self, framac=False):
@@ -446,12 +446,13 @@ class TraceTable():
         sortindex = 'line' if framac else 'writepc'
         intervals = intervaltree.IntervalTree()
         r = None
-
-        substagenums = self.writerangetable.substagenums()
+        policy = Main.get_config('policy_file', self.stage)
+        substagenums =  range(len(substage.SubstagesInfo.substages_entrypoints(policy)))
         writepc = None
         line = None
         lvalue = None
         dst_not_in_ram = True
+        print substagenums
         for n in substagenums:
             if n not in self.writerangetable_consolidated.tables.keys():
                 self.writerangetable_consolidated._init_table(n)
@@ -467,6 +468,7 @@ class TraceTable():
             line = None
             count = 0
             intervals = intervaltree.IntervalTree()  # clear intervals
+            print "writerange[%s] %s" % (n, self.writerangetable.tables[n].nrows)
             for r in self.writerangetable.tables[n].read_sorted(sortindex):
                 count += 1
                 if not last == r[sortindex]:
@@ -523,7 +525,6 @@ class TraceTable():
             group.writerange.remove()
         histotable = self.h5file.create_table(group, 'writerange',
                                               TraceWriteRange, "qemu memory write ranges")
-        self.writerangetable = histotable
         histotable.cols.index.create_index(kind='full')
         relocatedpc = 0
         relocatedlr = 0
@@ -533,6 +534,7 @@ class TraceTable():
         currentrow = None
         line = ''
         index = 0
+        push = False
         pc = -1
         for writerow in self.writestable.read_sorted('index'):
             if (writerow['relocatedpc'] == relocatedpc) and \
@@ -541,19 +543,25 @@ class TraceTable():
                 # append to current row
                 currentrow['byteswritten'] += size
                 byteswritten = currentrow['byteswritten']
-                currentrow['desthi'] = currentrow['destlo'] + byteswritten
+                if push:
+                    currentrow['destlo'] = currentrow['desthi'] - byteswritten
+                else:
+                    currentrow['desthi'] = currentrow['destlo'] + byteswritten
                 currentrow['numops'] += 1
             else:
                 # create a new row
                 if currentrow is not None:
+                    if push:
+                        # print "push at %x to %x-%x" % (currentrow['pc'],
+                        #                                currentrow['destlo'],
+                        #                                currentrow['desthi'])
+                        push = False
                     currentrow.append()
                 # start a new row
                 currentrow = histotable.row
                 pc = writerow['pc']
                 relocatedpc = writerow['relocatedpc']
                 relocatedlr = writerow['relocatedlr']
-                destlo = writerow['dest']
-                currentrow['destlo'] = destlo
                 currentrow['cpsr'] = writerow['cpsr']
                 currentrow['lr'] = writerow['lr']
                 lr = writerow['lr']
@@ -565,8 +573,19 @@ class TraceTable():
                 currentrow['index'] = index
                 index += 1
                 size = db_info.get(self.stage).pc_write_size(pc)
+                if size < 0:
+                    # print "write %x %s" % (pc, size)
+                    desthi = writerow['dest']
+                    currentrow['desthi'] = desthi
+                    currentrow['destlo'] = desthi - size
+                    size = -1*size
+                    push = True
+                else:
+                    push = False
+                    destlo = writerow['dest']
+                    currentrow['destlo'] = destlo
+                    currentrow['desthi'] = destlo + size
                 byteswritten = size
-                currentrow['desthi'] = destlo + size
                 currentrow['byteswritten'] = size
 
                 lrilength = 0
@@ -613,7 +632,7 @@ class TraceTable():
 
         if currentrow is not None:
             currentrow.append()  # append last row
-
+        self.writerangetable.flush_table()
         histotable.flush()
         histotable.reindex()
         histotable.flush()
@@ -623,15 +642,15 @@ class TraceTable():
         self.h5file.flush()
 
     def add_write_entry(self, time, pid, size,
-                        dest, pc, lr, cpsr, index=0):
+                        dest, pc, lr, cpsr, index=0, substage=None):
         o = qemusimpleparse.QemuParsedObject(time, pid, size,
-                                             dest, pc, lr, cpsr)
+                                             dest, pc, lr, cpsr, substage)
         TraceTable._add_write_entry(o, self.pcmin,
                                     self.pcmax,
                                     self.writestable, self.rinfos, index)
 
     @classmethod
-    def _add_write_entry(cls, o, pcmin, pcmax, table, rinfos, index=1):
+    def _add_write_entry(cls, o, pcmin, pcmax, table, rinfos, index=1, substage=None):
         if (o.pc <= pcmax) and (o.pc >= pcmin):
             # get relocation info from writesearch database
             r = table.row
@@ -648,10 +667,12 @@ class TraceTable():
             r['cpsr'] = o.cpsr
             r['pc'] = o.pc
             r['lr'] = o.lr
+            if substage is not None:
+                r['substage'] = substage
             for rinfo in rinfos:
                 offset = rinfo['reloffset']
                 start = (rinfo['startaddr']+offset)
-                end = start + rinfo['size']+offset
+                end = start + rinfo['size'] + offset
                 # if pc is in a relocated dest range  (for now we assume no overlap)
                 if (start <= o.pc) and (o.pc <= end):
                     r['pc'] = o.pc - offset

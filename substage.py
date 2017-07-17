@@ -151,11 +151,15 @@ class SubstagesInfo():
     def mmapgroupname(self):
         return "%s_mmap" % self.stage.stagename
 
-    def create_dbs(self, new_policy=True, new_trace=False):
-        self.open_dbs(new_policy, new_trace)
-        self.populate_substage_policy_tables()
-        if new_trace:
+    def create_dbs(self, create_policy=False):
+        self.open_dbs()
+        if create_policy and not self.mmap_created:
+            self.populate_substage_policy_tables()
+            self.mmap_created = True
+        self.print_substage_tables()
+        if create_policy:
             self.write_substages_file()
+        if self.h5file:
             self.populate_contents_table()
             self.populate_write_interval_table()
 
@@ -185,6 +189,8 @@ class SubstagesInfo():
         return divided_intervals
 
     def get_intervals(self):
+        if not self.trace_intervals_table:
+            return intervaltree.IntervalTree()
         table = self.trace_intervals_table
         stages = self.substage_numbers()
         results = {i: [] for i in stages}
@@ -242,29 +248,43 @@ class SubstagesInfo():
         substagesname = self.substages_names()
         tracename = Main.get_config("trace_traces")
 
-        if 'framac' not in tracename and Main.get_config("calltrace_db", self.stage) is not None:
+        try:
+            cdb = Main.get_config("calltrace_db", self.stage)
+        except KeyError:
+            cdb = None
+
+        if cdb and os.path.exists(cdb):
+            # done = Main.get_config("calltrace_done", self.stage)
+            # done = Main.get_config("policy_trace_done", self.stage)
             path = Main.get_config("policy_trace_el", self.stage)
+            if os.path.exists(path):
+                return
             calltrace_path = Main.get_config("calltrace_db", self.stage)
-            substage_linenos = [0]
+            failed = False
+            substage_linenos = []
             for s in substages:
                 if s == "_start":
-                    n = None
+                    n = 0
                 else:
-                    try:
-                        n = self.get_function_lineno(s, calltrace_path)
-                    except subprocess.CalledProcessError:
-                        print "Did not find %s in %s" % (s, calltrace_path)
-                        n = None
-                if type(n) is int:
-                    substage_linenos.append(n)
-            substage_linenos.sort()
+                    if not failed:
+                        try:
+                            n = self.get_function_lineno(s, calltrace_path)
+                        except subprocess.CalledProcessError:
+                            print "Did not find %s in %s" % (s, calltrace_path)
+                            failed = True
+                            n = self.get_function_lineno(s, calltrace_path, True)
+                substage_linenos.append(n)
+            # substage_linenos.sort()
             outf = open(path, "w")
             outf.write("(setq substages '(%s))\n" % " ".join([str(i) for i in substage_linenos]))
             outf.close()
 
     @classmethod
-    def get_function_lineno(cls, fn, path):
-        out = run_cmd.Cmd().run_cmd("grep -no ' > %s' %s" % (fn, path))
+    def get_function_lineno(cls, fn, path, last=False):
+        if last:
+            out = run_cmd.Cmd().run_cmd("wc -l %s | awk '{print ($1);}'" % (path))
+            return int(out)
+        out = run_cmd.Cmd().run_cmd("egrep -no ' > %s( |$)' %s" % (fn, path))
         if len(out) == 0:
             return None
         else:
@@ -274,30 +294,31 @@ class SubstagesInfo():
         stage = self.stage
         substages = self._substages_entrypoints()
         name = self.substages_names()
-        substageresultsdir = Main.get_config("policy_trace_fnlist_dir", self.stage)
+        try:
+            substageresultsdir = Main.get_config("policy_trace_fnlist_dir", self.stage)
+        except KeyError:
+            substageresultsdir = None
         tracename = Main.get_config("trace_traces")
-        if 'framac' not in tracename and Main.get_config("calltrace_db", self.stage) is not None:
+        try:
             calltrace_path = Main.get_config("calltrace_db", self.stage)
+        except KeyError:
+            calltrace_path = None
+        if calltrace_path and os.path.exists(calltrace_path) and substageresultsdir:
             if not noprepare:
                 el_path = Main.get_config("policy_trace_el", self.stage)
+                if os.path.exists(substageresultsdir):
+                    return {}
                 pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
                                          (calltrace_path,
                                           el_path,
                                           substageresultsdir))
-
-        origdir = os.getcwd()
-        os.chdir(substageresultsdir)
-        files = [os.path.join(substageresultsdir, f) for f in glob.glob("*.txt")]
-        if files:
-            files.sort()
-            return {i: files[i] for i in range(0, len(files))}
-        else:
-            return {}
-
-    def _finish_table(self, table):
-        table.flush()
-        table.cols.substagenum.create_index(kind="full")
-        table.flush()
+            origdir = os.getcwd()
+            os.chdir(substageresultsdir)
+            files = [os.path.join(substageresultsdir, f) for f in glob.glob("*.txt")]
+            if files:
+                files.sort()
+                return {i: files[i] for i in range(0, len(files))}
+        return {}
 
     def populate_contents_table(self):
         stage = self.stage
@@ -326,7 +347,8 @@ class SubstagesInfo():
                     row["functionname"] = n
                     row.append()
                 fopen.close()
-        self._finish_table(self.contents_table)
+        self.contents_table.flush()
+        self.contents_table.cols.substagenum.reindex()
 
     def close_dbs(self, flush_only=False):
         if self.h5mmap is None:
@@ -394,7 +416,6 @@ class SubstagesInfo():
         intervals = self.calculate_intervals(substages)
         db_info.get(self.stage).write_trace_intervals(intervals,
                                                       self.trace_intervals_table)
-        self.print_substage_tables()
 
     def populate_substage_policy_tables(self):
         mmap_info = substages_parser.MmapFileParser(self.mmap_file)
@@ -430,6 +451,7 @@ class SubstagesInfo():
                                                      i['reclassifiable'])
 
     def print_substage_tables(self):
+        self.h5mmap.flush()
         print '----------regions----------'
         self.print_regions(self.substage_mmap_info_table,
                            self.substage_mmap_addr_table)
@@ -512,7 +534,6 @@ class SubstagesInfo():
                 pat = "^(%s)(.[\d]{5})?$" % v
                 for r in db_info.get(self.stage).symbol_names_with(v):
                     res = re.match(pat, r)
-                    print "matching v %s with %s (%s)" % (v, r, res)
                     if res is not None:
                         rname = self.region_name_from_symbol(v)
                         policy_row['default_perms'] = getattr(perms, 'rwx')
@@ -530,8 +551,9 @@ class SubstagesInfo():
                         policy_row.append()
                         break
         policy_table.flush()
-        policy_table.cols.short_name.create_index(kind="full")
-        policy_table.cols.substagenum.create_index(kind="full")
+
+        policy_table.cols.substagenum.reindex()
+        policy_table.cols.short_name.reindex()
         policy_table.flush()
 
     @classmethod
@@ -566,8 +588,8 @@ class SubstagesInfo():
                 r['substagenum'] = n
                 r['reloc_name'] = relname
                 r.append()
-        reloc_table.cols.reloc_name.create_index(kind="full")
-        reloc_table.cols.substagenum.create_index(kind="full")
+        reloc_table.cols.reloc_name.reindex()
+        reloc_table.cols.substagenum.reindex()
         reloc_table.flush()
 
     def populate_substage_info_table(self, ss_info, info_table):
@@ -580,8 +602,8 @@ class SubstagesInfo():
             info_row['substage_type'] = getattr(substage_types, s.substage_type)
             info_row.append()
         info_table.flush()
-        info_table.cols.substagenum.create_index(kind="full")
-        info_table.cols.functionname.create_index(kind="full")
+        info_table.cols.substagenum.reindex()
+        info_table.cols.functionname.reindex()
         info_table.flush()
 
     def populate_mmap_tables(self, mmap_info, info_table, addr_table):
@@ -601,17 +623,20 @@ class SubstagesInfo():
                 addr_row['endaddr'] = a.end
                 addr_row.append()
         info_table.flush()
-        info_table.cols.short_name.create_index(kind="full")
-        info_table.cols.parent_name.create_index(kind="full")
+
+        info_table.cols.short_name.reindex()
+        info_table.cols.parent_name.reindex()
         info_table.flush()
         addr_table.flush()
-        addr_table.cols.short_name.create_index(kind="full")
-        addr_table.cols.startaddr.create_index(kind="full")
-        addr_table.cols.endaddr.create_index(kind="full")
+        addr_table.cols.short_name.reindex()
+        addr_table.cols.startaddr.reindex()
+        addr_table.cols.endaddr.reindex()
         addr_table.flush()
 
     def print_intervals(self):
         table = self.trace_intervals_table
+        if not table:
+            return
         substages = self.substage_numbers()
         for num in substages:
             print "%s intervals for substage %d" % (name, num)
@@ -619,55 +644,92 @@ class SubstagesInfo():
                 print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
             print '---------------------------'
 
-    def open_dbs(self, new_policy, new_trace):
+    def open_dbs(self):
         name = Main.get_config('policy_name', self.stage)
-        tracemode = "w" if new_trace or new_policy else "r"
-        policymode = "w" if new_policy else "r"
-        if new_trace:
-            trace_db = Main.get_config("policy_trace_db", self.stage)
-            self.h5file = tables.open_file(trace_db, mode=tracemode,
+        trace_db = Main.get_config("policy_trace_db", self.stage)
+        if not trace_db:
+            self.h5file = None
+            self.h5group = None
+            self.trace_intervals_table = None
+            self.contents_table = None
+        else:
+            self.h5file = tables.open_file(trace_db, mode="a",
                                            title="%s substage info" %
                                            self.stage.stagename)
+            self.h5file.flush()
             groupname = self.groupname()
-            if not tracemode == "r":
+            try:
                 self.h5group = self.h5file.create_group("/", groupname, "")
+            except tables.exceptions.NodeError:
+                self.h5group = self.h5file.get_node('/%s' % groupname)
+
+            if not hasattr(self.h5group, 'substagecontents'):
                 self.contents_table = self.h5file.create_table(
                     self.h5group, 'substagecontents', SubstageContents, "substage contents")
+            else:
+                self.contents_table = self.h5group.substagecontents
+            if not hasattr(self.h5group, 'writeintervals'):
                 self.trace_intervals_table = self.h5file.create_table(
                     self.h5group, 'writeintervals', SubstageWriteIntervals, "")
             else:
-                    self.h5group = self.h5file.get_node('/%s' % groupname)
-                    self.contents_table = self.h5group.substagecontents
-                    self.trace_intervals_table = getattr(self.h5group, 'writeintervals')
+                self.trace_intervals_table = self.h5group.writeintervals
         mmap_db_path = Main.get_config("policy_db", self.stage)
-        self.h5mmap = tables.open_file(mmap_db_path, mode=policymode,
+        self.h5mmap = tables.open_file(mmap_db_path, mode="a",
                                        title="%s substage mmap info"
                                        % self.stage.stagename)
-        if new_policy:
+        try:
             self.h5mmapgroup = self.h5mmap.create_group("/",  self.mmapgroupname(), "")
+            self.mmap_created = True
+        except tables.exceptions.NodeError as e:
+            self.h5mmapgroup = self.h5mmap.get_node('/%s' % self.mmapgroupname())
+            self.mmap_created = False
+
+        if not hasattr(self.h5mmapgroup, self.mmap_info_table_name):
             self.substage_mmap_info_table = self.h5mmap.create_table(
                 "/" + self.mmapgroupname(), self.mmap_info_table_name,
                 MemoryRegionInfo, "")
+            self.substage_mmap_info_table.cols.short_name.create_index(kind="full")
+            self.substage_mmap_info_table.cols.parent_name.create_index(kind="full")
+        else:
+            self.substage_mmap_info_table = getattr(self.h5mmapgroup, self.mmap_info_table_name)
+
+        if not hasattr(self.h5mmapgroup, self.mmap_addr_table_name):
             self.substage_mmap_addr_table = self.h5mmap.create_table(
                 "/" + self.mmapgroupname(), self.mmap_addr_table_name,
                 MemoryRegionAddrs, "")
+            self.substage_mmap_addr_table.cols.short_name.create_index(kind="full")
+            self.substage_mmap_addr_table.cols.startaddr.create_index(kind="full")
+            self.substage_mmap_addr_table.cols.endaddr.create_index(kind="full")
+        else:
+            self.substage_mmap_addr_table = getattr(self.h5mmapgroup, self.mmap_addr_table_name)
+
+        if not hasattr(self.h5mmapgroup, self.info_table_name):
             self.substage_info_table = self.h5mmap.create_table(
-                "/" + self.mmapgroupname(), self.info_table_name,
+                "/" + self.mmapgroupname(),
+                self.info_table_name,
                 SubstageEntry, "")
+            self.substage_info_table.cols.substagenum.create_index(kind="full")
+            self.substage_info_table.cols.functionname.create_index(kind="full")
+        else:
+            self.substage_info_table = getattr(self.h5mmapgroup, self.info_table_name)
+
+        if not hasattr(self.h5mmapgroup, self.region_policy_table_name):
             self.substage_region_policy_table = self.h5mmap.create_table(
                 "/" + self.mmapgroupname(), self.region_policy_table_name,
                 SubstageRegionPolicy, "")
+            self.substage_region_policy_table.cols.substagenum.create_index(kind="full")
+            self.substage_region_policy_table.cols.short_name.create_index(kind="full")
+        else:
+            self.substage_region_policy_table = getattr(self.h5mmapgroup,
+                                                        self.region_policy_table_name)
+
+        if not hasattr(self.h5mmapgroup, self.substage_reloc_table_name):
             self.substage_reloc_info_table = self.h5mmap.create_table(
                 "/" + self.mmapgroupname(), self.substage_reloc_table_name,
                 SubstageRelocInfo, "")
-
+            self.substage_reloc_info_table.cols.reloc_name.create_index(kind="full")
+            self.substage_reloc_info_table.cols.substagenum.create_index(kind="full")
         else:
-            self.h5mmapgroup = self.h5mmap.get_node("/%s" % self.mmapgroupname())
-            self.substage_mmap_info_table = getattr(self.h5mmapgroup, self.mmap_info_table_name)
-            self.substage_mmap_addr_table = getattr(self.h5mmapgroup, self.mmap_addr_table_name)
-            self.substage_info_table = getattr(self.h5mmapgroup, self.info_table_name)
-            self.substage_region_policy_table = getattr(self.h5mmapgroup,
-                                                        self.region_policy_table_name)
             self.substage_reloc_info_table = getattr(self.h5mmapgroup,
                                                      self.substage_reloc_table_name)
 
@@ -695,14 +757,19 @@ class SubstagesInfo():
         ss = self._substages_entrypoints()
         for n in range(0, len(ss)):
             allowed_writes = self.allowed_writes(n)
-
-            for r in table.tables[n].where("substage == %d" % n):
-                # i = intervaltree.Interval
-                if not len(allowed_writes.search(r['dstlo'], r['dsthi'])) == 1:
-                    write = r['writepc'] if r['writepc'] else r['line']
+            for r in db_info.get(self.stage).get_substage_writes(n):
+                size = r['reportedsize']
+                if size < 0:
+                    end = r['dest']
+                    start = end + size + 1
+                else:
+                    start = r['dest']
+                    end = start + size - 1
+                if not len(allowed_writes.search(start, end)) == 1:
+                    write = r['relocatedpc']
                     print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,
-                                                                           r['dstlo'],
-                                                                           r['dsthi'])
+                                                                           start,
+                                                                           end)
                     violation = True
         if not violation:
             print "Policy was not violated :)"

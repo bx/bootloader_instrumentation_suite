@@ -124,7 +124,7 @@ class CodeTaskConfig(CodeTask):
         self.actions = [(self.save_timestamp,),
                         CmdAction(self.format_command(self.gf('build_prepare')),
                                   cwd=self.root_dir, save_out='configured')]
-        self.uptodate = [task_ran("clean")]
+        # self.uptodate = [task_ran("clean")]
 
 
 class CodeTaskBuild(CodeTask):
@@ -198,7 +198,7 @@ class SourceLoader():
         ss = Main.config_class_lookup("Software")
         bootloader = Main.get_bootloader_cfg()
 
-        self.code_tasks = [CodeTaskList(s, s.name in self.do_build)
+        self.code_tasks = [CodeTaskList(s, s.name not in self.do_build)
                            for s in ss
                            if hasattr(s, "build_required")
                            and s.build_required
@@ -206,7 +206,7 @@ class SourceLoader():
         # always need the bootloader
         if bootloader.software not in self.builds:
             self.code_tasks.extend(CodeTaskList(s,
-                                                s.name in self.do_build)
+                                                s.name not in self.do_build)
                                    for s in ss if s.name == bootloader.software)
         for c in self.code_tasks:
             if c.basename in self.do_build:

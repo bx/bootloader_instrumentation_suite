@@ -34,10 +34,8 @@ if os.path.exists(version):
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
 import intervaltree
-from config import Main
 import gdb_tools
 import substage
-import pytable_utils
 import db_info
 
 
@@ -49,7 +47,6 @@ intervaltree.Interval.__str__ = int_repr
 intervaltree.Interval.__repr__ = int_repr
 do_halt = False
 allowed_writes = {}
-check_inline = False
 now = True
 check_inline = now
 
@@ -88,8 +85,7 @@ class CheckWrite():
     def do(self):
         global allowed_writes
         a = allowed_writes[self.stage.stagename][self.num]
-        i = intervaltree.Interval(self.start, self.end)
-        if not a.search(i):
+        if not len(a.search(self.start, self.end)) == 1:
             gdb.write("#CAUGHT INVALID WRITE pc %x (%x-%x) substage %s (%s)\n" % (self.pc,
                                                                                   self.start,
                                                                                   self.end,
@@ -108,26 +104,21 @@ class CheckWrite():
             self.do()
 
 
-class Enforce(gdb_tools.GDBBootController):
+class Enforce(gdb_tools.GDBPlugin):
 
     def __init__(self):
         bp_hooks = {'WriteBreak': self.write_stophook,
                     'LongWriteBreak': self.longwrite_stophook,
                     'SubstageEntryBreak': self.substage_stophook}
+        parser_options = [
+            gdb_tools.GDBPluginParser("do_halt"),
+            gdb_tools.GDBPluginParser("check_inline")]
 
-        gdb_tools.GDBBootController.__init__(self, "enforce",
-                                             f_hook=self.finalize_hook,
-                                             bp_hooks=bp_hooks,
-                                             stage_hook=self.setup_stage)
-        self._setup_parsers()
-        self.writesearch = None
-        self.calculate_write_dst = True
-        self.current_substage = 0
-        self._setup_parsers()
-
-    def _setup_parsers(self):
-        self.add_subcommand_parser("do_halt")
-        self.add_subcommand_parser("check_inline")
+        gdb_tools.GDBPlugin.__init__(self, "enforce",
+                                     f_hook=self.finalize_hook,
+                                     bp_hooks=bp_hooks,
+                                     calculate_write_dst=True,
+                                     parser_args=parser_options)
 
     def check_inline(self, args):
         global check_inline
@@ -139,18 +130,20 @@ class Enforce(gdb_tools.GDBBootController):
 
     def finalize_hook(self, args):
         substages = False
-        for s in self._stages.itervalues():
+        for s in self.controller._stages.itervalues():
             if s.substages:
                 substages = True
                 break
         if not substages:
-            self.gdb_print('No substages to set, do not know what to enforce')
+            self.controller.gdb_print('No substages to set, do not know what to enforce',
+                                      self.name)
             return
         global allowed_writes
-        for s in [_s for _s in self._stages.itervalues() if _s.stage in self.stage_order]:
+        for s in [_s for _s in self.controller._stages.itervalues()
+                  if _s.stage in self.controller.stage_order]:
             name = s.stage.stagename
-            policy = Main.get_config("policy_file", s.stage)
-            ss = substage.SubstagesInfo.substages_entrypoints(policy)
+            # policy = self.controller.policy_file
+            ss = self.controller.substages_entrypoints
             i = db_info.get(s.stage)
             allowed_writes[name] = {}
 
@@ -160,11 +153,7 @@ class Enforce(gdb_tools.GDBBootController):
     def write_stophook(self, bp, ret):
         return self.longwrite_stophook(bp, ret)
 
-    def open_substage_policy(self, bp):
-        return False
-
     def substage_stophook(self, bp, ret):
-
         bp.msg("started substage %s (%s)\n" % (bp.substagenum,
                                                bp.fnname))
         if not bp.controller.current_substage >= (bp.substagenum - 1):
@@ -185,8 +174,5 @@ class Enforce(gdb_tools.GDBBootController):
                                   bp.writeinfo['end']))
         return ret
 
-    def setup_stage(self, stage):
-        pass
 
-
-e = Enforce()
+plugin_config = Enforce()

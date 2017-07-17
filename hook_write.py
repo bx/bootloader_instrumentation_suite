@@ -33,12 +33,7 @@ if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
-from config import Main
-import staticanalysis
-import database
-import pure_utils
 import gdb_tools
-import intervaltree
 from gdb_tools import *
 import db_info
 
@@ -90,7 +85,8 @@ class FlushDatabase():
 
 
 class WriteDatabase():
-    def __init__(self, time, pid, size, dest, pc, lr, cpsr, step, origpc, stage, substage):
+    def __init__(self, time, pid, size, dest, pc, lr, cpsr, step,
+                 origpc, stage, substage, substage_name):
         self.time = time
         self.pid = pid
         self.size = size
@@ -101,16 +97,20 @@ class WriteDatabase():
         self.step = step
         self.origpc = origpc
         self.num = substage
+        self.substage_name = substage_name
         self.stage = stage
         global now
         if now:
             self.do()
 
     def do(self):
+        if self.pc == 0x402009c4:
+            print "WRite CPY_CLK_CODE substage %s %s" % (self.substage_name, self.num)
         db_info.get(self.stage).add_trace_write_entry(self.time, self.pid,
                                                       self.size, self.dest,
                                                       self.pc, self.lr,
-                                                      self.cpsr, self.step)
+                                                      self.cpsr, self.step,
+                                                      self.num)
         db_info.get(self.stage).update_trace_writes('', self.pc, self.dest, self.dest + self.size,
                                                     self.stage,
                                                     self.origpc, self.num)
@@ -121,35 +121,37 @@ class WriteDatabase():
             self.do()
 
 
-class HookWrite(gdb_tools.GDBBootController):
+class HookWrite(gdb_tools.GDBPlugin):
     def __init__(self):
         bp_hooks = {'WriteBreak': self.write_stophook,
                     'LongwriteBreak': self.longwrite_stophook,
                     'StageEndBreak': self.endstop_hook}
-        gdb_tools.GDBBootController.__init__(self, "hookwrite", bp_hooks,
-                                             f_hook=self.f_hook,
-                                             create_trace=True, open_dbs_ro=False,
-                                             exit_hook=self._exit_hook)
-        self.ranges = intervaltree.IntervalTree()
-        self.create_trace_table = True
-        self.calculate_write_dst = True
-        self.open_dbs_ro = False
-        self._setup_parsers()
+        parser_options = [
+            gdb_tools.GDBPluginParser("flushall"),
+            gdb_tools.GDBPluginParser("stage", ["stagename"])
+        ]
+        gdb_tools.GDBPlugin.__init__(self, "hookwrite", bp_hooks,
+                                     f_hook=self.f_hook,
+                                     calculate_write_dst=True,
+                                     exit_hook=self._exit_hook,
+                                     parser_args=parser_options)
 
     def f_hook(self, args):
-        for s in self.stage_order:
+        for s in self.controller.stage_order:
             db_info.create(s, "tracedb")
 
     def write_stophook(self, bp, ret):
         global stepnum
         stepnum = stepnum + 1
-        bp.controller.process_write(bp.writeinfo,
-                                    bp.relocated,
-                                    bp.stage,
-                                    bp.controller.current_substage)
+        self.process_write(bp.writeinfo,
+                           bp.relocated,
+                           bp.stage,
+                           bp.controller.current_substage,
+                           bp.controller.current_substage_name)
         return False
 
     def longwrite_stophook(self, bp, ret):
+        # plugin = bp.controller.get_plugin(self.name)
         global stepnum
         # calculate first and last write addresses
         start = bp.writeinfo['start']
@@ -157,7 +159,7 @@ class HookWrite(gdb_tools.GDBBootController):
         writepc = bp.writeinfo['pc']
         controller = bp.controller
         num = controller.current_substage
-
+        name = controller.current_substage_name
         lr = bp.controller.get_reg_value('lr')
         cpsr = bp.controller.get_reg_value('cpsr')
         pid = 2
@@ -169,15 +171,16 @@ class HookWrite(gdb_tools.GDBBootController):
             waddr = i
             if bp.inplace:
                 waddr = start
-            bp.controller.dowriteinfo(waddr, bp.writesize, writepc,
-                                      lr, cpsr, pid, writepc - bp.relocated,
-                                      bp.stage, num)
+
+            self.dowriteinfo(waddr, bp.writesize, writepc,
+                             lr, cpsr, pid, writepc - bp.relocated,
+                             bp.stage, num, name)
         # if bp.controller.isbaremetal:
         #     gdb.post_event(WriteLog(">\n"))
         return False
 
     def stage_finish(self, now=False):
-        fd = FlushDatabase(self.current_stage)
+        fd = FlushDatabase(self.controller.current_stage)
         gdb.flush()
         if now:
             fd()
@@ -188,37 +191,33 @@ class HookWrite(gdb_tools.GDBBootController):
         self.stage_finish(True)
 
     def endstop_hook(self, bp, ret):
-        controller = bp.controller
-        controller.stage_finish()
+        self.stage_finish()
         return True
 
-    def _setup_parsers(self):
-        self.add_subcommand_parser("flushall")
-        sp = self.add_subcommand_parser("stage")
-        sp.add_argument("stagename")
-
     def flushall(self, args):
-        gdb.post_event(FlushDatabase(self.current_stage, now=True))
+        gdb.post_event(FlushDatabase(self.controller.current_stage, now=True))
 
-    def process_write(self, writeinfo, relocated, stage, substage):
+    def process_write(self, writeinfo, relocated, stage, substage, name):
         pc = writeinfo['pc']
         cpsr = writeinfo["cpsr"]
-        lr = self.get_reg_value('lr')
+        lr = self.controller.get_reg_value('lr')
         size = writeinfo['end'] - writeinfo['start']
         dst = writeinfo['start']
         pid = 0
         if relocated > 0:
             pid = 1
-        self.dowriteinfo(dst, size, pc, lr, cpsr, pid, pc - relocated, stage, substage)
-        # if self.isbaremetal:
+        self.dowriteinfo(dst, size, pc, lr, cpsr, pid, pc - relocated,
+                         stage, substage, name)
+        # if self.controller.isbaremetal:
         #     gdb.post_event(WriteLog("."))
 
-    def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage):
+    def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage, name):
         global stepnum
         stepnum += 1
         gdb.post_event(WriteDatabase(time.time(),
                                      pid, size, writedst, pc, lr,
-                                     cpsr, stepnum, origpc, stage, substage))
+                                     cpsr, stepnum, origpc, stage, substage,
+                                     name))
 
 
-hookwrite = HookWrite()
+plugin_config = HookWrite()

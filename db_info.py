@@ -67,10 +67,10 @@ def create(*args, **kwargs):
         obj._sdb.create()
     elif typ == "policydb":
         obj._pdb.close()
-        obj._pdb.create()
+        obj._pdb.create(**kwargs)
     elif typ == "policytracedb":
         # obj._ptdb._create()
-        obj._pdb._create(True)
+        obj._pdb._create()
     elif typ == "mmapdb":
         obj._mdb.create()
     elif typ == "tracedb":
@@ -92,12 +92,12 @@ class DBObj():
         self.close()
         self._open(append=True)
 
-    def create(self):
+    def create(self, **kwargs):
         if self._db:
             raise Exception("Databse already open %s, %s, %s" % (self._db,
                                                                  self.stage,
                                                                  self.__dict__))
-        self._create()
+        self._create(**kwargs)
         self._reopen()
 
     def close(self):
@@ -118,7 +118,7 @@ class DBObj():
 class PolicyDB(DBObj):
     def _open(self, append=False):
         self._db = substage.SubstagesInfo(self.stage)
-        self._db.open_dbs(False, False)
+        self._db.open_dbs()
 
     def _close(self):
         self._db.close_dbs()
@@ -127,10 +127,9 @@ class PolicyDB(DBObj):
         if self._db:
             self._db.close_dbs(True)
 
-    def _create(self, trace=False):
+    def _create(self, create_policy=False):
         self._db = substage.SubstagesInfo(self.stage)
-        self._db.create_dbs(True, trace)
-        self._db.print_substage_tables()
+        self._db.create_dbs(create_policy)
 
 
 class MMapDB(DBObj):
@@ -175,7 +174,6 @@ class TraceDB(DBObj):
     def _open(self, append=False):
         dbpath = Main.get_config("trace_db", self.stage)
         self._db = database.TraceTable(dbpath, self.stage, False, True)
-        print "%s number of writes stage %s" % (self._db.writestable.nrows, self.stage.stagename)
 
     def _create(self):
         dbpath = Main.get_config("trace_db", self.stage)
@@ -327,19 +325,19 @@ class DBInfo():
 
     def src_write_info(self, pc):
         fields = self._sdb.db.srcstable.colnames
-
-        def srcs_dict(r):
+        def srcss_dict(r):
             d = {}
             for f in fields:
                 d[f] = r[f]
             return d
+
         query = "addr == 0x%x" % pc
         return [srcs_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
 
     def add_trace_write_entry(self, time, pid, size,
-                              dest, pc, lr, cpsr, index=0):
+                              dest, pc, lr, cpsr, index=0, substate=None):
         self._tdb.db.add_write_entry(time, pid, size, dest, pc,
-                                     lr, cpsr, index)
+                                     lr, cpsr, index, substage)
 
     def get_write_pc_or_zero_from_dstinfo(self, dstinfo):
         return self._sdb.db._get_write_pc_or_zero(dstinfo)
@@ -350,8 +348,19 @@ class DBInfo():
     def print_range_dsts_info(self):
         self._tdb.db.writerangetable.print_dsts_info()
 
-    def update_trace_writes(self, line, pc, lo, hi, stage, origpc=None, substage=0):
+    def update_trace_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):
         self._tdb.db.update_writes(line, pc, lo, hi, stage, origpc, substage)
+
+    def get_substage_writes(self, substage):
+        fields = self._tdb.db.writestable.colnames
+
+        def writes_dict(r):
+            d = {}
+            for f in fields:
+                d[f] = r[f]
+            return d
+        query = "substage == 0x%x" % substage
+        return [writes_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
 
     def trace_histogram(self):
         self._sdb._reopen(True)
@@ -483,13 +492,6 @@ class DBInfo():
                 r['substagenum'] = num
                 r.append()
         table.flush()
-        try:
-            table.cols.substagenum.create_index(kind='full')
-            table.cols.minaddr.create_index(kind='full')
-            table.cols.maxaddr.create_index(kind='full')
-            table.flush()
-        except ValueError:
-            pass
 
 
 def close():

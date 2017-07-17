@@ -5,6 +5,7 @@ regions:
   RAM:
     addresses: [0x40200000, 0x40210000]
     include_children: True
+    type: "readonly"
     subregions:
       rom_stack:
         type: "stack"
@@ -45,10 +46,11 @@ regions:
                 comment: "double-check end address, i thought it copies from go_to_speed"
               stack_rest:
                 addresses: "remainder"
-      rest:
+      rest:        
         addresses: "remainder"
         type: "readonly"
         comment: "Eventually becomes the stack, ending at 0x4020fa10"
+          
 
   SRAM:
     type: "readonly"
@@ -99,6 +101,7 @@ regions:
     comment: "address written to by boootloader (secure_unlock_mem) must not listed in am37x hardware reference"
 
 values:
+  SRAM_STACK: 0x4020fffc
   SCRATCH_SPACE_ADDR: 0x4020E000
   OMAP5_SCRATCH_SPACE_END: 0x4020E030
   ROM_STACK_START: 0x40200000

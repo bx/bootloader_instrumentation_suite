@@ -86,16 +86,18 @@ def breakpoint(main, configs,
     other_cmds = []
     gdb = main.cc + "gdb"
     hwname = main.get_config("trace_hw").name
+    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
     hookwrite_src = os.path.join(main.test_suite_path, "hook_write.py")
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
     gdb_cmds += ["%s %s" % (gdb, additional_cmds)]
-    gdb_cmds.append("-ex 'python execfile(\"%s\")'" % hookwrite_src)
+    gdb_cmds.append("-ex 'python execfile(\"%s\")'" % gdb_tools)
+    gdb_cmds.append("-ex 'gdb_tools plugin %s'" % hookwrite_src)
     gdb_cmds.append("-ex 'hookwrite test_instance %s'" % instance_id)
     gdb_cmds.append("-ex 'hookwrite test_trace %s'" % test_id)
     gdb_cmds.append("-ex 'hookwrite kill'")
     for s in stages:
-        gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename])
-                         # " -ex 'hookwrite until -s %s'" % s.stagename])
+        gdb_cmds.extend(["-ex 'hookwrite stages %s'" % s.stagename,
+                         " -ex 'hookwrite until -s %s'" % s.stagename])
 
     for (s, v) in policies.iteritems():
         gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s, v))
@@ -153,10 +155,10 @@ def calltrace(main, configs,
         done_commands.append("touch %s" % d)
         orgfiles[s.stagename] = t
         done[s.stagename] = d
-
-    cmds = ["%s %s" % (gdb, additional_cmds), "-ex 'python execfile(\"%s\")'" % calltrace_src]
+    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
+    cmds = ["%s %s" % (gdb, additional_cmds), "-ex 'python execfile(\"%s\")'" % gdb_tools]
+    cmds.append("-ex 'gdb_tools plugin %s'" % calltrace_src)
     stagenames = [s.stagename for s in stages]
-    cmds.append(" -ex 'calltrace stages %s'" % (" ".join(stagenames)))
     for (k, v) in blacklist.iteritems():
         if k not in stagenames:
             continue
@@ -197,7 +199,9 @@ def enforce(main, configs,
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
 
     cmd = ["%s %s" % (gdb, additional_cmds)]
-    cmd.append("-ex 'python execfile(\"%s\")'" % enforce_src)
+    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
+    cmd.append("-ex 'python execfile(\"%s\")'" % gdb_tools)
+    cmd.append("-ex 'gdb_tools plugin %s'" % enforce_src)
     for (s, v) in policies.iteritems():
         cmd.append("-ex 'enforce substages %s %s'" % (s, v))
     cmd.append("-ex 'enforce test_instance %s' " % instance_id)

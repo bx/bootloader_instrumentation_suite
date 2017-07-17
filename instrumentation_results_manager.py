@@ -403,28 +403,39 @@ class PostTraceLoader(ResultsLoader):
 
     def _histogram(self, name):
         tasks = []
-
+        deps = []
         class Do():
             def __init__(self, s, o):
                 self.s = s
                 self.o = o
 
             def __call__(self):
-                db_info.get(self.s).reopen(append=True)
+                #db_info.get(self.s).open(append=True)
+                db_info.create(self.s, "policydb", create_policy=True)
                 db_info.get(self.s).consolidate_trace_write_table()
                 db_info.get(self.s).generate_write_range_file(self.o)
         outs = {}
+        el_file = {}
+        fns = {}
+        outfile = {}
         for s in self.stages:
-            deps = [Main.get_config('trace_db_done', s)]
+            n = s.stagename
+            deps.append(Main.get_config('trace_db_done', s))
+            deps.append(Main.get_config("policy_db", s))
+            deps.append(Main.get_config("policy_db_done", s))
+            el_file[n] = self._process_path(name, "substages-%s.el" % n)
+            fns[n] = self._process_path(name, "%s_fn_lists" % n)
             outfile = self._process_path(name,
-                                         "%s-write_range_info.txt" % s.stagename)
+                                         "%s-write_range_info.txt" % n)
             a = ActionListTask([PythonInteractiveAction(Do(s, outfile))],
-                               deps, [outfile], name)
+                               deps, [outfile, fns[n], el_file[n]], name)
             outs[s.stagename] = outfile
             # a.file_dep = [os.path.dirname(deps[0]]
             if "watchpoint" in self.tracenames:
                 a.task_deps = ["import_watchpoints_to_tracedb"]
             tasks.append(a)
+        Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
+        Main.set_config("policy_trace_fnlist_dir", lambda s: fns[s.stagename])
         Main.set_config("consolidate_writes_done", lambda s: outs[s.stagename])
         return tasks
 
@@ -432,8 +443,6 @@ class PostTraceLoader(ResultsLoader):
         tasks = []
         tp_db = {}
         deps = []
-        fns = {}
-        el_file = {}
         tp_db_done = {}
 
         class Do():
@@ -446,23 +455,22 @@ class PostTraceLoader(ResultsLoader):
                 db_info.get(self.s).check_trace()
 
         for s in Main.get_config("stages_with_policies"):
-            if s not in self.stages:
-                continue
             n = s.stagename
             tp_db[n] = self._process_path(name, "policy-tracedb-%s.h5" % n)
             tp_db_done[n] = self._process_path(name, "policy-tracedb-%s.completed" % n)
-            el_file[n] = self._process_path(name, "substages-%s.el" % n)
-            fns[n] = self._process_path(name, "%s_fn_lists" % n)
+            targets = []
+            deps.append(Main.get_config("policy_db", s))
+            deps.append(Main.get_config("policy_db_done", s))
+            if s in self.stages:
+                targets = [tp_db_done[n], tp_db[n]]
             a = ActionListTask([PythonInteractiveAction(Do(s)),
                                 "touch %s" % tp_db_done[n]],
-                               deps, [tp_db_done[n], tp_db[n], el_file[n]],
+                               deps, targets,
                                "%s_postprocess_trace_policy" % (n))
-            a.task_dep = ["%s_postprocess_trace_policy" % n]
             tasks.append(a)
+
         Main.set_config("policy_trace_db", lambda s: tp_db[s.stagename])
-        Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
         Main.set_config("policy_trace_done", lambda s: tp_db_done[s.stagename])
-        Main.set_config("policy_trace_fnlist_dir", lambda s: fns[s.stagename])
         return tasks
 
 
@@ -580,13 +588,11 @@ class TraceTaskLoader(ResultsLoader):
                 else:
                     newtask.actions.extend(d)
                     newtask.targets.extend(dtargets)
-        print "DONE %s" % done_commands
         if gdb_commands:
             gdb = " ".join(gdb_commands)
             gdb += " -ex 'c'"
             if self.quit:
                 gdb += " -ex 'monitor quit' -ex 'monitor exit' -ex 'q'"
-            print done_commands
             c = CmdTask([Interactive(gdb)] + done_commands,
                         gdb_file_dep,
                         gdb_targets + done_targets, "gdb_tracing")
@@ -1152,7 +1158,7 @@ class PolicyTaskLoader(ResultsLoader):
                 substagedatadir = os.path.join(policystagedir, policy_entry)
                 s_policy = os.path.join(substagedatadir, policy_file_name)
                 s_regions = os.path.join(substagedatadir, regions_file_name)
-            elif policy_entry is None:
+            elif not policy_entry:
                 # choose a default
                 policy_dir = self._full_path(s)
                 # choose any file in dir
@@ -1197,11 +1203,9 @@ class PolicyTaskLoader(ResultsLoader):
         Main.set_config("policy_db", lambda s: dbs[s.stagename])
         Main.set_config("policy_db_done", lambda s: dbs_done[s.stagename])
         Main.set_config("stages_with_policies", stages_with_policies)
-        for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
-            n = s.stagename
-            if n not in self.policies:
-                continue
 
+        for s in Main.get_config("stages_with_policies"):
+            n = s.stagename
             class setup_policy():
                 def __init__(self, stage):
                     self.stage = stage
@@ -1210,9 +1214,8 @@ class PolicyTaskLoader(ResultsLoader):
                     target = Main.get_config("policy_db", self.stage)
                     if os.path.exists(target):
                         os.remove(target)
-
                     d = Main.get_config("policy_db_done", self.stage)
-                    db_info.create(self.stage, "policydb")
+                    db_info.create(self.stage, "policydb", create_policy=True)
                     os.system("touch %s" % d)
             pdb_done = Main.get_config("policy_db_done", s)
             target = Main.get_config("policy_db", s)
@@ -1222,10 +1225,14 @@ class PolicyTaskLoader(ResultsLoader):
             staticdb = Main.get_config("staticdb", s)
             mmapdb_done = Main.get_config("mmapdb_done")
             mmapdb = Main.get_config("mmapdb")
+            targets = []
+            if n in self.policies:
+                targets = [target, pdb_done]
+
             a = ActionListTask(actions,
                                [mmapdb_done, mmapdb, staticdb_done,
                                 staticdb, policies[n], regions[n]],
-                               [target, pdb_done],
+                               targets,
                                "create_%s_policy_db" % n)
             tasks.append(a)
         return tasks
