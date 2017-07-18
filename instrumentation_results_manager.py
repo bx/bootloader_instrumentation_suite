@@ -965,6 +965,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         deps.append(Main.get_config("reglist"))
         rtask = ActionListTask(actions, deps,
                                [mmapdb_path, mmapdb_done_path], "generate_addr_info")
+        rtask.task_dep.append(dstdir)
         tasks.append(rtask)
 
         return tasks
