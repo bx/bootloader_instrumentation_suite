@@ -32,6 +32,7 @@ from doit.dependency import UptodateCalculator
 from doit.cmd_base import TaskLoader
 from doit.action import PythonAction
 import sys
+import traceback
 import time
 import IPython
 import os
@@ -125,7 +126,7 @@ def task_manager(test_id=None):
                     subfiles = []
                     if subgroup in self.enabled:
                         for t in tasks:
-                            print "%s enable %s--------" % (subgroup, t.name)
+                            #print "%s enable %s--------" % (subgroup, t.name)
                             subfiles.extend(t.file_dep)
                             alldeps.append(self.build_name(subgroup))
                             allfiles.extend(t.file_dep)
@@ -157,9 +158,9 @@ def task_manager(test_id=None):
                         del r['file_dep']
                         del r['task_dep']
                     else:
-                        print "enable :--:%s %s -> %s" % (self.task_name(inst,
-                                                                         subgroup),
-                                                          r['file_dep'], r['targets'])
+                        #print "enable :--:%s %s -> %s" % (self.task_name(inst,
+                        #                                                  subgroup),
+                        #                                   r['file_dep'], r['targets'])
                         yield r
 
         def task_name(self, task, subgroup):
@@ -203,18 +204,8 @@ class CopyFileTask(TestTask):
         self.src = src
         self.dst = dst
         dirdest = os.path.dirname(self.dst)
-        #self.task_deps = [dirdest]
         self.task_dep = [dirdest] if MkdirTask.exists(dirdest) else []
-        # print dirdest
-        #print MkdirTask.dirs
-        # print dirdest in MkdirTask.dirs
-        #print "cp %s %s" % (src, self.task_deps)
-        # self.file_dep = [dirdest]
         self.actions = ["cp -f %s %s" % (self.src, self.dst)]
-        print self.actions
-        #if self.src == self.dst:
-        #    self.other = {'uptodate': [True]}
-            # then dont copy
         self.targets = [self.dst]
 
 
@@ -229,11 +220,12 @@ class MkdirTask(TestTask):
         super(MkdirTask, self).__init__(d, True)
         self.dst = d
         self.actions = [(create_folder, [self.dst])]
+        # if self.dst in MkdirTask.dirs:
+        #    traceback.print_stack()
         MkdirTask.dirs.add(self.dst)
         self.targets = [self.dst]
-        if self.exists(os.path.dirname(self.dst)):
-            self.task_dep = [os.path.dirname(self.dst)]
-        print "mkdir %s" % self.dst
+        # if self.exists(os.path.dirname(self.dst)):
+        #    self.task_dep = [os.path.dirname(self.dst)]
 
 
 class CmdTask(TestTask):
@@ -275,7 +267,6 @@ class ResultsLoader(object):
         self.task_manager = task_manager(test_id)
         self.task_manager.grouporder.append(self.subgroup)
         self.run_task = run_task
-        # self.taskdeps = []
         if self.run_task:
             self.enable()
 
@@ -343,6 +334,7 @@ class PostTraceLoader(ResultsLoader):
             if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
                                                         self.tracenames)):
                 continue
+
             tasks.append(self._mkdir(self._process_path(k)))
         return tasks
 
@@ -355,9 +347,11 @@ class PostTraceLoader(ResultsLoader):
                                                         self.tracenames)):
                 continue
             if k not in self._processes_types.iterkeys():
-                continue
+                enabled = False
+            else:
+                enabled = True
             proc = getattr(self, v["fn"])
-            ts = proc(k)
+            ts = proc(k, enabled)
             if k not in self.processes:
                 for t in ts:
                     t.other.update(uptodate)
@@ -367,7 +361,7 @@ class PostTraceLoader(ResultsLoader):
                 tasks.extend(ts)
         return tasks
 
-    def _watchpoints(self, name):
+    def _watchpoints(self, name, enabled):
         tasks = []
         raw_output = Main.get_config("trace_events_output")
         target = []
@@ -398,7 +392,7 @@ class PostTraceLoader(ResultsLoader):
         Main.set_config("trace_db_done", lambda s: test_db_done[s.stagename])
         return tasks
 
-    def _browse_db(self, name):
+    def _browse_db(self, name, enabled):
         tasks = []
 
         class Do():
@@ -413,7 +407,8 @@ class PostTraceLoader(ResultsLoader):
         tasks.append(a)
         return tasks
 
-    def _histogram(self, name):
+    def _histogram(self, name, enabled):
+
         tasks = []
         deps = []
         class Do():
@@ -422,8 +417,7 @@ class PostTraceLoader(ResultsLoader):
                 self.o = o
 
             def __call__(self):
-                #db_info.get(self.s).open(append=True)
-                db_info.create(self.s, "policydb", create_policy=True)
+                db_info.create(self.s, "policydb")
                 db_info.get(self.s).consolidate_trace_write_table()
                 db_info.get(self.s).generate_write_range_file(self.o)
         outs = {}
@@ -442,7 +436,6 @@ class PostTraceLoader(ResultsLoader):
             a = ActionListTask([PythonInteractiveAction(Do(s, outfile))],
                                deps, [outfile, fns[n], el_file[n]], name)
             outs[s.stagename] = outfile
-            # a.file_dep = [os.path.dirname(deps[0]]
             if "watchpoint" in self.tracenames:
                 a.task_dep = ["import_watchpoints_to_tracedb"]
             tasks.append(a)
@@ -451,7 +444,7 @@ class PostTraceLoader(ResultsLoader):
         Main.set_config("consolidate_writes_done", lambda s: outs[s.stagename])
         return tasks
 
-    def _policy_check(self, name):
+    def _policy_check(self, name, enabled):
         tasks = []
         tp_db = {}
         deps = []
@@ -462,7 +455,7 @@ class PostTraceLoader(ResultsLoader):
                 self.s = s
 
             def __call__(self):
-                db_info.create(self.s, "policydb", create_policy=True)
+                db_info.create(self.s, "policydb")
                 db_info.get(self.s).check_trace()
 
         for s in Main.get_config("stages_with_policies"):
@@ -474,11 +467,20 @@ class PostTraceLoader(ResultsLoader):
             deps.append(Main.get_config("policy_db_done", s))
             if s in self.stages:
                 targets = [tp_db_done[n], tp_db[n]]
-            a = ActionListTask([PythonInteractiveAction(Do(s)),
-                                "touch %s" % tp_db_done[n]],
-                               deps, targets,
-                               "%s_postprocess_trace_policy" % (n))
-            tasks.append(a)
+                a = ActionListTask([PythonInteractiveAction(Do(s)),
+                                    "touch %s" % tp_db_done[n]],
+                                   deps, targets,
+                                   "%s_postprocess_trace_policy" % (n))
+                # a.task_dep.append(os.path.dirname(tp_db_done[n]))
+                # if os.path.exists(Main.get_config("calltrace_db", s)):
+                #    el = Main.get_config("policy_trace_el", s)
+                #    a.file_dep.append(os.path.basename(el))
+                    # a.task_dep.append("consolidate_writes_ActionListTask:post_trace")
+                    # a.file_dep.append(el)
+                a.task_dep.append(os.path.dirname(Main.get_config("policy_db", s)))
+                a.task_dep.append("policy")
+                a.uptodate = [(False)]
+                tasks.append(a)
 
         Main.set_config("policy_trace_db", lambda s: tp_db[s.stagename])
         Main.set_config("policy_trace_done", lambda s: tp_db_done[s.stagename])
@@ -706,7 +708,6 @@ class TraceTaskPrepLoader(ResultsLoader):
         super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not create_test_only)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
-        print "PREP %s %s %s" % (instrumentation_task, trace_name, run_tasks)
         if self.create:
             self.trace_id = self.create_new_id()
         elif trace_name is None:  # get last id
@@ -733,7 +734,6 @@ class TraceTaskPrepLoader(ResultsLoader):
             else:
                 self.trace_id = trace_name
         self.config_path = self._test_path("config.yml")
-        print instrumentation_task
         if instrumentation_task:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
@@ -744,9 +744,7 @@ class TraceTaskPrepLoader(ResultsLoader):
                 self.stagenames = settings['stages']
                 self.hwname = settings['hw']
                 self.tracenames = settings['traces']
-            with open(self.config_path, 'r') as f:
-                print f.read()
-        print "hwname %s" % self.hwname
+
         self.hw = Main.get_hardwareclass_config().hardware_type_cfgs[self.hwname]
         self.stages = [Main.stage_from_name(s) for s in self.stagenames]
         Main.set_config('enabled_stages', self.stagenames) # update enabled stages
@@ -772,7 +770,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         if not self.hw.host_software == "openocd":
             return tasks
 
-        d = Main.get_config("test_instance_root", "openocd")
+        d = os.path.join(Main.get_config("test_instance_root"), "openocd")
         tasks.append(self._mkdir(d))
         Main.set_config("openocd_data_dir", d)
         ocd_cached = os.path.join(d, "ocdinit")
@@ -859,7 +857,6 @@ traces: [{}]
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
                  enabled_stages, create, gitinfo):
-        print "TTT %s %s %s" % (boot_task, test_id, enabled_stages)
         super(InstrumentationTaskLoader, self).__init__(test_id, "instance", create)
         self.create = create
         self.gitinfo = gitinfo
@@ -1053,7 +1050,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         imgdst = {}
         deps = []
         tasks.append(self._mkdir(self.test_data_path))
-        # tasks.append(self._mkdir(self._full_path()))
+        tasks.append(self._mkdir(self._full_path()))
         Main.set_config("test_instance_root", self._full_path())
         dstdir = self._full_path("images")
         tasks.append(self._mkdir(dstdir))
@@ -1151,7 +1148,6 @@ class PolicyTaskLoader(ResultsLoader):
     def __init__(self, policies):
         test_id = Main.get_config("test_instance_id")
         super(PolicyTaskLoader, self).__init__(test_id, "policy", True)
-        # self.taskdeps = ["instance"]
         self.policies = policies
         self.instance_dir = Main.get_config("test_instance_root")
         self.task_adders = [self._policy_tasks]
@@ -1226,9 +1222,10 @@ class PolicyTaskLoader(ResultsLoader):
 
             c = self._copy_file(s_policy,
                                 policies[n])
-            c.task_dep = [policy_instance_dir]
-            print "%s %s" % (s_policy, policy_instance_dir)
+            c.task_dep.append(policy_instance_dir)
             tasks.append(c)
+            c.file_dep.append(s_regions)
+            c.file_dep.append(s_policy)
             c = self._copy_file(s_regions,
                                 regions[n])
             c.task_dep = [policy_instance_dir]
@@ -1251,7 +1248,7 @@ class PolicyTaskLoader(ResultsLoader):
                     if os.path.exists(target):
                         os.remove(target)
                     d = Main.get_config("policy_db_done", self.stage)
-                    db_info.create(self.stage, "policydb", create_policy=True)
+                    db_info.create(self.stage, "policydb", trace=False)
                     os.system("touch %s" % d)
             pdb_done = Main.get_config("policy_db_done", s)
             target = Main.get_config("policy_db", s)
@@ -1270,5 +1267,7 @@ class PolicyTaskLoader(ResultsLoader):
                                 staticdb, policies[n], regions[n]],
                                targets,
                                "create_%s_policy_db" % n)
+            a.task_dep.append(os.path.dirname(pdb_done))
+            a.task_dep.append(os.path.dirname(target))
             tasks.append(a)
         return tasks

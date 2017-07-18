@@ -92,7 +92,6 @@ class WriteDstTable():
         if self.tables[num] is None:
             self.tables[num] = self.h5file.create_table(self.group, self.name(num),
                                                        FramaCDstEntry, self.desc)
-            #print "setting up %s table" % self.name(num)
             self.tables[num].cols.line.create_index(kind='full')
             self.tables[num].cols.writepc.create_index(kind='full')
             self.tables[num].cols.substage.create_index(kind='full')
@@ -265,12 +264,8 @@ class TraceTable():
             m = "w"
         self.writestable = None
         if not create:
-            #if write:
             self.h5file = tables.open_file(self.outname, mode="a",
                                            title="QEMU tracing information")
-            #else:
-            #    self.h5file = tables.open_file(self.outname, mode="a",
-            #                                   title="QEMU tracing information")
             try:
                 self.writestable = self.get_group().writes
             except tables.exceptions.NoSuchNodeError:
@@ -390,7 +385,6 @@ class TraceTable():
             rangetable.cols.index.reindex()
             rs = rangetable.read_sorted('index')
         for rangerow in rs:
-            # irow = next(row for row in itable.where("pc == 0x%x" % rangerow['pc']))
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
             lrfname = ''
@@ -547,9 +541,6 @@ class TraceTable():
                 # create a new row
                 if currentrow is not None:
                     if push:
-                        # print "push at %x to %x-%x" % (currentrow['pc'],
-                        #                                currentrow['destlo'],
-                        #                                currentrow['desthi'])
                         push = False
                     currentrow.append()
                 # start a new row
@@ -569,7 +560,6 @@ class TraceTable():
                 index += 1
                 size = db_info.get(self.stage).pc_write_size(pc)
                 if size < 0:
-                    # print "write %x %s" % (pc, size)
                     desthi = writerow['dest']
                     currentrow['desthi'] = desthi
                     currentrow['destlo'] = desthi - size

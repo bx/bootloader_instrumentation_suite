@@ -19,26 +19,28 @@ lowlevel_init_finish:
     RAM.downloaded_image.public_stack.stack_rest0: "stack"    
     RAM.downloaded_image.public_stack.stack_rest1: "stack"
     RAM.downloaded_image.public_stack.cpy_clk_code: "readonly"
+    RAM.rest1: "readonly"
     
-s_init:
-  substage_type: "bookkeeping"
+# s_init:
+#   substage_type: "bookkeeping"
 
 _main:
-  substage_type: "bookkeeping"
-  reclassified_regions:
-     RAM.rest0: "stack"
-     RAM.rest1: "readonly"         
-      
+   substage_type: "bookkeeping"
+   undefined_regions: ["RAM.rom_stack", "RAM.downloaded_image.scratch_space", "RAM.downloaded_image.public_stack", "RAM.rest1", "RAM.rest0", "RAM.downloaded_image.unused", "RAM.downloaded_image.public_stack.beginning", "RAM.downloaded_image", "RAM.downloaded_image.public_stack.stack_rest1", "RAM.downloaded_image.public_stack.stack_rest0", "RAM.downloaded_image.downloaded_image_text", "RAM.downloaded_image.downloaded_image_data", "RAM.downloaded_image.public_stack.cpy_clk_code"]
+   reclassified_regions:
+     RAM1.global_data: "global"
+     RAM1.later_stack: "stack"
+     RAM1.end: "readonly"
+   new_regions: ["RAM1"]
+
+   
 board_init_f_mem:
   substage_type: "patching"
   comment: "stack set by _main before board_init_f_mem"
-  allowed_symbols: ["revision"]  
   reclassified_regions:
-     RAM.downloaded_image.remainder: "readonly"
      SRAM.bss.sram_test: "patching"
      SRAM.image: "future"
-     SRAM.image_header: "future"
-     
+     SRAM.image_header: "future"     
   new_regions: ["SRAM"]
   
 board_init_f_mem_finish:
@@ -54,20 +56,17 @@ _main_finish:
     SRAM.bss: "patching"
     SRAM.nonbss: "readonly"
   undefined_regions: ["SRAM.bss.sram_test"]
-    
+
 clear_bss:
   substage_type: "patching"
-  comment: "something on the heap is written to in this stage via memset. to addr (80307fec,80308000)"
+  comment: "something on the heap is written to in this stage via memset. to addr (80307fec,80308000) so I made the heap global"
 
 board_init_r:
   substage_type: "loading"
   reclassified_regions:
-    RAM.downloaded_image.remainder: "stack"   
-    RAM.downloaded_image.public_stack: "stack"
     SRAM.bss: "bookkeeping"
     SRAM.heap: "global"
   allowed_symbols: ["mem_malloc_start", "mem_malloc_end", "mem_malloc_brk", "_u_boot_list_2_i2c_2_omap24_0", "spl_boot_list", "mmc_devices", "mem_malloc_brk", "current_mallinfo", "sbrk_base", "av_", "max_sbrked_mem", "max_total_mem", "cur_dev", "fat_registered", "spl_image", "cur_dev_num", "do_fat_read_at_block", "get_contents_vfatname_block", "cur_part_info"]
-  undefined_regions:  ["RAM.downloaded_image.public_stack.beginning", "RAM.downloaded_image.public_stack.cpy_clk_code", "RAM.downloaded_image.public_stack.stack_rest0", "RAM.downloaded_image.public_stack.stack_rest1"]
 
   comment: "mem_malloc_init -> mem_malloc_*; gpmc_init->gpmc_cfg; omap24_i2c_setspeed->_u_boot_list_2_i2c_2_omap24_0; board_boot_order->spl_boot_list; mmc_initialize->mmc_devices, cur_dev_num; sbrk->mem_malloc_nrk,mem_malloc_brk; malloc_extend_top->current_mallinfo,sbrk_base,av_,max_sbrked_mem,max_total_mem; malloc->av_ ; mmc_create->(heap); fat_register_device->cur_dev; spl_register_fat_device->fat_registered; free->av_; spl_parse_image_header->spl_image.mmc_read_data.  Stack ends up clobbering cpy_clk_code region at during this stage, which is after any chance the function in there is called (although it never is called, which can be statically determined)"    
     

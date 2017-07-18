@@ -316,7 +316,6 @@ class SrcLabelTool():
             lines = src.readlines()[lineno:]
             i = lineno
             for l in lines:
-                #print "next %s" % l
                 i = i + 1
                 if (len(l.strip()) > 0) and not cls.is_any_label(l):
                     return i
@@ -327,7 +326,6 @@ class SrcLabelTool():
             lines = src.readlines()[:(lineno-1)][::-1]
             i = lineno
             for l in lines:
-                #print l
                 i = i - 1
                 if (len(l.strip()) > 1) and not cls.is_any_label(l):
                     return i

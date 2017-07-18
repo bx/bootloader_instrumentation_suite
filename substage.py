@@ -155,18 +155,18 @@ class SubstagesInfo():
     def mmapgroupname(self):
         return "%s_mmap" % self.stage.stagename
 
-    def create_dbs(self, create_policy=False):
-        self.open_dbs()
-        if create_policy and not self.mmap_created:
-            self.mmap_created = True
-            self.h5mmap.flush()
-            self._create_var_table()
-            self.populate_substage_policy_tables()
-            self.h5mmap.flush()
+    def create_dbs(self,  trace=True):
+        # print "create %s %s" % (create_policy, trace)
+        self.open_dbs(trace)
+        # if create_policy and not self.mmap_created:
+        self.mmap_created = True
+        self.h5mmap.flush()
+        self._create_var_table()
+        self.populate_substage_policy_tables()
+        self.h5mmap.flush()
         if self.mmap_created:
             self.print_substage_tables()
-        if create_policy:
-            self.write_substages_file()
+        self.write_substages_file()
         if self.h5file:
             self.populate_contents_table()
             self.populate_write_interval_table()
@@ -301,8 +301,6 @@ class SubstagesInfo():
             cdb = None
 
         if cdb and os.path.exists(cdb):
-            # done = Main.get_config("calltrace_done", self.stage)
-            # done = Main.get_config("policy_trace_done", self.stage)
             path = Main.get_config("policy_trace_el", self.stage)
             if os.path.exists(path):
                 return
@@ -321,7 +319,6 @@ class SubstagesInfo():
                             failed = True
                             n = self.get_function_lineno(s, calltrace_path, True)
                 substage_linenos.append(n)
-            # substage_linenos.sort()
             outf = open(path, "w")
             outf.write("(setq substages '(%s))\n" % " ".join([str(i) for i in substage_linenos]))
             outf.close()
@@ -467,19 +464,23 @@ class SubstagesInfo():
         substage_info = substages_parser.SubstagesFileParser(self.stage,
                                                              self.substage_file_path,
                                                              mmap_info)
-        if self.substage_mmap_info_table.nrows > 0:
-            self.mmap_created = False
-            return
         self.populate_mmap_tables(mmap_info, self.substage_mmap_info_table,
                                   self.substage_mmap_addr_table)
+        if not self.mmap_created:
+            return
         self.populate_substage_reloc_info_table(substage_info,
                                                 self.substage_reloc_info_table)
+        if not self.mmap_created:
+            return
         self.populate_substage_info_table(substage_info,
                                           self.substage_info_table)
+        if not self.mmap_created:
+            return
         self.populate_policy_table(substage_info, mmap_info,
                                    self.substage_region_policy_table)
 
     def print_regions(self, info, addr):
+        lines = []
         for i in info.iterrows():
             name = i['short_name']
             longname = i['name']
@@ -493,9 +494,12 @@ class SubstagesInfo():
                 addrs.append("[0x%08x, 0x%08x]" % (a['startaddr'], a['endaddr']))
                 numaddrs += 1
             addrs.sort()
-            print 'Region: %s%s @{%s} reclass=%s' % (name, longname,
-                                                     ', '.join(addrs),
-                                                     i['reclassifiable'])
+            lines.append('Region: %s @{%s}' % (name,
+                                               ', '.join(addrs)))
+
+        lines.sort()
+        for l in lines:
+            print l
 
     def print_substage_tables(self):
         self.h5mmap.flush()
@@ -568,6 +572,9 @@ class SubstagesInfo():
 
     def populate_policy_table(self, ss_info, mmap_info, policy_table):
         regions = list(mmap_info.regions.iterkeys())
+        if policy_table.nrows > 0:
+            self.mmap_created = False
+            return
         policy_row = policy_table.row
         for s in ss_info.substages.itervalues():
             for r in mmap_info.regions.itervalues():
@@ -584,7 +591,6 @@ class SubstagesInfo():
                     policy_row['symbol_name'] = ''
                     policy_row['symbol_elf_name'] = ''
                     policy_row.append()
-                    #if s.is_cooking_substage() or s.is_patching_substage():
             for v in s.allowed_symbols:
                 pat = "^(%s)(.[\d]{5})?$" % v
                 found = False
@@ -633,6 +639,9 @@ class SubstagesInfo():
     def populate_substage_reloc_info_table(self, ss_info, reloc_table):
         nums = sorted(ss_info.substages.iterkeys())
         r = reloc_table.row
+        if reloc_table.nrows > 0:
+            self.mmap_created = False
+            return
         for n in nums:
             s = ss_info.substages[n]
             for relname in s.applied_relocs:
@@ -644,7 +653,9 @@ class SubstagesInfo():
         reloc_table.flush()
 
     def populate_substage_info_table(self, ss_info, info_table):
-
+        if info_table.nrows > 0:
+            self.mmap_created = False
+            return
         info_row = info_table.row
         for (num, s) in ss_info.substages.iteritems():
             info_row['substagenum'] = s.num
@@ -661,6 +672,9 @@ class SubstagesInfo():
     def populate_mmap_tables(self, mmap_info, info_table, addr_table):
         info_row = info_table.row
         addr_row = addr_table.row
+        if addr_table.nrows > 0:
+            self.mmap_created = False
+            return
         for (short_name, region) in mmap_info.regions.iteritems():
             info_row['short_name'] = short_name
             info_row['parent_name'] = region.parent.short_name if region.parent else ''
@@ -698,10 +712,10 @@ class SubstagesInfo():
                 print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
             print '---------------------------'
 
-    def open_dbs(self):
+    def open_dbs(self, trace):
         name = Main.get_config('policy_name', self.stage)
         trace_db = Main.get_config("policy_trace_db", self.stage)
-        if not trace_db:
+        if not trace_db or not trace:
             self.h5file = None
             self.h5group = None
             self.trace_intervals_table = None
@@ -834,6 +848,7 @@ class SubstagesInfo():
         return range(len(cls.substage_names(stage)))
 
     def check_trace(self, table):
+        print "Checking policy at (%s,%s)" % (self.substage_file_path, self.mmap_file)
         violation = False
         snums = self._substage_numbers()
         for n in snums:
@@ -842,10 +857,10 @@ class SubstagesInfo():
                 size = r['reportedsize']
                 if size < 0:
                     end = r['dest']
-                    start = end + size + 1
+                    start = end + size  # + 1
                 else:
                     start = r['dest']
-                    end = start + size - 1
+                    end = start + size  # - 1
                 if start == end:
                     res = allowed_writes.search(start)
                 else:
@@ -858,3 +873,6 @@ class SubstagesInfo():
                     violation = True
         if not violation:
             print "Policy was not violated :)"
+            return True
+        else:
+            return False

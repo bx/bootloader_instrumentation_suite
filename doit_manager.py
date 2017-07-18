@@ -46,7 +46,6 @@ class TaskManager():
         else:
             (print_build_cmd, build_source) = do_build
         self.create_test = create_test
-        # run = run_trace is not None
         bootloader_only = len(build_source) == 0
         self.print_cmds = print_cmds
         self.src_manager = external_source_manager.SourceLoader(print_build_cmd, build_source)
@@ -56,17 +55,17 @@ class TaskManager():
         bootloader = Main.get_bootloader_cfg()
         self.boot_task = [s for s in self.src_manager.code_tasks
                           if s.build_cfg.name == bootloader.software][0]
-        uptodate = True
+        needs_build = False
         if create_test:
             self.build(['u-boot'], True)
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
-                uptodate = False
                 self.boot_task.build.uptodate = [False]
+                needs_build = True
             else:
-                print all(map(os.path.exists, self.boot_task.build.targets))
                 if not all(map(os.path.exists, self.boot_task.build.targets)):
                     self.boot_task.build.uptodate = [False]
+                    needs_build = True
             self.src_manager.builds.append(bootloader.software)
             (self.test_id, gitinfo) = self._calculate_current_id()
             current_id = self.test_id
@@ -79,15 +78,15 @@ class TaskManager():
             (current_id, gitinfo) = self._calculate_current_id()
 
         run = True
-        # enabled_stages = 'all'
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
                                                                             run,
                                                                             gitinfo)
 
-        # print "run trace %s select trace %s create %s hook %s, post %s" % (run_trace, select_trace, create_test, hook, post_trace_processing)
         if create_test:
+            if needs_build:
+                self.build("u-boot")
             self.ppt = instrumentation_results_manager.PolicyTaskLoader(policies)
             self.loaders.append(instrumentation_results_manager.task_manager())
             return
@@ -168,7 +167,6 @@ class TaskManager():
         nm = self.ti.get_build_name()
 
         print "about to run %s" % nm
-        #nm = "ALL_GROUPS"
         ret = self.run([nm])
         return ret
 

@@ -122,6 +122,7 @@ class MmapFileParser():
         for (k, v) in self._raw_regions.iteritems():
             self._parse(k, v, None)
         self._resolve_addresses()
+        self._resolve_addresses()
         for r in self.regions.itervalues():
             r.addresses.merge_overlaps()
         MmapRegion.check_regions(self.regions)
@@ -162,14 +163,11 @@ class SubstagesConfig():
         prev_regions = prevstage.defined_regions if prevstage else set()
         self._new_regions = get_value(d, 'new_regions')
         self.new_regions = set()
-        # self.used_bookkeeping = set()
         self.defined_regions = set(prev_regions)
-        # self._processed_regions = get_value(d, 'processed_regions')
         self._reclassified_regions = get_value(d, 'reclassified_regions')
         self.reclassified_regions = set()
         self._undefined_regions = get_value(d, 'undefined_regions')
         self.undefined_regions = set()
-
         self.allowed_symbols = get_value(d, 'allowed_symbols')
         self.reclassified_regions = set()
         self.comments = get_value(d, 'comments')
@@ -207,35 +205,33 @@ class SubstagesConfig():
     def is_patching_substage_type(cls, typ):
         return typ in ['patching']
 
-    def _include_region(self, all_regions, r_name, r_list):
-        if r_name not in all_regions.iterkeys():
+    def _include_region(self, all_regions, r_name, r_list, remove=False):
+        if not remove and r_name not in all_regions.iterkeys():
             raise Exception("No existing region named %s" % r_name)
         info = all_regions[r_name]
-        r_list.add(r_name)
+        if remove:
+            if r_name in r_list:
+                r_list.remove(r_name)
+        else:
+            r_list.add(r_name)
         if info.include_children:
-            map(lambda x: self._include_region(all_regions, x, r_list), info.children_names)
-
-    #def _reclassify_children(self, all_regions, rname):
-    #    reg = all_regions[rname]
-    #    reg.reclassification_rules[self.num] = self._reclassified_regions[rname]
-    #    if r.include_children:
-    #        map(lambda x: self._include_region(all_regions, x), r.children_names)
+            map(lambda x: self._include_region(all_regions, x, r_list, remove),
+                info.children_names)
 
     def _setup_region_info(self, all_regions, prev_regions):
         for r in self._new_regions:
             self._include_region(all_regions, r, self.new_regions)
-        # for r in self._processed_regions:
-        #     self._include_region(all_regions, r, self.processed_regions)
         for r in self._undefined_regions:
             self._include_region(all_regions, r, self.undefined_regions)
         reclass = {}
         self.defined_regions.update(prev_regions)
         self.defined_regions.update(self.new_regions)
+        self.defined_regions.difference_update(self.undefined_regions)
         for (r, v) in self._reclassified_regions.iteritems():
             reclass[r] = set()
             self._include_region(all_regions, r, reclass[r])
             if r not in self.defined_regions:
-                raise Exception("trying to reclassify region %s that is not yet defined in %s" % (r,
+                raise Exception("trying to reclassify region %s that is not defined in %s" % (r,
                                                                                                   self.defined_regions))
 
         self.defined_regions.update(self.new_regions)
@@ -282,7 +278,7 @@ class MmapRegion():
         self._raw_reclassifiable = get_value(d, 'reclassifiable', parent_reclassifiable)
         self._csv = get_value(d, 'csv')
         if self._csv:
-            self._csv = os.path.join(Main.get_config('test_instance_root'), self._csv)  # Main.get_config("reglist")
+            self._csv = os.path.join(Main.get_config('test_instance_root'), self._csv)
 
         self.contents = get_value(d, 'contents')
         self.children_names = [self.short_name + '.' + s for s in self._raw_subregions.iterkeys()]
@@ -296,7 +292,7 @@ class MmapRegion():
     def check_regions(cle, regions):
         for (k, v) in regions.iteritems():
             if not v.addresses_resolved:
-                print "ERROR: did not resolve address for region %s" % k
+                print "ERROR: did not resolve address for region %s %s" % (k, v)
             else:
                 addrs = v.addresses
                 for c in v.children_names:
@@ -369,11 +365,6 @@ class MmapRegion():
                 remainder.merge_overlaps()
                 remainder.merge_equals()
                 toremove = []
-                #for r in remainder:
-                #    if len(r) == 0:
-                #        toremove.append[r]
-                #for r in toremove:
-                #    remainder.remove(r)
                 self.addresses = remainder
                 return True
         elif handle == 'children':
@@ -561,8 +552,6 @@ class MmapRegion():
             f.close()
             all_resolved = True
         elif (type(self._raw_addresses) == list):
-            #if not self._raw_addresses:
-            #    return
             if type(self._raw_addresses[0]) == list:  # its a list of lists of subregions
                 for a in self._raw_addresses:
                     all_resolved = all_resolved and self._resolve_addr_region(a, all_regions,

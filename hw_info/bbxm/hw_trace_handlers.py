@@ -142,8 +142,8 @@ def calltrace(main, configs,
     done_commands = []
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
-    blacklist = {'spl': ['__s_init_from_arm', "get_timer"],
-                 'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag', "get_timer"]}
+    blacklist = {'spl': ['__s_init_from_arm', "get_timer", "get_timer_masked", "__udivsi3" "udelay"],
+                 'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag', "get_timer", "get_timer_masked", "__udivsi3", "udelay"]}
 
     norec = ['sdelay']
     for s in stages:

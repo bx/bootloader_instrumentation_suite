@@ -54,6 +54,29 @@ regions:
       rest1:
         addresses: [0x4020fffc, RAM.end]
         type: "readonly"
+
+  RAM1:
+    include_children: True
+    type: "readonly"
+    addresses: ["RAM.start", "RAM.end"]
+    subregions:
+      begin:
+        type: "readonly"
+        addresses: ["RAM.start", ".text.end"]
+      downloaded_image_data:
+        type: "bookkeeping"
+        addresses: [".text.end", "__image_copy_end"]
+      later_stack:
+        type: "stack"
+        addresses: ["__image_copy_end", "0x4020f840 + lowlevel_init - cpy_clk_code"]
+      global_data:
+        type: "global"
+        addresses: ["0x4020f840 + lowlevel_init - cpy_clk_code",  0x4020ff20]
+      end:
+        type: "readonly"
+        addresses: [ 0x4020ff20, "RAM.end"]
+
+
   SRAM:
     type: "readonly"
     addresses: [0x80000000, 0xc0000000]
@@ -67,16 +90,25 @@ regions:
             addresses: [[0x80000000, 0x80000008], [0x80000400, 0x80000404]]
           bss_rest:
             addresses: "remainder"
+      after_bss:
+          addresses: [0x80030144, "CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header"]
+          type: "readonly"
       image_header:
         name: "disk image's header"
+        type: "future"
         addresses: ["CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header", "CONFIG_SYS_TEXT_BASE"]
       image:
         name: "Next stage's disk image"
+        type: "future"        
         addresses: ["CONFIG_SYS_TEXT_BASE", "CONFIG_SYS_TEXT_BASE + main.image_size"]
+      post_image:
+        addresses: ["CONFIG_SYS_TEXT_BASE + main.image_size", "CONFIG_SYS_SPL_MALLOC_START"]
       heap:
+        type: "readonly"
         addresses: ["CONFIG_SYS_SPL_MALLOC_START", "CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE"]
       nonbss:
-        addresses: "remainder"
+        type: "readonly"        
+        addresses: ["CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE", 0xc0000000]
         include_children: True
         subregions:
           sram_test:
@@ -84,7 +116,8 @@ regions:
             addresses: [[0xA0000400, 0xA0000404], [0xA0000000, 0xA0000008]]
           rest:
             addresses: "remainder"
-        
+
+
   Registers:
     csv: "regs.csv"
     type: "global"

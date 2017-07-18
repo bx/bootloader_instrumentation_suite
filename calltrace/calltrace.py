@@ -36,7 +36,7 @@ import gdb_tools
 
 
 open_log = None
-now = False
+now = True
 
 
 class CloseLog():

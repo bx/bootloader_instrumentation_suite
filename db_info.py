@@ -68,9 +68,6 @@ def create(*args, **kwargs):
     elif typ == "policydb":
         obj._pdb.close()
         obj._pdb.create(**kwargs)
-    #elif typ == "policytracedb":
-    #    # obj._ptdb._create()
-    #    obj._pdb._create()
     elif typ == "mmapdb":
         obj._mdb.create()
     elif typ == "tracedb":
@@ -84,13 +81,13 @@ class DBObj():
         self.append = None
         self._db = None
 
-    def open(self):
+    def open(self, **kwargs):
         if not self._db:
-            self._open()
+            self._open(**kwargs)
 
-    def _reopen(self, append=True):
+    def _reopen(self, append=True, **kwargs):
         self.close()
-        self._open(append=True)
+        self._open(append=True, **kwargs)
 
     def create(self, **kwargs):
         if self._db:
@@ -98,7 +95,7 @@ class DBObj():
                                                                  self.stage,
                                                                  self.__dict__))
         self._create(**kwargs)
-        self._reopen()
+        self._reopen(**kwargs)
 
     def close(self):
         if self._db:
@@ -116,9 +113,9 @@ class DBObj():
 
 
 class PolicyDB(DBObj):
-    def _open(self, append=False):
+    def _open(self, append=False, trace=True, create_policy=False):
         self._db = substage.SubstagesInfo(self.stage)
-        self._db.open_dbs()
+        self._db.open_dbs(trace)
 
     def _close(self):
         self._db.close_dbs()
@@ -127,9 +124,9 @@ class PolicyDB(DBObj):
         if self._db:
             self._db.close_dbs(True)
 
-    def _create(self, create_policy=False):
+    def _create(self, create_policy=False, trace=True):
         self._db = substage.SubstagesInfo(self.stage)
-        self._db.create_dbs(create_policy)
+        self._db.create_dbs(trace)
 
 
 class MMapDB(DBObj):

@@ -632,11 +632,9 @@ class SkipDescriptorGenerator():
             if l.value == "START":
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
-                print start
             elif l.value == "END":
                 lineno = self.table._get_real_lineno(l, True)
                 end = "%s:%d" % (l.filename, lineno)
-                print end
             elif l.value == "FUNC":
                 isfunc = True
                 lineno = self.table._get_real_lineno(l, False)
@@ -667,12 +665,15 @@ class SkipDescriptorGenerator():
             cmd = "%sgdb -ex 'disassemble/r 0x%x,+8' --batch --nh --nx  %s" % \
                   (self.table.cc, startaddr, elf)
             output = Main.shell.run_multiline_cmd(cmd)
+            if output == ['']:
+                print cmd
+                print l
+                raise Exception("failed to locate skip tags %s" % self.__dict__)
             ins = output[1].split('\t')[2]
             if (ins == 'push'):
                 # don't include push instruction
                 start = output[2].split('\t')
                 startaddr = int(start[0].split()[0], 16)
-            # disasm = " ".join((output[1].split('\t'))[2:])
         if self.adjuststart:
             print "sdjust start of %s from %x to %x" % (self.name, startaddr, startaddr + self.adjuststart)
         s = startaddr + self.adjuststart
@@ -685,7 +686,6 @@ class SkipDescriptorGenerator():
         if isfunc and (self.adjustend or self.adjuststart):
             print "isfunc adj %s %s %s %s" % (isfunc, self.adjustend, self.adjuststart, name)
         row['resumepc'] = e
-        # row['disasm'] = disasm
         row['isfunction'] = isfunc
         row['thumb'] = self.table.thumbranges.overlaps_point(row['pc'])
         return row
@@ -699,7 +699,7 @@ class ThumbRanges():
         thumb = intervaltree.IntervalTree()
         arm = intervaltree.IntervalTree()
         data = intervaltree.IntervalTree()
-        cmd = "%snm -S -n --special-syms %s" % (cc, elf)
+        cmd = "%snm -S -n --special-syms %s 2>/dev/null" % (cc, elf)
         output = subprocess.check_output(cmd, shell=True).split('\n')
         prev = None
         lo = 0
@@ -732,7 +732,7 @@ class ThumbRanges():
 
 
 class WriteSearch():
-    def __init__(self, createdb, stage, verbose=True, readonly=False, delete=False):
+    def __init__(self, createdb, stage, verbose=False, readonly=False, delete=False):
         self.cc = Main.cc
         self.verbose = verbose
 
@@ -747,7 +747,7 @@ class WriteSearch():
         self.funcstable = None
         self.longwritestable = None
         self.skipstable = None
-        self.verbose = True
+        self.verbose = verbose
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         if createdb:
             m = "w" if delete else "a"
@@ -759,8 +759,6 @@ class WriteSearch():
                                                   % stage.stagename)
         else:
             mo = "a"
-            #if readonly:
-            #    mo = "r"
             self.h5file = tables.open_file(outfile, mode=mo,
                                            title="uboot %s bootloader static analysis"
                                            % stage.stagename)
@@ -778,7 +776,7 @@ class WriteSearch():
         self.srcstable = self.group.srcs
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
-        self.verbose = True
+
         # try:
         #     self.h5file.remove_node(self.group, "stageexits")
         # except:
@@ -886,7 +884,7 @@ class WriteSearch():
             #SkipDescriptorGenerator("mmc_init_setup", self),
             SkipDescriptorGenerator("mmc_init_setup1", self),
             SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
-            SkipDescriptorGenerator("mmc_send_cmd", self),
+            # SkipDescriptorGenerator("mmc_send_cmd", self),
             SkipDescriptorGenerator("mmc_write_data0", self),
             SkipDescriptorGenerator("mmc_write_data1", self),
             SkipDescriptorGenerator("mmc_read_data0", self),
@@ -1087,7 +1085,6 @@ class WriteSearch():
         r.set_reloffset(dstaddr - r.cpystartaddr)
         infos.append(r.get_row_information())
         if stage.stagename == 'main':
-            # print stage.__dict__
             cpystartaddr = utils.get_symbol_location("__image_copy_start", stage)
             cpyendaddr = utils.get_symbol_location("__image_copy_end", stage)
             r = RelocDescriptor("reloc_code", None,
@@ -1120,13 +1117,11 @@ class WriteSearch():
         r = self.stageexits.row
         print "creating stage exit table"
         for l in sls:
-            print l
             lineno = self._get_real_lineno(l)
 
             loc = "%s:%d" % (l.filename, lineno)
             addr = utils.get_line_addr(loc, True, self.stage)
             success = True if l.name == "success" else False
-            print "exit at %s %s success: %s" % (loc, addr, success)
             r['addr'] = addr
             r['line'] = loc
             r['success'] = success
@@ -1294,7 +1289,7 @@ class WriteSearch():
         # now look at instructions
         elf = Main.get_config("stage_elf", self.stage)
 
-        cmd = "%sobjdump -D -w -j .text %s " % (self.cc, elf)
+        cmd = "%sobjdump -D -w -j .text %s 2>/dev/null" % (self.cc, elf)
         output = Main.shell.run_multiline_cmd(cmd)
         addr = re.compile("^[0-9a-fA-F]{8}:")
         # objdump doesnt print 'stl', but search for it just in case
@@ -1309,8 +1304,6 @@ class WriteSearch():
             dis = ''
             ins = ''
             fname = ''
-            # src = ''
-            # lineno = 0
             pc = 0
             thumb = False
             if (not addr.match(o)):
@@ -1373,7 +1366,8 @@ class WriteSearch():
                     smcr['thumb'] = thumb
                     insadded = True
                     smcr.append()
-                    print "smc at 0x%x" % pc
+                    if self.verbose:
+                        print "smc at 0x%x" % pc
                 if insadded:
                     s = self.srcstable.where("addr == 0x%x" % (pc))
                     try:
