@@ -38,7 +38,7 @@ from gdb_tools import *
 import db_info
 
 stepnum = 0
-now = True
+now = False
 db_written = False
 start = time.time()
 

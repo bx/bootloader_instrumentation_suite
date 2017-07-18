@@ -168,7 +168,7 @@ class TaskManager():
         nm = self.ti.get_build_name()
 
         print "about to run %s" % nm
-        nm = "ALL_GROUPS"
+        #nm = "ALL_GROUPS"
         ret = self.run([nm])
         return ret
 

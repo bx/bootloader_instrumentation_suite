@@ -931,7 +931,9 @@ class InstrumentationTaskLoader(ResultsLoader):
 
             return os.system("cp %s %s" % (default_reglist, reglist)) == 0
         Main.set_config(regkey, reglist)
+
         rtask = ActionListTask([(regaction, )], deps, [reglist], "create_reg_csv")
+        rtask.task_dep.append(self._full_path())
         tasks.append(rtask)
         return tasks
 
