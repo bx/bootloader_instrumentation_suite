@@ -1053,7 +1053,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         imgdst = {}
         deps = []
         tasks.append(self._mkdir(self.test_data_path))
-        tasks.append(self._mkdir(self._full_path()))
+        # tasks.append(self._mkdir(self._full_path()))
         Main.set_config("test_instance_root", self._full_path())
         dstdir = self._full_path("images")
         tasks.append(self._mkdir(dstdir))
