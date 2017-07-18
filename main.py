@@ -55,7 +55,6 @@ if __name__ == '__main__':
                         help='Name of test config result directory to open, " \
                         "by default we use newest',
                         action='store', default="")
-    parser.add_argument('-S', '--enabled_stages', action='append', default=[])
 
     class TraceAction(argparse.Action):
         def __init__(self, option_strings, dest, **kwargs):
@@ -183,9 +182,6 @@ if __name__ == '__main__':
                         help='Print commands instead of running them, only works with -t')
 
     args = parser.parse_args()
-    for l in ('enabled_stages',):  # , 'enabled_hardware'):
-        if len(getattr(args, l)) == 0:
-            setattr(args, l, ['all'])
 
     shell = run_cmd.Cmd()
     res = 0
@@ -207,7 +203,6 @@ if __name__ == '__main__':
         run = False
     task_mgr = doit_manager.TaskManager((args.buildcommands, args.build),
                                         args.create,
-                                        args.enabled_stages,
                                         policies,
                                         args.quick,
                                         args.run_trace,

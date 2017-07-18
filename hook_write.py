@@ -104,6 +104,8 @@ class WriteDatabase():
             self.do()
 
     def do(self):
+        if self.pid == 0x402025c4:
+            print "clear BSS %s" % self.num
         db_info.get(self.stage).add_trace_write_entry(self.time, self.pid,
                                                       self.size, self.dest,
                                                       self.pc, self.lr,

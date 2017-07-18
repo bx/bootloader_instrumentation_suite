@@ -44,14 +44,16 @@ regions:
                 type: "future"
                 addresses: [0x4020f840, "0x4020f840 + lowlevel_init - cpy_clk_code"]
                 comment: "double-check end address, i thought it copies from go_to_speed"
-              stack_rest:
-                addresses: "remainder"
-      rest:        
-        addresses: "remainder"
+              stack_rest0:
+                addresses: ["RAM.downloaded_image.public_stack.cpy_clk_code.end", 0x4020ff20]
+              stack_rest1:              
+                addresses: [ 0x4020ff20, "RAM.downloaded_image.end"]
+      rest0:
+        addresses: ["RAM.downloaded_image.end", 0x4020fffc]        
+        type: "readonly"        
+      rest1:
+        addresses: [0x4020fffc, RAM.end]
         type: "readonly"
-        comment: "Eventually becomes the stack, ending at 0x4020fa10"
-          
-
   SRAM:
     type: "readonly"
     addresses: [0x80000000, 0xc0000000]

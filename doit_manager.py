@@ -37,7 +37,7 @@ class TaskManager():
     loaders = []
     tasks = {}
 
-    def __init__(self, do_build, create_test, enabled_stages,
+    def __init__(self, do_build, create_test,
                  policies, quick, run_trace, select_trace, import_policies,
                  post_trace_processing=[], open_instance=None, run=True,
                  print_cmds=False, hook=False):
@@ -57,7 +57,6 @@ class TaskManager():
         self.boot_task = [s for s in self.src_manager.code_tasks
                           if s.build_cfg.name == bootloader.software][0]
         uptodate = True
-        run = True
         if create_test:
             self.build(['u-boot'], True)
             if not self.boot_task.has_nothing_to_commit():
@@ -65,9 +64,9 @@ class TaskManager():
                 uptodate = False
                 self.boot_task.build.uptodate = [False]
             else:
-                self.boot_task.build.uptodate = [True]
-            # rebuild bootloader now to ensure we have its elf/images available
-            #self.boot_task.build.uptodate = [False]
+                print all(map(os.path.exists, self.boot_task.build.targets))
+                if not all(map(os.path.exists, self.boot_task.build.targets)):
+                    self.boot_task.build.uptodate = [False]
             self.src_manager.builds.append(bootloader.software)
             (self.test_id, gitinfo) = self._calculate_current_id()
             current_id = self.test_id
@@ -79,9 +78,8 @@ class TaskManager():
             self.boot_task.build.uptodate = [True]
             (current_id, gitinfo) = self._calculate_current_id()
 
-        update_existing = (create_test or (current_id == self.test_id)) \
-                          and (len(post_trace_processing) == 0)
-
+        run = True
+        enabled_stages = 'all'
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
@@ -90,10 +88,9 @@ class TaskManager():
 
         # print "run trace %s select trace %s create %s hook %s, post %s" % (run_trace, select_trace, create_test, hook, post_trace_processing)
         if create_test:
-            self.pt = instrumentation_results_manager.PolicyTaskLoader(policies)
+            self.ppt = instrumentation_results_manager.PolicyTaskLoader(policies)
             self.loaders.append(instrumentation_results_manager.task_manager())
             return
-        run = not create_test
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
@@ -112,8 +109,8 @@ class TaskManager():
                                                                   quick,
                                                                   run,
                                                                   self.print_cmds)
-        run = (not create_test) and len(post_trace_processing) > 0
-        self.pt = instrumentation_results_manager.PostTraceLoader(post_trace_processing, run)
+        run = (not create_test) or len(post_trace_processing) > 0
+        self.ppt = instrumentation_results_manager.PostTraceLoader(post_trace_processing, run)
         self.loaders.append(instrumentation_results_manager.task_manager())
 
     def _get_newest_id(self):
@@ -169,7 +166,9 @@ class TaskManager():
 
     def create_test_instance(self):
         nm = self.ti.get_build_name()
+
         print "about to run %s" % nm
+        nm = "ALL_GROUPS"
         ret = self.run([nm])
         return ret
 
@@ -182,7 +181,7 @@ class TaskManager():
         return ret
 
     def postprocess_trace(self):
-        nm = self.pt.get_build_name()
+        nm = self.ppt.get_build_name()
         print "about to run %s" % nm
         ret = self.run([nm])
         return ret

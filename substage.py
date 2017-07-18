@@ -30,6 +30,7 @@ import tables
 import intervaltree
 import pytable_utils
 import run_cmd
+import StringIO
 import pickle
 from collections import Iterable
 from config import Main
@@ -39,7 +40,7 @@ import substages_parser
 import db_info
 import pymacs_request
 import testsuite_utils as utils
-
+import addr_space
 def int_repr(self):
     return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
@@ -130,6 +131,7 @@ class SubstagesInfo():
         self.h5file = None
         self.h5mmap = None
         self.h5group = None
+        self.var_table = None
         self.h5mmapgroup = None
         self.trace_intervals_table = None
         self.contents_table = None
@@ -144,6 +146,9 @@ class SubstagesInfo():
         self.substage_file_path = Main.get_config("policy_file", self.stage)
         self.mmap_file = Main.get_config("regions_file", self.stage)
 
+    def _var_tablename(self):
+        return "vars"
+
     def groupname(self):
         return "%s_%s" % (self.interval_type, self.stage.stagename)
 
@@ -154,6 +159,8 @@ class SubstagesInfo():
         self.open_dbs()
         if create_policy and not self.mmap_created:
             self.mmap_created = True
+            self.h5mmap.flush()
+            self._create_var_table()
             self.populate_substage_policy_tables()
             self.h5mmap.flush()
         if self.mmap_created:
@@ -164,6 +171,50 @@ class SubstagesInfo():
             self.populate_contents_table()
             self.populate_write_interval_table()
 
+    def _create_var_table(self, substage=-1):
+        fields = ["startaddr", "size", "kind", "name"]
+        vtab = self.var_table
+        if vtab.nrows > 0:
+            return
+        cc = Main.cc
+        stage = self.stage
+        sname = stage.stagename
+        elf = Main.get_config("stage_elf", stage)
+        cmd = "%snm -n -S %s" % (cc, elf)
+        f = StringIO.StringIO(Main.shell.run_cmd(cmd))
+        reader = csv.DictReader(f, fields, delimiter=" ",
+                                lineterminator="\n", skipinitialspace=True)
+        row = vtab.row
+        for r in reader:
+            if r['name'] is None:
+                continue  # this means there is no listed size
+            else:
+                row['name'] = r['name'].strip()
+                row['startaddr'] = int(r['startaddr'].strip(), 16)
+                row['endaddr'] = row['startaddr'] + int(r['size'].strip(), 16)
+                row['rawkind'] = r['kind'].strip()
+                k = row['rawkind'].lower()
+                if ('t' == k) or ('w' == k):
+                    row['kind'] = getattr(addr_space.var_type, 'text')
+                else:
+                    row['kind'] = getattr(addr_space.var_type, 'staticvar')
+                row['perms'] = getattr(addr_space.var_perms, 'rw')
+                row['substage'] = substage
+                row.append()
+        vtab.flush()
+
+    def print_var_table(self):
+        for r in self.var_table.iterrows():
+            perms = addr_space.var_perms(r['perms'])
+            kind = addr_space.var_type(r['kind'])
+            print "VAR: %s (0x%x -- 0x%x) (%s, %s, %s) at substage %d" % (r['name'],
+                                                                          r['startaddr'],
+                                                                          r['endaddr'],
+                                                                          perms, kind,
+                                                                          r['rawkind'],
+                                                                          r['substage'])
+
+
     def get_intervals_for_substage(self, substage, intervals):
         stage_intervals = intervals[substage]
         other_intervals = intervaltree.IntervalTree()
@@ -172,10 +223,6 @@ class SubstagesInfo():
                                                                         if not k == substage]])
         unique = stage_intervals - other_intervals
         return unique
-
-    def substage_numbers(self):
-        substages = self._substages_entrypoints()
-        return range(0, len(substages))
 
     def divide_intervals(self, stages, table):
         divided_intervals = {i: intervaltree.IntervalTree() for i in stages}
@@ -193,7 +240,7 @@ class SubstagesInfo():
         if not self.trace_intervals_table:
             return intervaltree.IntervalTree()
         table = self.trace_intervals_table
-        stages = self.substage_numbers()
+        stages = self._substage_numbers()
         results = {i: [] for i in stages}
         divided_intervals = self.divide_intervals(stages, table)
         return divided_intervals  # results
@@ -245,8 +292,7 @@ class SubstagesInfo():
 
     def write_substages_file(self):
         stage = self.stage
-        substages = self._substages_entrypoints()
-        substagesname = self.substages_names()
+        substages = self._substage_names()
         tracename = Main.get_config("trace_traces")
 
         try:
@@ -293,8 +339,8 @@ class SubstagesInfo():
 
     def get_raw_files(self, noprepare):
         stage = self.stage
-        substages = self._substages_entrypoints()
-        name = self.substages_names()
+        substages = self._substage_numbers()
+        name = self._substage_names()
         try:
             substageresultsdir = Main.get_config("policy_trace_fnlist_dir", self.stage)
         except KeyError:
@@ -323,11 +369,10 @@ class SubstagesInfo():
 
     def populate_contents_table(self):
         stage = self.stage
-        fns = self._substages_entrypoints()
-        substagesnamename = self.substages_names()
+        substages = self._substage_numbers()
+        substagesnamename = self._substage_names()
         tracename = Main.get_config("trace_traces")
         if 'framac' in tracename:
-            substages = range(0, len(fns))
             row = self.contents_table.row
             tracefile = Main.get_config("framac_callstacks", self.stage)
             if os.path.exists(tracefile):
@@ -363,9 +408,8 @@ class SubstagesInfo():
                 self.h5file.close()
 
     def calculate_trace_intervals(self, substages, tracename):
-        fns = self._substages_entrypoints()
+        fns = self._substage_names()
         num = 0
-        substages.sort()
         substage_entries = {num: self.fun_info(fns[num + 1])
                             for num in range(0, len(fns) - 1)}
         intervals = db_info.get(self.stage).write_interval_info(tracename,
@@ -410,7 +454,7 @@ class SubstagesInfo():
         return intervals
 
     def populate_write_interval_table(self):
-        substages = self.substage_numbers()
+        substages = self._substage_numbers()
         if len(substages) <= 1:
             print "No substages defined, not populating write interval table for %s" % (self.stage)
             return
@@ -459,7 +503,7 @@ class SubstagesInfo():
         self.print_regions(self.substage_mmap_info_table,
                            self.substage_mmap_addr_table)
         print '----------substages----------'
-        substages = self.substage_numbers()
+        substages = self._substage_numbers()
         for num in substages:
             for s in pytable_utils.get_rows(self.substage_info_table,
                                          'substagenum == %s' % num):
@@ -468,7 +512,7 @@ class SubstagesInfo():
                      s['name'], s['stack'], substage_types(s['substage_type']))
         print '----------policies----------'
         for num in substages:
-            print '-----for substage %s (%s) ----' % (num, self._substages_entrypoints()[num])
+            print '-----for substage %s (%s) ----' % (num, self._substage_names()[num])
 
             new = set()
             defined = set()
@@ -517,13 +561,12 @@ class SubstagesInfo():
                 print 'new regions: %s' % ns
             if us:
                 print 'undefined regions: %s' % us
-            if ws:
-                print 'writable regions: %s' % ws
             if cs:
                 print 'reclassified regions: %s' % cs
+            if ws:
+                print 'writable regions: %s' % ws
 
     def populate_policy_table(self, ss_info, mmap_info, policy_table):
-        substages = list(ss_info.substages.iterkeys())
         regions = list(mmap_info.regions.iterkeys())
         policy_row = policy_table.row
         for s in ss_info.substages.itervalues():
@@ -544,9 +587,12 @@ class SubstagesInfo():
                     #if s.is_cooking_substage() or s.is_patching_substage():
             for v in s.allowed_symbols:
                 pat = "^(%s)(.[\d]{5})?$" % v
+                found = False
                 for r in db_info.get(self.stage).symbol_names_with(v):
-                    res = re.match(pat, r)
-                    if res is not None:
+                    match = re.match(pat, r)
+                    if match is None:
+                        continue
+                    else:
                         rname = self.region_name_from_symbol(v)
                         policy_row['default_perms'] = getattr(perms, 'rwx')
                         policy_row['short_name'] = rname
@@ -561,23 +607,16 @@ class SubstagesInfo():
                         policy_row['reclassified'] = False
                         policy_row['allowed_symbol'] = True
                         policy_row.append()
+                        found = True
                         break
+                if not found:
+                        raise Exception("could not find symbol named %s" % v)
         policy_table.flush()
 
         policy_table.cols.substagenum.reindex()
         policy_table.cols.short_name.reindex()
         policy_table.flush()
 
-    @classmethod
-    def substages_entrypoints(cls, f):
-        return substages_parser.SubstagesFileParser.get_substage_fns(f)
-
-    def _substages_entrypoints(self):
-        return self.substages_entrypoints(self.substage_file_path)
-
-    def substages_names(self):
-        self.calculate_name_from_files(self.substage_file_path,
-                                       self.mmap_file)
 
     @classmethod
     def calculate_name_from_files(cls, f, f2):
@@ -650,8 +689,10 @@ class SubstagesInfo():
         table = self.trace_intervals_table
         if not table:
             return
-        substages = self.substage_numbers()
+        substages = self._substage_numbers()
+        names = self._substage_names()
         for num in substages:
+            name = names[num]
             print "%s intervals for substage %d" % (name, num)
             for a in [r for r in table.read_sorted('minaddr') if r['substagenum'] == num]:
                 print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
@@ -745,6 +786,19 @@ class SubstagesInfo():
         else:
             self.substage_reloc_info_table = getattr(self.h5mmapgroup,
                                                      self.substage_reloc_table_name)
+        if not hasattr(self.h5mmapgroup, self._var_tablename()):
+            self.__create_var_table()
+        else:
+            self.var_table = getattr(self.h5mmapgroup, self._var_tablename())
+
+    def __create_var_table(self):
+            self.var_table = self.h5mmap.create_table(self.h5mmapgroup,
+                                                      self._var_tablename(),
+                                                      addr_space.VarEntry, "")
+            vtab = self.var_table
+            vtab.cols.startaddr.create_index(kind='full')
+            vtab.cols.endaddr.create_index(kind='full')
+            vtab.cols.substage.create_index(kind='full')
 
     def allowed_writes(self, substage):
         n = substage
@@ -752,7 +806,6 @@ class SubstagesInfo():
         drs = self.substage_region_policy_table.where(query)
         iis = intervaltree.IntervalTree()
         for region in drs:
-            # print "%s: %s (%s)" % (region['short_name'], region['allowed_symbol'], substage)
             if region['allowed_symbol']:
                 sname = region['symbol_elf_name']
                 iis.add(self.lookup_symbol_interval(sname, n))
@@ -765,13 +818,24 @@ class SubstagesInfo():
         iis.merge_equals()
         return iis
 
-    def substagenums(self):
-        policy = Main.get_config('policy_file', self.stage)
-        return range(len(SubstagesInfo.substages_entrypoints(policy)))
+    def _substage_numbers(self):
+        return self.substage_numbers(self.stage)
+
+    def _substage_names(self):
+        return self.substage_names(self.stage)
+
+    @classmethod
+    def substage_names(cls, stage):
+        policy = Main.get_config('policy_file', stage)
+        return substages_parser.SubstagesFileParser.get_substage_fns(policy)
+
+    @classmethod
+    def substage_numbers(cls, stage):
+        return range(len(cls.substage_names(stage)))
 
     def check_trace(self, table):
         violation = False
-        snums = self.substagenums()
+        snums = self._substage_numbers()
         for n in snums:
             allowed_writes = self.allowed_writes(n)
             for r in db_info.get(self.stage).get_substage_writes(n):

@@ -68,9 +68,9 @@ def create(*args, **kwargs):
     elif typ == "policydb":
         obj._pdb.close()
         obj._pdb.create(**kwargs)
-    elif typ == "policytracedb":
-        # obj._ptdb._create()
-        obj._pdb._create()
+    #elif typ == "policytracedb":
+    #    # obj._ptdb._create()
+    #    obj._pdb._create()
     elif typ == "mmapdb":
         obj._mdb.create()
     elif typ == "tracedb":
@@ -224,13 +224,13 @@ class DBInfo():
             yield (r['name'], r['relbegin'], r['size'], r['reloffset'])
 
     def mmap_var_loc(self, name):
-        res = pytable_utils.get_unique_result(self._mdb.db.var_table[self.stage.stagename],
+        res = pytable_utils.get_unique_result(self._pdb.db.var_table,
                                               'name == "%s"' % name)
         return (res['startaddr'], res['endaddr'])
 
     def symbol_names_with(self, substr):
         return [r['name'] for r in
-                pytable_utils.query(self._mdb.db.var_table[self.stage.stagename],
+                pytable_utils.query(self._pdb.db.var_table,
                                     "contains(name, \"%s\")" % substr)]
 
     def reloc_names_in_substage(self, substagenum):

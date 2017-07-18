@@ -72,7 +72,8 @@ class WriteDstTable():
         return "%s_%s" % (self._name, num)
 
     def open(self, force=False):
-        for s in self.substagenums():
+        nums = substage.SubstagesInfo.substage_numbers(self.stage)
+        for s in nums:
             self._init_table(s, force)
 
     def purge(self):
@@ -142,10 +143,6 @@ class WriteDstTable():
     def nrows(self):
         return sum([t.nrows for t in self.tables.itervalues()])
 
-    def substagenums(self):
-        policy = Main.get_config('policy_file', self.stage)
-        return range(len(substage.SubstagesInfo.substages_entrypoints(policy)))
-
 
 class WriteDstResult():
     regexp = re.compile("^\[dst\] \[(0[xX][0-9a-fA-F]+), (0[xX][0-9a-fA-F]+)\] "
@@ -190,7 +187,7 @@ class WriteDstResult():
         self.stage = stage
         if substage_name is None and callstack:
             policy = Main.get_config('policy_file', self.stage)
-            self.substages = substage.SubstagesInfo.substages_entrypoints(policy)
+            self.substages = substage.SubstagesInfo.substage_names(self.stage)
             self.substages[0] = "frama_go"
             called_fns = callstack.split("->")
             called_fns = filter(len, called_fns)
@@ -446,8 +443,7 @@ class TraceTable():
         sortindex = 'line' if framac else 'writepc'
         intervals = intervaltree.IntervalTree()
         r = None
-        policy = Main.get_config('policy_file', self.stage)
-        substagenums =  range(len(substage.SubstagesInfo.substages_entrypoints(policy)))
+        substagenums = substage.SubstagesInfo.substage_numbers(self.stage)
         writepc = None
         line = None
         lvalue = None

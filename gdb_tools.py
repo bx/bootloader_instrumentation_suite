@@ -85,7 +85,7 @@ class BootStageData(gdb.Command):
         if self.substages:
             self.policy_file = Main.get_config("policy_file", self.stage)
             self.regions_file = Main.get_config("regions_file", self.stage)
-            self.substages_entrypoints = substage.SubstagesInfo.substages_entrypoints(self.policy_file)
+            self.substages_entrypoints = substage.SubstagesInfo.substage_names(self.stage)
         self._entrypoint = self.stage.entrypoint
         self._exitpoint = self.stage.exitpc
         if self._startpoint is None:
@@ -284,9 +284,15 @@ class GDBBootController():
         val = val[::-1]
         return val
 
-    def get_reg_value(self, reg):
+    def get_reg_value(self, reg, force=False):
         if self.isbaremetal:
             gdb.execute("mon gdb_sync")
+            if force:
+                out = gdb.execute("mon reg %s force" % reg, to_string=True)
+                try:
+                    return int(out.split(":")[1].strip(), 16)
+                except Exception as e:
+                    pass
         return int(gdb.execute("print/x $%s" % reg, to_string=True).split()[2], 16)
 
     def get_breaks(self, cls):
@@ -606,14 +612,13 @@ class BootBreak():
         self.stophooks = self.controller.lookup_bp_hooks(self)
         self.final_events = []
         for (k, v) in kwargs.iteritems():
-                setattr(self, k, v)
+            setattr(self, k, v)
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
         else:
             if (spec.startswith("*") or spec.startswith("0x")) \
                and not spec.startswith("*"):
                 spec = "*(%s)" % spec
-
         self.addr = controller.spec_to_addr(spec)
         self.breakpoint = CompanionBreakpoint(spec, self)
         if any(map(lambda x: isinstance(self, x), controller.disabled_breakpoints)):
@@ -718,9 +723,9 @@ class WriteBreak(BootBreak):
         cont = self.controller
         if cont.calculate_write_dst:
             self.writeinfo = self.emptywrite
-            pc = cont.get_reg_value('pc')
+            pc = cont.get_reg_value('pc', True)
             inspc = pc - self.relocated
-            cpsr = cont.get_reg_value("cpsr")
+            cpsr = cont.get_reg_value("cpsr", True)
             thumb = cont.ia.is_thumb(cpsr)
             i = cont.get_instr_value(pc, thumb)
             ins = cont.ia.disasm(i, thumb, inspc, True)
@@ -729,7 +734,7 @@ class WriteBreak(BootBreak):
             needed_regs = [row['reg0'], row['reg1'], row['reg2'], row['reg3']]
             regs = []
             for r in filter(lambda x: len(x) > 0, needed_regs):
-                regs.append(cont.get_reg_value(r))
+                regs.append(cont.get_reg_value(r, True))
             dst = cont.ia.calculate_store_offset(ins, regs)
             if size < 0:  # (ie. push instruction)
                 end = dst
@@ -755,6 +760,8 @@ class SubstageEntryBreak(BootBreak):
         self.substagenum = substagenum
         self.controller = controller
         self.fnloc = utils.get_symbol_location(fnname, stage)
+        if self.fnloc < 0:
+            raise Exception("not such function named %s, cannot be a substage entrypoint" % fnname)
         if self.fnloc:
             spec = "*(0x%x)" % self.fnloc
         else:
@@ -866,13 +873,13 @@ class LongwriteBreak(BootBreak):
             regs = {}
             eregs = []
             for r in self.sregs:
-                v = self.controller.get_reg_value(r)
+                v = self.controller.get_reg_value(r, True)
                 regs.update({r: v})
             for r in self.eeregs:
-                regs.update({r: self.controller.get_reg_value(r)})
+                regs.update({r: self.controller.get_reg_value(r, True)})
                 eregs.append(v)
             if not self.destsubtract == "":
-                regs.update({self.destsubtract: self.controller.get_reg_value(self.destsubtract)})
+                regs.update({self.destsubtract: self.controller.get_reg_value(self.destsubtract, True)})
 
             needs_string = db_info.get(self.stage).is_longwrite_string(self.rangetype)
             str2 = None
