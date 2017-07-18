@@ -153,7 +153,6 @@ class AddrSpaceInfo():
                                                                               r['reset'],
                                                                               r['table'])
 
-
     def _create_reg_table(self, csvfile):
         fields = ["startaddr", "size", "kind", "name"]
         cc = Main.cc
@@ -182,6 +181,8 @@ class AddrSpaceInfo():
         self.reg_table = getattr(self.h5group, self.reg_tablename)
 
     def close_dbs(self, flush_only=False):
-        self.h5file.flush()
-        if not flush_only:
-            self.h5file.close()
+        if self.h5file:
+            self.h5file.flush()
+            if not flush_only:
+                self.h5file.close()
+                self.h5file = None

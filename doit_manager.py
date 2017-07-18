@@ -37,7 +37,7 @@ class TaskManager():
     loaders = []
     tasks = {}
 
-    def __init__(self, do_build, create_test,
+    def __init__(self, do_build, create_test, enabled_stages,
                  policies, quick, run_trace, select_trace, import_policies,
                  post_trace_processing=[], open_instance=None, run=True,
                  print_cmds=False, hook=False):
@@ -79,7 +79,7 @@ class TaskManager():
             (current_id, gitinfo) = self._calculate_current_id()
 
         run = True
-        enabled_stages = 'all'
+        # enabled_stages = 'all'
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,

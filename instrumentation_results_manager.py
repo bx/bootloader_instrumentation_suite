@@ -706,6 +706,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not create_test_only)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
+        print "PREP %s %s %s" % (instrumentation_task, trace_name, run_tasks)
         if self.create:
             self.trace_id = self.create_new_id()
         elif trace_name is None:  # get last id
@@ -732,7 +733,7 @@ class TraceTaskPrepLoader(ResultsLoader):
             else:
                 self.trace_id = trace_name
         self.config_path = self._test_path("config.yml")
-
+        print instrumentation_task
         if instrumentation_task:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
@@ -743,6 +744,9 @@ class TraceTaskPrepLoader(ResultsLoader):
                 self.stagenames = settings['stages']
                 self.hwname = settings['hw']
                 self.tracenames = settings['traces']
+            with open(self.config_path, 'r') as f:
+                print f.read()
+        print "hwname %s" % self.hwname
         self.hw = Main.get_hardwareclass_config().hardware_type_cfgs[self.hwname]
         self.stages = [Main.stage_from_name(s) for s in self.stagenames]
         Main.set_config('enabled_stages', self.stagenames) # update enabled stages
@@ -824,19 +828,20 @@ class TraceTaskPrepLoader(ResultsLoader):
         tasks.append(CmdTask(["ln -s -f %s %s" % (self._test_path(), target_file)],
                              [], [target_file], "symlink-%s" % target_file))
         Main.set_config("trace_data_dir", self._test_path())
-        contents = """
+
+        def write(f, stagenames, hwname, tracenames):
+            with open(f, "w") as fconfig:
+                contents = """
 stages: [{}]
 hw: {}
 traces: [{}]
 """
-        filecontents = contents.format(", ".join(self.stagenames), self.hwname,
-                                       ", ".join(self.tracenames))
-
-        def write(f, c):
-            with open(f, "w") as fconfig:
-                fconfig.write(c)
+                filecontents = contents.format(", ".join(stagenames), hwname,
+                                               ", ".join(tracenames))
+                fconfig.write(filecontents)
         Main.set_config("test_config_file", self.config_path)
-        a = ActionListTask([(write, [self.config_path, filecontents])],
+        a = ActionListTask([(write, [self.config_path,
+                                     self.stagenames, self.hwname, self.tracenames])],
                            [], [self.config_path], "test_config_file")
         try:
             os.makedirs(self._test_path())
@@ -854,6 +859,7 @@ traces: [{}]
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
                  enabled_stages, create, gitinfo):
+        print "TTT %s %s %s" % (boot_task, test_id, enabled_stages)
         super(InstrumentationTaskLoader, self).__init__(test_id, "instance", create)
         self.create = create
         self.gitinfo = gitinfo
@@ -954,7 +960,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         deps = [Main.get_config("stage_elf", s) for s in
                 [Main.stage_from_name(st)
                  for st in Main.get_config('enabled_stages')]]
-
+        deps.append(Main.get_config("reglist"))
         rtask = ActionListTask(actions, deps,
                                [mmapdb_path, mmapdb_done_path], "generate_addr_info")
         tasks.append(rtask)
@@ -1059,17 +1065,16 @@ class InstrumentationTaskLoader(ResultsLoader):
         else:
             self.local = self.gitinfo['local']
             self.sha = self.gitinfo['sha1']
-            contents = """
+
+        def write(f, local, sha):
+            with open(f, "w") as fconfig:
+                contents = """
 local: {}
 sha1: {}
 """
-        filecontents = contents.format(self.local,
-                                       self.sha)
-
-        def write(f, c):
-            with open(f, "w") as fconfig:
-                fconfig.write(c)
-        a = ActionListTask([(write, [self.config_path, filecontents, dstdir])],
+                filecontents = contents.format(local, sha)
+                fconfig.write(filecontents)
+        a = ActionListTask([(write, [self.config_path, self.local, self.sha])],
                            [], [self.config_path], "instance_config_file")
         tasks.append(a)
 
