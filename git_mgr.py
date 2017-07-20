@@ -22,6 +22,7 @@ import pygit2
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
 class GitManager():
     def __init__(self, root):
         self.root = root
@@ -35,7 +36,12 @@ class GitManager():
         self.repo.index.write()
         tree = self.repo.index.write_tree()
         author = pygit2.Signature("bx", "bx@cs")
-        old = self.repo.create_commit(self.get_head(), author, author, "auto commit for testing", tree, [self.repo.head.get_object().hex])
+        old = self.repo.create_commit(self.get_head(),
+                                      author,
+                                      author,
+                                      "auto commit for testing",
+                                      tree,
+                                      [self.repo.head.get_object().hex])
 
     def has_nothing_to_commit(self):
         status = self.repo.status()

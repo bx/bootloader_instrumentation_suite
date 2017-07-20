@@ -25,6 +25,7 @@ import intervaltree
 import os
 import config
 import re
+import sys
 import testsuite_utils as utils
 import parse_am37x_register_tables
 from config import Main
@@ -122,9 +123,11 @@ class MmapFileParser():
         for (k, v) in self._raw_regions.iteritems():
             self._parse(k, v, None)
         self._resolve_addresses()
-        self._resolve_addresses()
+        # self._resolve_addresses()
         for r in self.regions.itervalues():
             r.addresses.merge_overlaps()
+            r.addresses.merge_equals()
+
         MmapRegion.check_regions(self.regions)
 
     def _parse(self, short_name, region_dict, parent):
@@ -138,21 +141,19 @@ class MmapFileParser():
             self._parse(k, s, current)
 
     def _resolve_addresses(self):
-        resolved = set([r for r in self.regions.itervalues() if r.addresses_resolved])
         total = len(self.regions)
-        numresolved = len(resolved)
+        numresolved = len([r for r in self.regions.itervalues() if r.addresses_resolved])
         lastresolved = 0
         regnames = self.regions.iterkeys()
         while (numresolved is not lastresolved) and (numresolved <= total):
-            lastresolved = len(resolved)
+            lastresolved = numresolved
             for name in regnames:
                 r = self.regions[name]
-                r.resolve_addresses(self.regions, self.values)
+                if not r.addresses_resolved:
+                    r.resolve_addresses(self.regions, self.values)
+                    if r.addresses_resolved:
+                        numresolved += 1
                 self.regions[name] = r
-            resolved.update([r for r in self.regions.itervalues() if r.addresses_resolved])
-            numresolved = len(resolved)
-        resolved.update([r for r in self.regions.itervalues() if r.addresses_resolved])
-        numresolved = len(resolved)
 
 
 class SubstagesConfig():
@@ -205,7 +206,7 @@ class SubstagesConfig():
     def is_patching_substage_type(cls, typ):
         return typ in ['patching']
 
-    def _include_region(self, all_regions, r_name, r_list, remove=False):
+    def _include_region(self, all_regions, r_name, r_list, remove=False, force=False):
         if not remove and r_name not in all_regions.iterkeys():
             raise Exception("No existing region named %s" % r_name)
         info = all_regions[r_name]
@@ -214,7 +215,7 @@ class SubstagesConfig():
                 r_list.remove(r_name)
         else:
             r_list.add(r_name)
-        if info.include_children:
+        if info.include_children or force:
             map(lambda x: self._include_region(all_regions, x, r_list, remove),
                 info.children_names)
 
@@ -222,14 +223,14 @@ class SubstagesConfig():
         for r in self._new_regions:
             self._include_region(all_regions, r, self.new_regions)
         for r in self._undefined_regions:
-            self._include_region(all_regions, r, self.undefined_regions)
+            self._include_region(all_regions, r, self.undefined_regions, force=True)
         reclass = {}
         self.defined_regions.update(prev_regions)
         self.defined_regions.update(self.new_regions)
         self.defined_regions.difference_update(self.undefined_regions)
         for (r, v) in self._reclassified_regions.iteritems():
             reclass[r] = set()
-            self._include_region(all_regions, r, reclass[r])
+            self._include_region(all_regions, r, reclass[r], force=True)
             if r not in self.defined_regions:
                 raise Exception("trying to reclassify region %s that is not defined in %s" % (r,
                                                                                                   self.defined_regions))
@@ -279,7 +280,9 @@ class MmapRegion():
         self._csv = get_value(d, 'csv')
         if self._csv:
             self._csv = os.path.join(Main.get_config('test_instance_root'), self._csv)
-
+        if parent and parent._csv:
+            # if parent had csv, don't propigate csv definition
+            self._csv = None
         self.contents = get_value(d, 'contents')
         self.children_names = [self.short_name + '.' + s for s in self._raw_subregions.iterkeys()]
         self.parent = parent
@@ -297,15 +300,14 @@ class MmapRegion():
                 addrs = v.addresses
                 for c in v.children_names:
                     child = regions[c]
-                    union = addrs.union(child.addresses)
-                    union.merge_overlaps()
-                    if not (union == addrs):
-                        print "ERROR %s's region (%s) not inside parent's region %s (%s) [union %s]" % \
-                            (child.short_name,
-                             child.addresses,
-                             v.short_name,
-                             v.addresses,
-                             union)
+                    for a in child.addresses:
+                        res = addrs.search(a)
+                        if len(res) < 1:
+                            raise Exception("%s's region (%s) not inside parent's %s (%s)") % \
+                                (child.short_name,
+                                 child.addresses,
+                                 v.short_name,
+                                 v.addresses)
 
     def type_at_substage(self, substage):
         keys = filter(lambda x: x <= substage, sorted(self.reclassification_rules.iterkeys()))
@@ -362,8 +364,6 @@ class MmapRegion():
                         continue
                     for i in s.addresses:
                         remainder.chop(i.begin, i.end)
-                remainder.merge_overlaps()
-                remainder.merge_equals()
                 toremove = []
                 self.addresses = remainder
                 return True
@@ -545,9 +545,20 @@ class MmapRegion():
                 else:
                     continue
                 wid = p[parse_am37x_register_tables.TITable.WIDTH]
+                name = p[parse_am37x_register_tables.TITable.NAME]
+                # create a unique name without spaces
+                name = re.sub("[\s]", "", name) + (".%x" % addr)
                 size = int(wid) / 8 if wid else 4
                 i = intervaltree.Interval(addr, addr + size)
                 addrs.add(i)
+                raw_perms = p[parse_am37x_register_tables.TITable.TYPE].lower()
+                perms = "readonly" if 'w' not in raw_perms else 'global'
+                self._raw_subregions[name] = {
+                    'addresses': [i.begin, i.end],
+                    'include_children': False,
+                    'type': perms,
+                    }
+                self.children_names.append("%s.%s" % (self.short_name, name))
             self.addresses = addrs
             f.close()
             all_resolved = True

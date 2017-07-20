@@ -36,7 +36,7 @@ import gdb_tools
 
 
 open_log = None
-now = True
+now = False
 
 
 class CloseLog():
@@ -102,10 +102,11 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
         self.entry = entry
         self.plugin = controller.get_plugin(self.plugin_name)
         self.controller = controller
+        self.valid = True
         try:
             gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
         except ValueError:
-            pass
+            self.valid = False
 
     def out_of_scope(self):
         if self.entry.no_rec:
@@ -156,7 +157,9 @@ class CallEntryBreak(gdb_tools.BootBreak):
                                     self.line,
                                     c._minimal))
         c.depth += 1
-        CallExitBreak(self.name, self.controller, self.stage, self)
+        e = CallExitBreak(self.name, self.controller, self.stage, self)
+        if not e.valid:
+            c.depth -= 1
         if self.no_rec and self.breakpoint:
             self.controller.disable_breakpoint(self, delete=False)
         return False

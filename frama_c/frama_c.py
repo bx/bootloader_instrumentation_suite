@@ -172,17 +172,6 @@ class PreprocessedFileProcessor():
         else:
             return line
 
-    def writel_patch(self, line, label):
-        stripline = line.strip()
-        whitespace = line[0:len(stripline)]
-        chars = "[a-zA-Z0-9 \*_\-&\.<>\?,\(\)\/\%\+~\^\[\]\|]+"
-        restr = "^writel\(\s*(%s)\s*,\s*(%s)\s*\);" % (chars, chars)
-        res = re.compile(restr).match(stripline)
-        dst = res.group(2)
-        val = res.group(1)
-        new = "%s *(%s) = %s\n" % (whitespace, dst, val)
-        return new
-
     def global_patch(self, line):
         line = self.typeof_patch(line)
         return self.gd_patch(line)
@@ -232,12 +221,6 @@ class PreprocessedFileProcessor():
     def val_patch(self, line, label):
         return "  val = 0xF0000000 &  0x40200800;\n"
 
-    def cast_ulong_patch(self, line, label):
-        return "uint us = (ulong) s;\n"
-
-    def compare_s_patch(self, line, label):
-        return "if ((us & (sizeof(*sl) - 1)) == 0) {\n"
-
     def malloc_zero_patch(self, line, label):
         pat = "[-a-zA-Z0-9_\s()]+"
         args = re.compile("\s*do { size_t mzsz = \((%s)\);" % (pat))
@@ -250,68 +233,6 @@ class PreprocessedFileProcessor():
     def cpuid_patch(self, line, label):
         return "\tcpuid = 0x3;\n"
 
-    def unalignedle32_patch(self, line, label):
-        return re.sub("get_unaligned_le32", "", line)
-
-    def alignbuffer_patch(self, line, label):
-        namechars = "[\(\)_\->a-zA-Z0-9 \*]+"
-        exp = "char __([a-zA-Z0-9\-_]+)\[%s\(([a-zA-Z\->_0-9]+)\) " \
-              "\* sizeof\(([\(\)_\->a-zA-Z0-9 \*]+)\)\) - 1" \
-              % (namechars)
-        # (group(1)) * sizeof(group(3)) + 63 (over estimate)
-        bufferre = re.compile(exp)
-        line = line.strip()
-        res = bufferre.match(line)
-        new_line = "%s %s[(%s * sizeof(%s)) + 63];\n" % (res.group(3),
-                                                         res.group(1),
-                                                         res.group(2),
-                                                         res.group(3))
-        return new_line
-
-    def alignbuffer_malloc_patch(self, line, label):
-        namechars = "[\(\)_\->a-zA-Z0-9 \*]+"
-        exp = "char __([a-zA-Z0-9\-_]+)\[%s\(([a-zA-Z\->_0-9]+)\) \* " \
-              "sizeof\(([\(\)_\->a-zA-Z0-9 \*]+)\)\) - 1" \
-              % (namechars)
-        bufferre = re.compile(exp)
-        line = line.strip()
-        res = bufferre.match(line)
-        if not res:
-            return line
-        new_line = "%s %s[(%s * sizeof(%s)) + 63]  __attribute__((aligned(8)));\n" % \
-                   (res.group(3), res.group(1),  res.group(2), res.group(3))
-        return new_line
-
-    def gpio_bank_patch(self,line, label):
-        return "static const struct gpio_bank gpio_bank_am33xx[] __attribute__((aligned(8)))= {\n"
-
-    def align_decl_patch(self, line, label):
-        start = line.index(";")
-        return line[:start] + " __attribute__((aligned(8)))" + line[start:]
-
-    def buffer_cast_patch(self, line, label):
-        return 'printf("FAT: Misaligned buffer address (%p)\\n", (void *) buffer);\n'
-
-    def assume_aligned_patch(self, line, label):
-        eq = line.index("=")
-        col = line.index(";")
-        line = line[:eq] + "= __builtin_assume_aligned(" + line[eq+1:col] + ", 8);\n"
-        return line
-
-    def alignbufferdos_patch(self, line, label):
-        namechars = "[\(\)_\->a-zA-Z0-9 \*]+"
-        exp = "char __([a-zA-Z0-9\-_]+)\[%s\(([a-zA-Z\->_0-9]+)\) \* " \
-              "sizeof\(([\(\)_\->a-zA-Z0-9 \*]+)\)\) - 1" \
-              % (namechars)
-        # (group(1)) * sizeof(group(3)) + 63 (over estimate)
-        bufferre = re.compile(exp)
-        line = line.strip()
-        res = bufferre.match(line)
-        if not res:
-            return line + "\n"
-        new_line = "%s %s[(512 * sizeof(%s)) + 63];\n" % (res.group(3), res.group(1), res.group(3))
-        return new_line
-
     def addr_patch(self, line, label):
         cchars = "[a-zA-Z0-9_\-\* ]+"
         tn = "(%s)%s\s*(?:=[\s\S]+)?;" % (cchars, label.name)
@@ -323,35 +244,6 @@ class PreprocessedFileProcessor():
         value = pure_utils.get_symbol_location(self.cc, self.elf, label.name, self.stage)
         l = "%s = 0x%x;\n" % (line[:last], value)
         return l
-
-    def put_dec_trunc_patch(self, line, label):
-        numre = "\s*put_dec_trunc\(([-_a-zA-Z0-9]+),"
-        equalre = "([-_a-zA-Z0-9]+)\s*=\s*put_dec_trunc\("
-        res = re.compile(numre).search(line).group(1)
-        if re.compile("\s*return").match(line):
-            return "return %s;\n" % res
-        else:
-            lval = re.compile(equalre).search(line).group(1)
-            return "%s = %s;\n" % (lval, res)
-
-    def serial_putc(self, line, label):
-        return line
-
-    def empty_block(self, line, label):
-        return "1;\n"
-
-    def number_patch(self, line, label):
-        numre = "\s*number\(([-_a-zA-Z0-9]+),"
-        equalre = "([-_a-zA-Z0-9]+)\s*=\s*number\("
-        res = re.compile(numre).search(line).group(1)
-        if re.compile("\s*return").match(line):
-            return "return %s;\n" % res
-        else:
-            lval = re.compile(equalre).search(line).group(1)
-            return "%s = %s;\n" % (lval, res)
-
-    def gd_pointer(self, line, label):
-        return line
 
     def gd_patch(self, line):
         # addr of gd should be the top of .data section, so lookup where this section is
@@ -373,210 +265,20 @@ class PreprocessedFileProcessor():
         else:
             return line+"\n"
 
-    def usbmaxp_patch(self, line, label):
-        # print line
-        # print label
-        return "\treturn &epd->wMaxPacketSize;\n"
-
     def noreturn_patch(self, line, label):
         return re.sub("return", "", line)
 
-    def gd_to_gdptr(self, line, label):
-        return re.sub("gd->", "gd_ptr->", line)
-
-    def be32_patch(self, line, label):
-        i = line.index(":")
-        line = line[i:]
-        n = "(__be32)("
-        i = line.index(n)
-        line = line[i+len(n):]
-        line = re.sub("\)", "", line)
-        line = line.strip()
-        return "if(!(%s))\n" % line
-
-    def capacity_patch(self, line, label):
-        return "capacity = 8388608;\n"
-
     def interval_patch(self, line, label):
-
         return ";\n"
 
     def re_patch(self, line, label):
         return re.sub(label.name, "", line)
 
-    def bootdevice_patch(self, line, label):
-        return "\treturn 0x6;\n"
-
     def delete_line(self, line, label):
         return ";\n"
 
-    def delete_line_all(self, line, label):
-        return "\n"
-
-    def i2cfunc_patch(self, line, label):
-        fns = {
-            "init": ("omap24_i2c_init", "static void omap24_i2c_init("
-                     "struct i2c_adapter *adap, int speed, int slaveadd)"),
-            "probe": ("omap24_i2c_probe", "static int omap24_i2c_probe("
-                      "struct i2c_adapter *adap, uchar chip)"),
-            "read": ("omap24_i2c_read", "static int omap24_i2c_read("
-                     "struct i2c_adapter *adap, uchar chip, uint addr, "
-                     "int alen, uchar *buffer, int len)"),
-            "write": ("omap24_i2c_write", "static int omap24_i2c_write("
-                      "struct i2c_adapter *adap, uchar chip, uint addr, "
-                      "int alen, uchar *buffer, int len)"),
-            "set_bus_speed": ("omap24_i2c_setspeed", "static uint omap24_i2c_setspeed("
-                              "struct i2c_adapter *adap, uint speed)"),
-        }
-        repl = ""
-        orig = ""
-        prot = ""
-        for n in fns.iterkeys():
-            if n in line:
-                (repl, prot) = fns[n]
-                orig = n
-                break
-            line = line.replace(orig, repl)
-            line = line.replace("adap->", "", 1)
-            line = line.replace("i2c_get_adapter(gd->cur_i2c_bus)->", "", 1)
-        if line.strip().find("return") == 0:
-            line = "{%s; %s;};\n" % (prot, line.strip())
-        else:
-            line = "({%s; %s;});\n" % (prot, line.strip())
-        return line
-
-    def mmcops_patch(self, line, label):
-        fns = {
-            "send_cmd": ("omap_hsmmc_send_cmd", "static int omap_hsmmc_send_cmd("
-                         "struct mmc *mmc, struct mmc_cmd *cmd, struct mmc_data *data)"),
-            "set_ios": ("omap_hsmmc_set_ios", "static void omap_hsmmc_set_ios(struct mmc *mmc)"),
-            "init": ("omap_hsmmc_init_setup", "static int omap_hsmmc_init_setup(struct mmc *mmc)"),
-            "getcd": ("omap_hsmmc_getcd", "static int omap_hsmmc_getcd(struct mmc *mmc)"),
-            "getwp": ("omap_hsmmc_getwp", "static int omap_hsmmc_getwp(struct mmc *mmc)"),
-        }
-        repl = ""
-        orig = ""
-        prot = ""
-        for n in fns.iterkeys():
-            if n in line:
-                (repl, prot) = fns[n]
-                orig = n
-                break
-            line = line.replace(orig, repl)
-            line = line.replace("mmc->cfg->ops->", "")
-        return line
-
-    def blkops_patch(self, line, label):
-        fns = {
-            "block_read": ("mmc_bread", "static ulong mmc_bread(int dev_num, "
-                           "lbaint_t start, lbaint_t blkcnt, void *dst)"),
-            "block_write": ("mmc_bwrite", "static inline __attribute__((always_inline)) "
-                            "__attribute__((no_instrument_function)) "
-                            "ulong mmc_bwrite(int dev_num, lbaint_t start, "
-                            "lbaint_t blkcnt, const void *src)"),
-            "block_erase": ("mmc_berase", "static inline "
-                            "__attribute__((always_inline)) "
-                            "__attribute__((no_instrument_function)) unsigned long "
-                            "mmc_berase(int dev_num, lbaint_t start, lbaint_t blkcnt"),
-        }
-        repl = ""
-        orig = ""
-        prot = ""
-        for n in fns.iterkeys():
-            if n in line:
-                (repl, prot) = fns[n]
-                orig = n
-                break
-            line = line.replace(orig, repl)
-            line = line.replace("mmc->block_dev.", "")
-        return line
-
-    def serial_patch(self, line, label):
-        fns = {
-            "start": ("eserial3_init", "static int serial3_init(void)"),
-            "setbrg": ("eserial3_setbrg", "static void eserial3_setbrg(void)"),
-            "getc": ("eserial3_getc", "int eserial3_getc(void)"),
-            "tstc": ("eserial3_tstc", "int eserial3_tstc(void)"),
-            "puts": ("eserial3_puts", "static void eserial3_puts(const char *s)"),
-            "putc": ("eserial3_putc", "static void eserial3_putc(const char c)"),
-        }
-        repl = ""
-        orig = ""
-        prot = ""
-        for n in fns.iterkeys():
-            if n in line:
-                (repl, prot) = fns[n]
-                orig = n
-                break
-            line = line.replace(orig, repl)
-            line = line.replace("get_current()->", "")
-            line = line.replace("dev->", "")
-        return line
-
-    def mmcdevice_patch(self, line, label):
-        # mmc struct pulled off linked list is consided
-        # to be misaligned due to the pointer arithmatic
-        # used in calculting the begging on the mmc struct
-        # with respect to the position of its list_head link
-        # field
-        return line
-        return "\treturn globalbxmmc;\n"
-
-    def usebootparams_patch(self, line, label):
-        line = "u32 boot_params = 0x4020E024;\n"
-        return line
-
-    def mmc_stat_read_patch(self, line, label):
-        return "mmc_stat = 1;\n"
-
-    def createmmc_patch(self, line, label):
-        return line
-        return "*globalmmcbxp = mmc;\n"
-
-    def dosextended_patch(self, line, label):
-        return "\t\t if (0) {\n"
-
-    def mmmc_patch(self, line, label):
-        return line
-        return "\t m = *globalmmcbxp;\n"
-
     def returnzero_patch(self, line, label):
         return "return 0;\n"
-
-    def returnone_patch(self, line, label):
-        return "return 1;\n"
-
-    def createmmccheck_patch(self, line, label):
-        return line
-        return "if (*globalmmcbxp) {return *globalmmcbxp;}\n"
-
-    def declaremmc_patch(self, line, label):
-        return line
-        return "struct mmc *globalbxmmc, **globalmmcbxp = &globalbxmmc;\n"
-
-    def blksz_patch(self, line, label):
-        return "mmc->block_dev.blksz = 512;\n"
-
-    def list_entry_patch(self, line, label):
-        return ");});\n"
-
-    def containerof_patch(self, line, label):
-        typere = re.compile(
-            "const typeof\( \((\([a-zA-Z \_0-9\-]+ \*\))0\)\-\>[a-zA-Z\_0-9\-]+ \)"
-        )
-        typename = typere.search(line)
-        return line
-
-    def mmc_initialize_patch(self, line, label):
-        return "int initialized = 0;\n"
-
-    def ext_csd_u8_patch(self, line, label):
-        q = line.index("=")
-        line = line[0:q] + " = (u8) " + line[q + 1:]
-        return line
-
-    def list_for_each_patch(self, line, label):
-        return "if(1) { entry = (&mmc_devices)->next;\n"
 
     def memalign_patch(self, line, label):
         return "return malloc(bytes);\n"
@@ -584,78 +286,8 @@ class PreprocessedFileProcessor():
     def chunksz_patch(self, line, lab):
         return "csz = sz+sizeof(size_t);\n"
 
-    def tolower_patch(self, line, label):
-        return "((char) *str) = (char) (('A' <= (*str)) && ((*str) <= 'Z') " \
-            "? (char) ((char) *str + ' ') : (char) *str);\n"
-
-    def memalign_return_patch(self, line, label):
-        return "return m;\n"
-
-    def le64u64_patch(self, line, label):
-        return re.sub("\(\s*__le64\s*\)\s*\(\s*__u64\s*\)", "", line)
-
-    def le32u32_patch(self, line, label):
-        return re.sub("\(\s*__le32\s*\)\s*\(\s*__u32\s*\)", "", line)
-
-    def u64le64_patch(self, line, label):
-        return re.sub("\(\s*__u64\s*\)\s*\(\s*__le64\s*\)", "", line)
-
-    def u32le32_patch(self, line, label):
-        return re.sub("\(\s*__u32\s*\)\s*\(\s*__le32\s*\)", "", line)
-
-    def func_patch(self, line, label):
-        return re.sub("__func__", "__func__", line)
-
-    def va_patch(self, line, label):
-        return "extern void __builtin_va_start(__builtin_va_list);\n"
-
-    def idx_patch(self, line, label):
-        equals = line.index("=")
-        return "l_name[*((u8 *) idx)] =" + line[equals:]
-
-    def pte_patch(self, line, label):
-        equals = line.index("=")
-        return "pte = ( gpt_entry *)" + line[equals+1:]
-
-    def min_patch(self, line, label):
-        return "actsize = filesize <= (loff_t) bytesperclust "\
-            "? filesize : (loff_t) bytesperclust;\n"
-
-    def memcmp_patch(self, line, label):
-        return "if ((res = (*su1 == *su2)) !=0) \n"
-
-    def strcmp_patch(self, line, label):
-        return "if (((__res = (*cs == *ct++)) != 0) || !*cs++)\n"
-
-    def mmcscr_patch(self, line, label):
-        rescr = re.compile("mmc->scr\[([0-9]+)\] =")
-        res = rescr.search(line)
-        return "mmc->scr[%s] = scr[%s];\n" % (res.group(1), res.group(1))
-
-    def gpio_patch(self, line, label):
-        return "return &omap_gpio_bank[gpio];\n"
-
-    def revision_patch(self, line, label):
-        return "revision = 2;\n"
-
     def sdr_cs_offset_patch(self, line, label):
         return "return 0;\n"
-
-    def part_patch(self, line, label):
-        return "part = 1;\n"
-
-    def mangle_name(self, line, label):
-        t = line.find(" ")
-        i = line.find("(")
-        return ("%s mangledname_ignore%s" %
-                (line[0:t], ''.join(random.choice(string.ascii_uppercase)
-                                    for _ in range(3)))) + line[i:]
-
-    def mmcread_patch(self, line, label):
-        return "*output_buf = o;\n"
-
-    def mmcvolatile_patch(self, line, label):
-        return "volatile char o;\n"
 
     def patch(self, labels, outfile):
         # write patch to outfile
@@ -684,9 +316,6 @@ class PreprocessedFileProcessor():
                 continue
 
             name_to_patch_functions = {
-                #"align_buffer": self.alignbuffer_malloc_patch,  # self.alignbuffer_patch,
-                # "align_buffer_dos": self.alignbufferdos_patch,
-                #"align_decl": self.align_decl_patch,
                 "chunksize": self.chunksz_patch,
                 "cpuid": self.cpuid_patch,
                 "delete_line": self.delete_line,
@@ -761,9 +390,6 @@ class PreprocessedFiles():
 
     @classmethod
     def instances(cls, stage, root=Main.get_bootloader_root(), quick=False):
-        # if quick:
-        #    files = cls.quick_files
-        #else:
         files = cls.files
         fs = map(lambda s: os.path.join(root, s), files)
         fs = map(functools.partial(PreprocessedFileInstance, stage=stage), fs)
@@ -1020,7 +646,7 @@ if __name__ == "__main__":
                                      False, {}, args.test_id, False, [],
                                      hook=True)
         labels = Main.get_config("labels")
-        root = Main.get_config("source_tree_copy")
+        root = Main.get_config("temp_bootloader_src_dir")
         builder = d.build([Main.get_bootloader_cfg().software], False)[0]
         origdir = os.getcwd()
         os.chdir(root)

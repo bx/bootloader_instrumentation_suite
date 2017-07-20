@@ -22,7 +22,7 @@
 
 import gdb
 import time
-
+import cProfile, pstats, StringIO
 import os
 import sys
 path = gdb.os.getcwd()
@@ -41,7 +41,7 @@ stepnum = 0
 now = False
 db_written = False
 start = time.time()
-
+pr = cProfile.Profile()
 
 class WriteLog():
     def __init__(self, msg):
@@ -104,14 +104,18 @@ class WriteDatabase():
             self.do()
 
     def do(self):
-        if self.pid == 0x402025c4:
-            print "clear BSS %s" % self.num
         db_info.get(self.stage).add_trace_write_entry(self.time, self.pid,
                                                       self.size, self.dest,
                                                       self.pc, self.lr,
                                                       self.cpsr, self.step,
                                                       self.num)
-        db_info.get(self.stage).update_trace_writes('', self.pc, self.dest, self.dest + self.size,
+        if self.size < 0:
+            end = self.dest
+            start = self.dest + self.size
+        else:
+            start = self.dest
+            end = self.dest + self.size
+        db_info.get(self.stage).update_trace_writes('', self.pc, start, end,
                                                     self.stage,
                                                     self.origpc, self.num)
 
@@ -142,12 +146,21 @@ class HookWrite(gdb_tools.GDBPlugin):
 
     def write_stophook(self, bp, ret):
         global stepnum
+        #global pr
+        #pr.enable()
         stepnum = stepnum + 1
         self.process_write(bp.writeinfo,
                            bp.relocated,
                            bp.stage,
                            bp.controller.current_substage,
                            bp.controller.current_substage_name)
+        #pr.disable()
+        #if stepnum == 10:
+        #    s = StringIO.StringIO()
+        #    sortby = 'cumulative'
+        #    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        #    ps.print_stats()
+        #    print s.getvalue()
         return False
 
     def longwrite_stophook(self, bp, ret):
@@ -163,8 +176,7 @@ class HookWrite(gdb_tools.GDBPlugin):
         lr = bp.controller.get_reg_value('lr')
         cpsr = bp.controller.get_reg_value('cpsr')
         pid = 2
-        # if bp.controller.isbaremetal:
-        #    gdb.post_event(WriteLog("\n<%x longwrite..." % writepc))
+        # gdb.post_event(WriteLog("\n<%x longwrite..." % writepc))
         if bp.relocated > 0:
             pid = 3
         for i in range(start, end, bp.writesize):
@@ -175,8 +187,7 @@ class HookWrite(gdb_tools.GDBPlugin):
             self.dowriteinfo(waddr, bp.writesize, writepc,
                              lr, cpsr, pid, writepc - bp.relocated,
                              bp.stage, num, name)
-        # if bp.controller.isbaremetal:
-        #     gdb.post_event(WriteLog(">\n"))
+        # gdb.post_event(WriteLog(">\n"))
         return False
 
     def stage_finish(self, now=False):
@@ -208,12 +219,11 @@ class HookWrite(gdb_tools.GDBPlugin):
             pid = 1
         self.dowriteinfo(dst, size, pc, lr, cpsr, pid, pc - relocated,
                          stage, substage, name)
-        # if self.controller.isbaremetal:
-        #     gdb.post_event(WriteLog("."))
 
     def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage, name):
         global stepnum
         stepnum += 1
+        # gdb.post_event(WriteLog("."))
         gdb.post_event(WriteDatabase(time.time(),
                                      pid, size, writedst, pc, lr,
                                      cpsr, stepnum, origpc, stage, substage,

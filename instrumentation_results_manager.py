@@ -491,10 +491,12 @@ class TraceTaskLoader(ResultsLoader):
     def __init__(self, stages, hw, tracenames,
                  trace_name,
                  create, quick, run_tasks,
-                 print_cmds):
+                 print_cmds, new_trace):
         self.print_cmds = print_cmds
         test_id = Main.get_config("test_instance_id")
-        super(TraceTaskLoader, self).__init__(test_id, "trace", run_tasks)
+        super(TraceTaskLoader, self).__init__(test_id,
+                                              "trace",
+                                              (run_tasks or new_trace) and not print_cmds)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
         self.toprint = []
@@ -603,6 +605,8 @@ class TraceTaskLoader(ResultsLoader):
                     newtask.targets.extend(dtargets)
         if gdb_commands:
             gdb = " ".join(gdb_commands)
+            if any(['gdb_tools' in g for g in gdb_commands]):
+                gdb += " -ex 'gdb_tools go -p'"
             gdb += " -ex 'c'"
             if self.quit:
                 gdb += " -ex 'monitor quit' -ex 'monitor exit' -ex 'q'"
@@ -726,6 +730,8 @@ class TraceTaskPrepLoader(ResultsLoader):
                             trace_name = i
                     res = difflib.get_close_matches(trace_name, existing, 1, 0)
                     if not res:
+                        if len(existing) == 0:
+                            raise Exception("No exising trace result dirs")
                         self.trace_id = existing[-1]
                     else:
                         self.trace_id = res[0]
@@ -733,12 +739,14 @@ class TraceTaskPrepLoader(ResultsLoader):
                     self.trace_id = trace_name
             else:
                 self.trace_id = trace_name
+        self.new = True
         self.config_path = self._test_path("config.yml")
         if instrumentation_task:
             self.stagenames = instrumentation_task['stages']
             self.hwname = instrumentation_task['hw']
             self.tracenames = instrumentation_task['traces']
         else:
+            self.new = False
             with open(self.config_path, 'r') as f:
                 settings = yaml.load(f)
                 self.stagenames = settings['stages']
@@ -845,11 +853,13 @@ traces: [{}]
             os.makedirs(self._test_path())
         except Exception as e:
             pass
-
+        if not self.new:
+            a.other = {'uptodate': [False]}
         tasks.append(a)
         c = CmdTask(["touch %s" % self.namefile], [],
                     [self.namefile], "test_name_file")
-        c.other = {'uptodate': [False]}
+        if not self.new:
+            c.other = {'uptodate': [False]}
         tasks.append(c)
         return tasks
 
@@ -857,7 +867,7 @@ traces: [{}]
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
                  enabled_stages, create, gitinfo):
-        super(InstrumentationTaskLoader, self).__init__(test_id, "instance", create)
+        super(InstrumentationTaskLoader, self).__init__(test_id, "instance", True)
         self.create = create
         self.gitinfo = gitinfo
         self.enabled_stages = enabled_stages
@@ -957,8 +967,7 @@ class InstrumentationTaskLoader(ResultsLoader):
 
         actions.append(a)
         deps = [Main.get_config("stage_elf", s) for s in
-                [Main.stage_from_name(st)
-                 for st in Main.get_config('enabled_stages')]]
+                list(Main.get_bootloader_cfg().supported_stages.itervalues())]
         deps.append(Main.get_config("reglist"))
         rtask = ActionListTask(actions, deps,
                                [mmapdb_path, mmapdb_done_path], "generate_addr_info")
@@ -997,18 +1006,8 @@ class InstrumentationTaskLoader(ResultsLoader):
             internal = "labels_internal"
             v = Main.get_config(internal)
             if v is None:
-                # make temporary copy of git tree to pull labels from
-                tmpdir = tempfile.mkdtemp()
-                def rm_src_dir():
-                    print "removing temporary copy of bootloader source code at %s" % tmpdir
-                    os.system("rm -rf %s" % tmpdir)
-                atexit.register(rm_src_dir)
-                Main.set_config("source_tree_copy", tmpdir)
-                local = Main.get_config("instance_git_local")
-                sha = Main.get_config("instance_git_sha")
+                tmpdir = Main.get_config("temp_bootloader_src_dir")
                 olddir = os.getcwd()
-                os.chdir(local)
-                os.system("git archive %s | tar -C %s -x" % (sha, tmpdir))
                 os.chdir(tmpdir)
                 v = labeltool.get_all_labels(tmpdir)
                 Main.set_config(internal, v)
@@ -1080,6 +1079,22 @@ sha1: {}
 
         Main.set_config("instance_git_local", self.local)
         Main.set_config("instance_git_sha", self.sha)
+        # make temporary copy of git tree to pull labels from
+        tmpdir = tempfile.mkdtemp()
+        Main.set_config("temp_bootloader_src_dir", tmpdir)
+
+        def rm_src_dir():
+            print "removing temporary copy of bootloader source code at %s" % tmpdir
+            os.system("rm -rf %s" % tmpdir)
+        atexit.register(rm_src_dir)
+        olddir = os.getcwd()
+        os.chdir(self.local)
+        os.system("git archive %s | tar -C %s -x" % (self.sha, tmpdir))
+        # print "git archive %s | tar -C %s -x" % (self.sha, tmpdir)
+        # print "---"
+        # print os.system("ls %s" % tmpdir)
+        # print "---"
+        os.chdir(olddir)
         for i in self.boot_stages:
             bootelfs.append(self._boot_src_path(i.elf))
             bootimages.append(self._boot_src_path(i.image))
@@ -1117,11 +1132,14 @@ sha1: {}
                        deps,
                        [sdtarget],
                        "sd_card_image")
-        if not self.create:
+        if self.create:
+            mksd.uptodate = [False]
+            tasks.append(mksd)
+        elif os.path.exists(sdtarget):
             mksd.uptodate = [True]
         else:
             mksd.uptodate = [False]
-        tasks.append(mksd)
+            tasks.append(mksd)
         if 'all' in self.enabled_stages or self.enabled_stages is None:
             Main.set_config('enabled_stages',
                             [s.stagename for
@@ -1140,7 +1158,10 @@ sha1: {}
                 if os.path.exists(e):
                     setattr(stage, t, e)
         for stage in Main.get_config('enabled_stages'):
-            Main.stage_from_name(stage).post_build_setup()
+            s = Main.stage_from_name(stage)
+            if os.path.exists(Main.get_config('stage_elf', s)):
+                s.post_build_setup()
+
         return tasks
 
 

@@ -178,7 +178,7 @@ class CodeTaskList():
             gitinfo = "%s.%s" % (head, sha)
             return (gitinfo, sha)
         else:
-            return (None, None)#, None)
+            return (None, None)  #, None)
 
     def list_tasks(self):
         yield {

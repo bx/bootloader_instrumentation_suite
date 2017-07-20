@@ -87,11 +87,9 @@ def breakpoint(main, configs,
     other_cmds = []
     gdb = main.cc + "gdb"
     hwname = main.get_config("trace_hw").name
-    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
     hookwrite_src = os.path.join(main.test_suite_path, "hook_write.py")
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
     gdb_cmds += ["%s %s" % (gdb, additional_cmds)]
-    gdb_cmds.append("-ex 'python execfile(\"%s\")'" % gdb_tools)
     gdb_cmds.append("-ex 'gdb_tools plugin %s'" % hookwrite_src)
     gdb_cmds.append("-ex 'hookwrite test_instance %s'" % instance_id)
     gdb_cmds.append("-ex 'hookwrite test_trace %s'" % test_id)
@@ -102,7 +100,7 @@ def breakpoint(main, configs,
 
     for (s, v) in policies.iteritems():
         gdb_cmds.append("-ex 'hookwrite substages %s %s'" % (s, v))
-    gdb_cmds.append("-ex 'hookwrite go -p'")
+    # gdb_cmds.append("-ex 'hookwrite go -p'")
     for s in [main.stage_from_name(st) for st in main.get_config('enabled_stages')]:
         gdb_deps.extend([main.get_config("staticdb", s),
                          main.get_config("staticdb_done", s),
@@ -142,7 +140,7 @@ def calltrace(main, configs,
     done_commands = []
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
-    blacklist = {'spl': ['__s_init_from_arm', "get_timer", "get_timer_masked", "__udivsi3" "udelay"],
+    blacklist = {'spl': ['__s_init_from_arm'],  # , "get_timer", "get_timer_masked", "__udivsi3" "udelay"],
                  'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag', "get_timer", "get_timer_masked", "__udivsi3", "udelay"]}
 
     norec = ['sdelay']
@@ -172,7 +170,7 @@ def calltrace(main, configs,
     cmds.append("-ex 'calltrace until -s main'")
     cmds.append("-ex 'calltrace kill'")
     cmds.append("-ex 'calltrace sourceinfo'")
-    cmds.append("-ex 'calltrace go -p'")
+    # cmds.append("-ex 'calltrace go -p'")
     main_cfgs = {}
     main_cfgs["calltrace_db"] = lambda s: orgfiles[s.stagename]
     main_cfgs["calltrace_done"] = lambda s: done[s.stagename]
@@ -199,8 +197,6 @@ def enforce(main, configs,
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
 
     cmd = ["%s %s" % (gdb, additional_cmds)]
-    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
-    cmd.append("-ex 'python execfile(\"%s\")'" % gdb_tools)
     cmd.append("-ex 'gdb_tools plugin %s'" % enforce_src)
     for (s, v) in policies.iteritems():
         cmd.append("-ex 'enforce substages %s %s'" % (s, v))
@@ -210,7 +206,7 @@ def enforce(main, configs,
     cmd.append("-ex 'enforce until -s %s'" % stagenames[-1])
     cmd.append("-ex 'enforce stages %s'" % " ".join(stagenames))
     # cmd.append("-ex 'enforce kill'")
-    cmd.append("-ex 'enforce go -p'")
+    # cmd.append("-ex 'enforce go -p'")
 
     deps = []
     done_commands = ["touch %s" % done]

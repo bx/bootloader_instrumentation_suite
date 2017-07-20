@@ -54,8 +54,8 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--testcfginstance',
                         help='Name of test config result directory to open, " \
                         "by default we use newest',
-                        action='store', default="")
-    parser.add_argument('-S', '--enabled_stages', action='append', default=[])
+                        action='store', default=None)
+    parser.add_argument('-S', '--enabled_stages', action='append', default=['spl'])
 
     class TraceAction(argparse.Action):
         def __init__(self, option_strings, dest, **kwargs):
@@ -205,6 +205,8 @@ if __name__ == '__main__':
 
     if args.print_cmds or args.importpolicy:
         run = False
+    if args.run_trace:
+        args.enabled_stages = args.run_trace['stages']
     task_mgr = doit_manager.TaskManager((args.buildcommands, args.build),
                                         args.create,
                                         args.enabled_stages,
@@ -214,10 +216,9 @@ if __name__ == '__main__':
                                         args.select_trace,
                                         import_policies,
                                         args.postprocess_trace,
-                                        None, run,
+                                        args.testcfginstance, run,
                                         args.print_cmds)
-
-    if args.build or args.buildcommands:
+    if args.buildcommands or args.print_cmds or (args.build and not args.create):
         targets = args.build if args.build else args.buildcommands
         ret = task_mgr.build(targets, True if args.build else False)
         if args.buildcommands:

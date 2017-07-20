@@ -91,7 +91,7 @@ class WriteDstTable():
 
         if self.tables[num] is None:
             self.tables[num] = self.h5file.create_table(self.group, self.name(num),
-                                                       FramaCDstEntry, self.desc)
+                                                        FramaCDstEntry, self.desc)
             self.tables[num].cols.line.create_index(kind='full')
             self.tables[num].cols.writepc.create_index(kind='full')
             self.tables[num].cols.substage.create_index(kind='full')
@@ -132,8 +132,9 @@ class WriteDstTable():
         num_writes = db_info.get(self.stage).num_writes()
         num_framac_writes = sum([len(pytable_utils.get_rows(t, "dst_not_in_ram == True"))
                                  for t in self.tables.itervalues()])
-        print "%d of %d writes exclusively write to register memory" % (num_framac_writes,
-                                                                        num_writes)
+        print "%d of %d writes exclusively write "\
+            "to register memory" % (num_framac_writes,
+                                    num_writes)
         for t in self.tables.itervalues():
             for r in t.iterrows():
                 print "%s (%x) -> (%x,%x). substage: %s" % \
@@ -296,7 +297,6 @@ class TraceTable():
         self._rinfos = None
         self._pcmax = None
 
-
     @property
     def pcmax(self):
         if self._pcmax is None:
@@ -305,7 +305,9 @@ class TraceTable():
         return self._pcmax
 
     def _setthumbranges(self):
-        (self._thumbranges, self._armranges, self._dataranges) = Main.get_config("thumb_ranges", self.stage)
+        (self._thumbranges,
+         self._armranges,
+         self._dataranges) = Main.get_config("thumb_ranges", self.stage)
 
     @property
     def rinfos(self):
@@ -413,16 +415,19 @@ class TraceTable():
     def update_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):
         if not pc:
             (path, lineno) = line.split(':')
+            lineno = int(lineno)
         else:
             (path, lineno) = ('', 0)
-            if not origpc:
-                origpc = pc
-        lineno = int(lineno)
+        if not origpc:
+            origpc = pc
         w = WriteDstResult(path, lineno,
                            '',
                            [intervaltree.Interval(lo,
                                                   hi)],
                            pc, origpc, substage_name=substage)
+        if lo > hi:
+            print "%x > %x at %x" % (lo, hi, pc)
+            traceback.print_stack()
         self.writerangetable.add_dsts_entry(w)
 
     def consolidate_write_table(self, framac=False):
@@ -478,6 +483,8 @@ class TraceTable():
                 if last is None:
                     last = r[sortindex]
                 dst_not_in_ram = dst_not_in_ram and r['dst_not_in_ram']
+                # if r['dsthi'] < r['dstlo']:
+                #    print "%x %s" % (r['writepc'], r['line'])
                 intervals.addi(r['dstlo'], r['dsthi'])
             if intervals:
                 self._add_intervals_to_table(self.writerangetable_consolidated.tables[n],
@@ -485,8 +492,9 @@ class TraceTable():
                                              writepc, line, lvalue, dst_not_in_ram, n)
         self.writerangetable_consolidated.flush_table()
         for n in substagenums:
-            print "write range consolidated stage %s nrows %s" % (n,
-                                                                  self.writerangetable_consolidated.tables[n].nrows)
+            print "write range consolidated "\
+                "stage %s nrows %s" % (n,
+                                       self.writerangetable_consolidated.tables[n].nrows)
 
     def _add_intervals_to_table(self, table, intervals, pc, line, lvalue, dst, substage):
         intervals.merge_overlaps()
@@ -515,6 +523,7 @@ class TraceTable():
         histotable = self.h5file.create_table(group, 'writerange',
                                               TraceWriteRange, "qemu memory write ranges")
         histotable.cols.index.create_index(kind='full')
+        srcdir = Main.get_config("temp_bootloader_src_dir")
         relocatedpc = 0
         relocatedlr = 0
         size = 0
@@ -603,8 +612,8 @@ class TraceTable():
                         # do nothing
                         continue
                     else:
-                        cmd = "%sgdb -ex 'disassemble/r %s' --batch --nh --nx  %s" \
-                              % (self.cc, lrfunc, self.stage.elf)
+                        cmd = "%sgdb -ex 'dir %s' -ex 'disassemble/r %s' --batch --nh --nx  %s" \
+                              % (self.cc, srcdir, lrfunc, self.stage.elf)
                         output = Main.shell.run_multiline_cmd(cmd)
                         try:
                             start = output[1].split('\t')
@@ -630,7 +639,9 @@ class TraceTable():
                         dest, pc, lr, cpsr, index=0, num=None):
         o = qemusimpleparse.QemuParsedObject(time, pid, size,
                                              dest, pc, lr, cpsr)
-
+        if self.pcmin > self.pcmax:
+            print "%x %x (%x)" % (self.pcmin, self.pcmax, pc)
+            traceback.print_stack()
         self._add_write_entry(o, self.pcmin,
                               self.pcmax,
                               self.writestable, self.rinfos,

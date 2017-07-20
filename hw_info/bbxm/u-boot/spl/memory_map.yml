@@ -10,9 +10,7 @@ regions:
       rom_stack:
         type: "stack"
         addresses: ["ROM_STACK_START", "ROM_STACK_END"]
-        comment: manually calculated from test run      
       downloaded_image:
-        name: "downloaded image"
         addresses: ["ROM_STACK_END", 0x4020FFB0]
         subregions:
           downloaded_image_text:
@@ -25,17 +23,15 @@ regions:
             type: "readonly"
             addresses: ["__image_copy_end", "SCRATCH_SPACE_ADDR"]
           scratch_space:
-            type: "bookkeeping"            
+            type: "bookkeeping"
             addresses: ["SCRATCH_SPACE_ADDR", "OMAP5_SCRATCH_SPACE_END"]
           remainder:
             type: "readonly"
             addresses: ["OMAP5_SCRATCH_SPACE_END", 0x4020F000]
           public_stack:
-            name: "Public stack"
             type: "readonly"
             include_children: True
             addresses: [0x4020F000, 0x4020FFB0]
-            comments: "initial stack value set by rom in qemy misc/omap3_boot.c:148/165 to 0x4020fcb0 (and then decremented to fit several KB of data"
             subregions:
               beginning:
                 type: "readonly"
@@ -43,14 +39,13 @@ regions:
               cpy_clk_code:
                 type: "future"
                 addresses: [0x4020f840, "0x4020f840 + lowlevel_init - cpy_clk_code"]
-                comment: "double-check end address, i thought it copies from go_to_speed"
               stack_rest0:
                 addresses: ["RAM.downloaded_image.public_stack.cpy_clk_code.end", 0x4020ff20]
-              stack_rest1:              
+              stack_rest1:
                 addresses: [ 0x4020ff20, "RAM.downloaded_image.end"]
       rest0:
-        addresses: ["RAM.downloaded_image.end", 0x4020fffc]        
-        type: "readonly"        
+        addresses: ["RAM.downloaded_image.end", 0x4020fffc]
+        type: "readonly"
       rest1:
         addresses: [0x4020fffc, RAM.end]
         type: "readonly"
@@ -67,10 +62,10 @@ regions:
         type: "bookkeeping"
         addresses: [".text.end", "__image_copy_end"]
       later_stack:
-        type: "stack"
+        type: "readonly"
         addresses: ["__image_copy_end", "0x4020f840 + lowlevel_init - cpy_clk_code"]
       global_data:
-        type: "global"
+        type: "stack"
         addresses: ["0x4020f840 + lowlevel_init - cpy_clk_code",  0x4020ff20]
       end:
         type: "readonly"
@@ -94,12 +89,10 @@ regions:
           addresses: [0x80030144, "CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header"]
           type: "readonly"
       image_header:
-        name: "disk image's header"
         type: "future"
         addresses: ["CONFIG_SYS_TEXT_BASE - sizeof_struct_image_header", "CONFIG_SYS_TEXT_BASE"]
       image:
-        name: "Next stage's disk image"
-        type: "future"        
+        type: "future"
         addresses: ["CONFIG_SYS_TEXT_BASE", "CONFIG_SYS_TEXT_BASE + main.image_size"]
       post_image:
         addresses: ["CONFIG_SYS_TEXT_BASE + main.image_size", "CONFIG_SYS_SPL_MALLOC_START"]
@@ -107,32 +100,31 @@ regions:
         type: "readonly"
         addresses: ["CONFIG_SYS_SPL_MALLOC_START", "CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE"]
       nonbss:
-        type: "readonly"        
+        type: "readonly"
         addresses: ["CONFIG_SYS_SPL_MALLOC_START + CONFIG_SYS_SPL_MALLOC_SIZE", 0xc0000000]
         include_children: True
         subregions:
           sram_test:
-            type: "patching"      
+            type: "patching"
             addresses: [[0xA0000400, 0xA0000404], [0xA0000000, 0xA0000008]]
           rest:
             addresses: "remainder"
-
 
   Registers:
     csv: "regs.csv"
     type: "global"
     include_children: True
   missing_control_padconf0:
-    type: "global"        
+    type: "global"
     addresses: [0x48002150, 0x48002154]
     comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
   missing_control_padconf1:
     type: "global"
-    addresses: [0x48002154, 0x48002158]    
+    addresses: [0x48002154, 0x48002158]
     comment: "address written to by boootloader (met_muxconf_regs) must not listed in am37x hardware reference"
   missing_protection_mech_0:
     type: "global"
-    addresses: [0x68010060, 0x68010068]    
+    addresses: [0x68010060, 0x68010068]
     comment: "address written to by boootloader (secure_unlock_mem) must not listed in am37x hardware reference"
 
 values:

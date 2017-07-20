@@ -36,6 +36,7 @@ if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
+
 from config import Main
 import substage
 import staticanalysis
@@ -150,7 +151,6 @@ class GDBBootController():
         self.test_trace_name = None
         gdb.execute('set python print-stack full')
         self.cc = Main.cc
-        gdb.execute("dir %s" % Main.get_bootloader_root())
         self.name = "gdb_tools"
         self.command_handlers = [GDBBootCommandHandler(self.name, self, True)]
 
@@ -486,6 +486,9 @@ class GDBBootController():
                                  self.test_trace_name,
                                  False,
                                  [], self.test_instance_name, hook=True)
+        tmpdir = Main.get_config("temp_bootloader_src_dir")
+        gdb.execute("dir %s" % tmpdir)
+        gdb.execute("set substitute-path %s %s" % (Main.get_bootloader_root(), tmpdir))
         self.hw = Main.get_config("trace_hw")
         if self.hw.name == "bbxmqemu":
             self.isbaremetal = False
@@ -496,6 +499,7 @@ class GDBBootController():
         for stage in self.stage_order:
             s = self._stages[stage.stagename]
             s.init_with_test_instance()
+        # self.f_hooks = list(set(self.f_hooks))
         for f in self.f_hooks:
             f(args)
 
@@ -922,7 +926,7 @@ class RelocBreak(BootBreak):
         return (self.startaddr <= breakaddr) and (breakaddr < (self.startaddr + self.size))
 
     def _stop(self, bp, ret):
-        self.msg("relocating breakpoints\n")
+        self.controller.gdb_print("relocating breakpoints\n")
         controller = self.controller
         for bp in self.controller.breakpoints:
             if bp.needs_relocation:
@@ -932,8 +936,8 @@ class RelocBreak(BootBreak):
                 continue
         # make sure final breakpoint is still enabled
         controller.enable_current_stage_end_break()
-        self.msg("continuing execution\n")
-        self.controller.disable_breakpoint(self, delete=False)
+        controller.gdb_print("continuing execution\n")
+        controller.disable_breakpoint(self, delete=False)
         return False
 
 

@@ -31,6 +31,7 @@ import pure_utils
 import sys
 import os
 import glob
+import difflib
 
 
 class TaskManager():
@@ -45,19 +46,20 @@ class TaskManager():
             (print_build_cmd, build_source) = ([], [])
         else:
             (print_build_cmd, build_source) = do_build
+        bootloader = Main.get_bootloader_cfg()
+        if create_test:
+            build_source.append(bootloader.software)
         self.create_test = create_test
-        bootloader_only = len(build_source) == 0
         self.print_cmds = print_cmds
         self.src_manager = external_source_manager.SourceLoader(print_build_cmd, build_source)
         self.loaders.append(self.src_manager)
-        if len(print_build_cmd) + len(build_source) > 0:
+        if (len(print_build_cmd) + len(build_source) > 0) and not create_test:
             return
-        bootloader = Main.get_bootloader_cfg()
+
         self.boot_task = [s for s in self.src_manager.code_tasks
                           if s.build_cfg.name == bootloader.software][0]
         needs_build = False
         if create_test:
-            self.build(['u-boot'], True)
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
                 self.boot_task.build.uptodate = [False]
@@ -66,18 +68,26 @@ class TaskManager():
                 if not all(map(os.path.exists, self.boot_task.build.targets)):
                     self.boot_task.build.uptodate = [False]
                     needs_build = True
-            self.src_manager.builds.append(bootloader.software)
+            if needs_build:
+                self.build(['u-boot'], True)
+            #self.src_manager.builds.append(bootloader.software)
             (self.test_id, gitinfo) = self._calculate_current_id()
             current_id = self.test_id
+            run = True
         else:
             if open_instance is None:
                 self.test_id = self._get_newest_id()
             else:
+                ids = self._get_all_ids()
+                if open_instance not in ids:
+                    open_instance = difflib.get_close_matches(open_instance,
+                                                              ids, 1, 0)[0]
+                    open_instance = os.path.basename(open_instance)
                 self.test_id = open_instance
             self.boot_task.build.uptodate = [True]
             (current_id, gitinfo) = self._calculate_current_id()
+            run = False
 
-        run = True
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.boot_task,
                                                                             self.test_id,
                                                                             enabled_stages,
@@ -85,11 +95,10 @@ class TaskManager():
                                                                             gitinfo)
 
         if create_test:
-            if needs_build:
-                self.build("u-boot")
             self.ppt = instrumentation_results_manager.PolicyTaskLoader(policies)
             self.loaders.append(instrumentation_results_manager.task_manager())
             return
+
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(run_trace,
                                                                       select_trace,
                                                                       not hook and len(post_trace_processing) == 0,
@@ -107,14 +116,18 @@ class TaskManager():
                                                                   not self.print_cmds,
                                                                   quick,
                                                                   run,
-                                                                  self.print_cmds)
+                                                                  self.print_cmds,
+                                                                  self.tp.new)
         run = (not create_test) or len(post_trace_processing) > 0
         self.ppt = instrumentation_results_manager.PostTraceLoader(post_trace_processing, run)
         self.loaders.append(instrumentation_results_manager.task_manager())
 
-    def _get_newest_id(self):
+    def _get_all_ids(self):
         root = Main.test_data_path
-        choices = glob.glob(root + "/*")
+        return glob.glob(root + "/*")
+
+    def _get_newest_id(self):
+        choices = self._get_all_ids()
         newest = None
         newest_time = 0
         for i in choices:
@@ -154,6 +167,7 @@ class TaskManager():
         tasks = {}
         for v in self.loaders:
             for name, l in v.list_tasks():
+
                 f = l
                 tasks[name] = f
         ml = ModuleTaskLoader(tasks)
@@ -165,7 +179,6 @@ class TaskManager():
 
     def create_test_instance(self):
         nm = self.ti.get_build_name()
-
         print "about to run %s" % nm
         ret = self.run([nm])
         return ret

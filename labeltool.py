@@ -313,11 +313,12 @@ class SrcLabelTool():
     @classmethod
     def get_next_non_label(cls, lineno, srcfile):
         with open(srcfile, 'r') as src:
-            lines = src.readlines()[lineno:]
+            lines = src.readlines()[(lineno):]
             i = lineno
             for l in lines:
+                l = l.strip()
                 i = i + 1
-                if (len(l.strip()) > 0) and not cls.is_any_label(l):
+                if (len(l) > 0) and cls.is_any_label(l) is None:
                     return i
 
     @classmethod
@@ -327,7 +328,9 @@ class SrcLabelTool():
             i = lineno
             for l in lines:
                 i = i - 1
-                if (len(l.strip()) > 1) and not cls.is_any_label(l):
+                l = l.strip()
+                if (len(l) > 1) and cls.is_any_label(l) is None:
+                    # print "label at %s:%s found %s %s" % (srcfile, lineno, i, l)
                     return i
 
     @classmethod

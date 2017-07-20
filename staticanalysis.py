@@ -1,3 +1,25 @@
+# MIT License
+
+# Copyright (c) 2017 Rebecca ".bx" Shapiro
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 import tables
 import subprocess
 import re
@@ -386,6 +408,7 @@ class SkipEntry(tables.IsDescription):
     resumepc = tables.UInt32Col()
     isfunction = tables.BoolCol()
 
+
 class LongWriteDescriptorGenerator():
     def __init__(self, name, dregs, calcregs, subreg, writetype, interval, inplace, table):
         self.table = table
@@ -399,7 +422,6 @@ class LongWriteDescriptorGenerator():
         self.inplace = inplace
 
     def generate_descriptor(self):
-
         labels = WriteSearch.find_labels(labeltool.LongwriteLabel, "",
                                          self.stage, self.name)
 
@@ -435,7 +457,9 @@ class LongWriteDescriptor():
         self.inplace = inplace
         self.writetype = LongWriteRangeType.enum()[writetype]
         self.interval = interval
-
+        self.resumeaddr = None
+        self.valid = False
+        self.writeaddr = None
         if writeline == "":
             self.writeline = self.breakline
         else:
@@ -443,7 +467,6 @@ class LongWriteDescriptor():
         writestart = self.table._get_line_addr(self.writeline, True)
 
         # find first write after breakpoint or write addr
-        self.writeaddr = None
         checkaddr = writestart
         self.thumb = self.table.thumbranges.overlaps_point(self.breakaddr)
         sz = 4
@@ -455,13 +478,16 @@ class LongWriteDescriptor():
             (checkvalue, disasm, funname) = \
                 utils.addr2disasmobjdump(checkaddr, sz, self.stage, self.thumb, debug=False)
             checkinstr = self.table.ia.disasm(checkvalue, self.thumb, checkaddr)
-            if self.table.ia.is_instr_memstore(checkinstr):
-                self.writeaddr = checkaddr
-            else:
+            if not self.table.ia.is_instr_memstore(checkinstr):
                 checkaddr = checkaddr + len(checkinstr.bytes)
+            self.writeaddr = checkaddr
 
         writes = self.table.writestable.where("0x%x == pc" % (self.writeaddr))
-        write = next(writes)
+        try:
+            write = next(writes)
+        except:
+            print "Longwrite not found at %x (%s)" % (self.writeaddr, self.__dict__)
+            return
         self.writeaddr = write['pc']
         self.thumb = write['thumb']  # just in case
         self.writesize = write['writesize']
@@ -491,7 +517,6 @@ class LongWriteDescriptor():
             checkaddr = self.table._get_line_addr(resumeaddr, True)
         else:
             checkaddr = self.writeaddr
-        self.resumeaddr = None
 
         # resume after first conditional branch after write instruction
         while self.resumeaddr is None:
@@ -505,8 +530,11 @@ class LongWriteDescriptor():
             else:
                 checkaddr = checkaddr + len(checkinstr.bytes)
         self.table.writestable.flush()
+        self.valid = True
 
     def populate_row(self, r):
+        if not self.valid:
+            return
         r['breakaddr'] = self.breakaddr
         r['contaddr'] = self.resumeaddr
         r['startvalue'] = 0
@@ -539,6 +567,9 @@ class LongWriteDescriptor():
                 r['endvalue'] = er
 
     def get_info(self):
+        if not self.valid:
+            return "Invalid write descriptor at %x *%s)" % (self.breakaddr,
+                                                            self.breakline)
         return "in function %s: break at %x, write at %x, resume at %x." \
             "addr regs = %s calc reg %s, subreg = %s, disasm %s value %s." \
             % (self.funname, self.breakaddr, self.writeaddr,
@@ -570,7 +601,8 @@ class RelocDescriptor():
     def lookup_label_addr(self, label):
         lineno = WriteSearch.get_real_lineno(label, False, self.stage)
         loc = "%s:%d" % (label.filename, lineno)
-        return utils.get_line_addr(loc, True, self.stage)
+        return utils.get_line_addr(loc, True, self.stage,
+                                   srcdir=Main.get_config("temp_bootloader_src_dir"))
 
     def set_reloffset(self, offset):
         self.reloffset = offset
@@ -627,6 +659,7 @@ class SkipDescriptorGenerator():
         start = ""
         end = ""
         elf = Main.get_config("stage_elf", self.stage)
+        srcdir = Main.get_config("temp_bootloader_src_dir")
         isfunc = False
         for l in labels:
             if l.value == "START":
@@ -641,9 +674,11 @@ class SkipDescriptorGenerator():
                 start = "%s:%d" % (l.filename, lineno)
                 startaddr = self.table._get_line_addr(start, True)
                 funcname = utils.addr2funcnameobjdump(startaddr, self.stage)
-                cmd = "%sgdb -ex 'disassemble/r %s' --batch --nh --nx %s" % (self.table.cc,
-                                                                             funcname,
-                                                                             elf)
+                cmd = "%sgdb --cd=%s   -ex 'disassemble/r %s' "\
+                      "--batch --nh --nx %s" % (self.table.cc,
+                                                srcdir,
+                                                funcname,
+                                                elf)
                 output = Main.shell.run_multiline_cmd(cmd)
                 if output[1].split('\t')[2] == 'push':
                     # don't include push instruction
@@ -662,12 +697,13 @@ class SkipDescriptorGenerator():
             # move startaddr after any push instructions
             startaddr = self.table._get_line_addr(start, True)
             endaddr = self.table._get_line_addr(end, False)
-            cmd = "%sgdb -ex 'disassemble/r 0x%x,+8' --batch --nh --nx  %s" % \
-                  (self.table.cc, startaddr, elf)
+            cmd = "%sgdb --cd=%s -ex 'disassemble/r 0x%x,+8' --batch --nh --nx  %s" % \
+                  (self.table.cc, srcdir,
+                   startaddr, elf)
             output = Main.shell.run_multiline_cmd(cmd)
             if output == ['']:
-                print cmd
-                print l
+                print ("failed to locate skip tags %s" % self.__dict__)
+                return {}
                 raise Exception("failed to locate skip tags %s" % self.__dict__)
             ins = output[1].split('\t')[2]
             if (ins == 'push'):
@@ -816,8 +852,6 @@ class WriteSearch():
             self.longwritestable = self.group.longwrites
         except tables.exceptions.NoSuchNodeError:
             self.create_longwrites_table()
-            rows = self.longwritestable.iterrows()
-            map(lambda r: pytable_utils._print(self.longwrite_row_info(r)), rows)
 
         try:
             self.skipstable = self.group.skips
@@ -878,10 +912,10 @@ class WriteSearch():
             SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
             SkipDescriptorGenerator("per_clocks_enable3", self),
             SkipDescriptorGenerator("write_sdrc_timings", self),
-            #SkipDescriptorGenerator("mmc_init_stream", self),
+            # SkipDescriptorGenerator("mmc_init_stream", self),
             SkipDescriptorGenerator("mmc_init_stream0", self),
             SkipDescriptorGenerator("mmc_init_stream1", self),
-            #SkipDescriptorGenerator("mmc_init_setup", self),
+            # SkipDescriptorGenerator("mmc_init_setup", self),
             SkipDescriptorGenerator("mmc_init_setup1", self),
             SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
             # SkipDescriptorGenerator("mmc_send_cmd", self),
@@ -894,9 +928,9 @@ class WriteSearch():
             SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
             SkipDescriptorGenerator("omap_hsmmc_send_cmd1", self),
 
-            #SkipDescriptorGenerator("mmc_read_data0", self),
-            #SkipDescriptorGenerator("mmc_read_data1", self),
-            #SkipDescriptorGenerator("mmc_read_data2", self),
+            # SkipDescriptorGenerator("mmc_read_data0", self),
+            # SkipDescriptorGenerator("mmc_read_data1", self),
+            # SkipDescriptorGenerator("mmc_read_data2", self),
         ]
 
         skipfuns = [
@@ -916,7 +950,7 @@ class WriteSearch():
             SkipDescriptorGenerator("get_osc_clk_speed", self),
             SkipDescriptorGenerator("per_clocks_enable", self),
             SkipDescriptorGenerator("timer_init", self),
-            #SkipDescriptorGenerator("mmc_board_init", self),
+            # SkipDescriptorGenerator("mmc_board_init", self),
             SkipDescriptorGenerator("go_to_speed", self),
         ]
 
@@ -941,7 +975,7 @@ class WriteSearch():
                 r[k] = v
             if self.verbose:
                 print "skip %s (%x,%x) isfunc %s" % (s.name, r['pc'],
-                                                   r['resumepc'], r['isfunction'])
+                                                     r['resumepc'], r['isfunction'])
             r.append()
         self.skipstable.flush()
         self.h5file.flush()
@@ -956,20 +990,28 @@ class WriteSearch():
                 lineno = labeltool.SrcLabelTool.get_next_non_label(lineno, fullpath)
             else:
                 lineno = labeltool.SrcLabelTool.get_prev_non_label(lineno, fullpath)
-            addr = utils.get_line_addr("%s:%d" % (l.filename, lineno), True, stage)
-        return lineno
+                # print "lineno %s, %s" % (lineno, fullpath)
+            addr = utils.get_line_addr("%s:%d" % (l.filename, lineno), True, stage,
+                                       srcdir=Main.get_config("temp_bootloader_src_dir"))
+
+        if addr < 0:
+            return -1
+        else:
+            return lineno
 
     def _get_real_lineno(self, l, prev=False):
         return WriteSearch.get_real_lineno(l, prev, self.stage)
 
     def get_framac_line_addr(self, line, start):
-        return utils.get_line_addr(line, start, self.stage)
+        return utils.get_line_addr(line, start, self.stage,
+                                   srcdir=Main.get_config("temp_bootloader_src_dir"))
 
     def _get_line_addr(self, line, start=True, framac=False):
         if framac:
             return self.get_framac_line_addr(line, start)
         else:
-            return utils.get_line_addr(line, start, self.stage)
+            return utils.get_line_addr(line, start, self.stage,
+                                       srcdir=Main.get_config("temp_bootloader_src_dir"))
 
     def create_longwrites_table(self):
         self.longwritestable = self.h5file.create_table(self.group, 'longwrites',
@@ -988,27 +1030,27 @@ class WriteSearch():
 
         if self.stage.stagename == "spl":
             skips = skips
-        else: # strcpy doesn't work properly, disabling for now
+        else:  # strcpy doesn't work properly, disabling for now
             mainskips = [
                 LongWriteDescriptorGenerator("memmove", [], ["r2"],
                                              "", 'count', 1, False, self),
                 LongWriteDescriptorGenerator("relocate_code", [], ["r2"],
                                              "r1", 'count', 1, False, self),
-                #LongWriteDescriptorGenerator("strncpy", ["r0"], ["r1"],
-                #                             "r2", 'sourcestrn',
-                #                             1, False, self),
-                #LongWriteDescriptorGenerator("_do_env_set", ["r0"], ["r2"],
-                #                             "", 'sourcestr',
-                #                             1, False, self),
-                #LongWriteDescriptorGenerator("strcpy", ["r0"], ["r1"],
-                #                             "", 'sourcestr',
-                #                             1, False, self),
+                # LongWriteDescriptorGenerator("strncpy", ["r0"], ["r1"],
+                #                              "r2", 'sourcestrn',
+                #                              1, False, self),
+                # LongWriteDescriptorGenerator("_do_env_set", ["r0"], ["r2"],
+                #                              "", 'sourcestr',
+                #                              1, False, self),
+                # LongWriteDescriptorGenerator("strcpy", ["r0"], ["r1"],
+                #                              "", 'sourcestr',
+                #                              1, False, self),
                 LongWriteDescriptorGenerator("cp_delay", [], [99],
                                              "", 'count', 0, True, self),
                 LongWriteDescriptorGenerator("string", [], ["r0"],
                                              "", 'count', 1, False, self),
-                #LongWriteDescriptorGenerator("strcat", [], ["r1"], "",
-                #                             "sourcestr", 1, False, self)
+                # LongWriteDescriptorGenerator("strcat", [], ["r1"], "",
+                #                              "sourcestr", 1, False, self)
 
             ]
             skips.extend(mainskips)
@@ -1024,6 +1066,9 @@ class WriteSearch():
             descs = pytable_utils.get_rows(self.longwritestable, query)
             if len(descs) > 0:
                 print "found duplicate longwrite at breakpoint 0x%x" % sdesc.breakaddr
+                continue
+            if not sdesc.valid:
+                "longwrite is not value, continuing"
                 continue
             sdesc.populate_row(r)
             if self.verbose:
@@ -1073,15 +1118,23 @@ class WriteSearch():
         # line = "arch/arm/cpu/armv7/omap3/lowlevel_init.S:181" #ldr	r1, =SRAM_CLK_CODE
 
         # now disassemble and lookup where the value we need is stored, in the commend
-        cmd = "%sgdb -ex 'x/i 0x%x' --batch --nh --nx  %s" % (cc, dstaddr, elf)
+        srcdir = Main.get_config("temp_bootloader_src_dir")
+        cmd = "%sgdb --cd=%s " \
+              "-ex 'x/i 0x%x' --batch --nh --nx  %s" % (cc,
+                                                        srcdir,
+                                                        dstaddr, elf)
         output = Main.shell.run_multiline_cmd(cmd)
         output = output[0].strip()
-        dstaddr = int(output.split(';')[1].strip(), 0)
+        output = output.split(';')[1].strip()
+        dstaddr = int(output, 16)
         # now get value at this address
-        cmd = "%sgdb -ex 'x/wx 0x%x' --batch --nh --nx  %s" % (cc, dstaddr, elf)
+        cmd = "%sgdb --cd=%s " \
+              "-ex 'x/wx 0x%x' --batch --nh --nx  %s" % (cc, srcdir,
+                                                         dstaddr, elf)
         output = Main.shell.run_multiline_cmd(cmd)
         output = output[0].strip()
         dstaddr = int(output.split(':')[1].strip(), 0)
+
         r.set_reloffset(dstaddr - r.cpystartaddr)
         infos.append(r.get_row_information())
         if stage.stagename == 'main':
@@ -1115,12 +1168,14 @@ class WriteSearch():
                                                    StageExitInfo, "stage exit info")
         sls = WriteSearch.find_labels(labeltool.StageinfoLabel, "EXIT", self.stage, "")
         r = self.stageexits.row
-        print "creating stage exit table"
         for l in sls:
             lineno = self._get_real_lineno(l)
-
+            if lineno < 0:
+                print "couldn't find label at %s" % l
+                continue
             loc = "%s:%d" % (l.filename, lineno)
-            addr = utils.get_line_addr(loc, True, self.stage)
+            addr = utils.get_line_addr(loc, True, self.stage,
+                                       srcdir=Main.get_config("temp_bootloader_src_dir"))
             success = True if l.name == "success" else False
             r['addr'] = addr
             r['line'] = loc
@@ -1288,7 +1343,7 @@ class WriteSearch():
                                                    FuncEntry, "function info")
         # now look at instructions
         elf = Main.get_config("stage_elf", self.stage)
-
+        srcdir = Main.get_config("temp_bootloader_src_dir")
         cmd = "%sobjdump -D -w -j .text %s 2>/dev/null" % (self.cc, elf)
         output = Main.shell.run_multiline_cmd(cmd)
         addr = re.compile("^[0-9a-fA-F]{8}:")
@@ -1395,8 +1450,12 @@ class WriteSearch():
                         fname = utils.addr2funcnameobjdump(pc, self.stage)
                         if len(fname) > 0:
                             # lookup start and end addresses
-                            cmd = "%sgdb -ex 'disassemble/r %s' --batch --nh --nx  %s" \
-                                  % (self.cc, fname, elf)
+                            # -ix 'set substitute-path %s %s'"
+                            cmd = "%sgdb --cd=%s" \
+                                  " -ex 'disassemble/r %s'"\
+                                  " --batch --nh --nx  %s" \
+                                  % (self.cc,
+                                     srcdir, fname, elf)
                             output = Main.shell.run_multiline_cmd(cmd)
                             try:
                                 start = output[1].split('\t')

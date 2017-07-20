@@ -20,6 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+
 def get_rows(table, query):
     indices = table.get_where_list(query)  # [r for r in rows]
     return [table[i] for i in indices]

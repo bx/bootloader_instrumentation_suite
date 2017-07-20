@@ -21,10 +21,10 @@
 # SOFTWARE.
 
 import gdb
-import time
 import sys
 import os
 import signal
+import intervaltree
 path = gdb.os.getcwd()
 sys.path.append(os.path.join(path, ".."))
 sys.path.append(path)
@@ -33,7 +33,6 @@ if os.path.exists(version):
     with open(version, 'r') as pv:
         penv = pv.read().strip()
         sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
-import intervaltree
 import gdb_tools
 import substage
 import db_info
@@ -143,7 +142,7 @@ class Enforce(gdb_tools.GDBPlugin):
                   if _s.stage in self.controller.stage_order]:
             name = s.stage.stagename
             # policy = self.controller.policy_file
-            ss = self.controller.substages_entrypoints
+            ss = self.controller._stages[name].substages_entrypoints
             i = db_info.get(s.stage)
             allowed_writes[name] = {}
 

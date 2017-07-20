@@ -66,6 +66,7 @@ class MemoryRegionInfo(tables.IsDescription):
     comments = tables.StringCol(512)
     include_children = tables.BoolCol()
     reclassifiable = tables.BoolCol()
+    do_print = tables.BoolCol()
 
 
 class MemoryRegionAddrs(tables.IsDescription):
@@ -93,6 +94,7 @@ class SubstageRegionPolicy(tables.IsDescription):
     writable = tables.BoolCol()
     reclassified = tables.BoolCol()
     allowed_symbol = tables.BoolCol()
+    do_print = tables.BoolCol()
 
 
 class SubstageContents(tables.IsDescription):
@@ -482,6 +484,8 @@ class SubstagesInfo():
     def print_regions(self, info, addr):
         lines = []
         for i in info.iterrows():
+            if not i['do_print']:
+                continue
             name = i['short_name']
             longname = i['name']
             longname = ' (%s)' % longname if longname else ''
@@ -528,15 +532,15 @@ class SubstagesInfo():
                 name = s['short_name']
                 allregions.add(name)
                 if s['substagenum'] == num:
-                    if s['defined']:
+                    if s['defined'] and s['do_print']:
                         defined.add(name)
-                    if s['new']:
+                    if s['new'] and s['do_print']:
                         new.add(name)
-                    if s['reclassified']:
+                    if s['reclassified'] and s['do_print']:
                         reclassified.add(name)
-                    if s['writable']:
+                    if s['writable'] and s['do_print']:
                         writable.add(name)
-                    if s['undefined']:
+                    if s['undefined'] and s['do_print']:
                         undefined.add(name)
             used = new | defined | writable | reclassified
             unusedregions = allregions - used
@@ -588,6 +592,9 @@ class SubstagesInfo():
                     policy_row['writable'] = r.short_name in s.writable_regions
                     policy_row['reclassified'] = r.short_name in s.reclassified_regions
                     policy_row['allowed_symbol'] = False
+                    policy_row['do_print'] = True
+                    if r.parent and r.parent._csv:
+                        policy_row['do_print'] = False
                     policy_row['symbol_name'] = ''
                     policy_row['symbol_elf_name'] = ''
                     policy_row.append()
@@ -612,6 +619,7 @@ class SubstagesInfo():
                         policy_row['writable'] = True
                         policy_row['reclassified'] = False
                         policy_row['allowed_symbol'] = True
+                        policy_row['do_print'] = True
                         policy_row.append()
                         found = True
                         break
@@ -681,6 +689,9 @@ class SubstagesInfo():
             info_row['name'] = region.name
             info_row['comments'] = region.contents
             info_row['include_children'] = region.include_children
+            info_row['do_print'] = True
+            if region.parent and region.parent._csv:
+                info_row['do_print'] = False
             info_row['reclassifiable'] = region.reclassifiable
             info_row.append()
             for a in region.addresses:
