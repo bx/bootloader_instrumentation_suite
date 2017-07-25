@@ -712,10 +712,12 @@ class TraceTaskPrepLoader(ResultsLoader):
         super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not create_test_only)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
+        print "trace id %s" % trace_name
         if self.create:
             self.trace_id = self.create_new_id()
         elif trace_name is None:  # get last id
-            self.trace_id = sorted(self.existing_trace_ids())[0]
+            print sorted(self.existing_trace_ids())
+            self.trace_id = sorted(self.existing_trace_ids())[-1]
         else:
             if not hook:
                 existing = sorted(self.existing_trace_ids())
@@ -812,7 +814,7 @@ class TraceTaskPrepLoader(ResultsLoader):
 
     def existing_trace_ids(self):
         for f in glob.glob("%s/*" % self._dest_dir_root_path()):
-            if os.path.isdir(f):
+            if os.path.isdir(f) and not os.path.basename(f) == "trace_data-by_name":
                 yield os.path.basename(f)
 
     def _dest_dir_root_path(self, rel=""):
@@ -1090,10 +1092,6 @@ sha1: {}
         olddir = os.getcwd()
         os.chdir(self.local)
         os.system("git archive %s | tar -C %s -x" % (self.sha, tmpdir))
-        # print "git archive %s | tar -C %s -x" % (self.sha, tmpdir)
-        # print "---"
-        # print os.system("ls %s" % tmpdir)
-        # print "---"
         os.chdir(olddir)
         for i in self.boot_stages:
             bootelfs.append(self._boot_src_path(i.elf))
@@ -1157,8 +1155,7 @@ sha1: {}
                     e = imgdst[stage.stagename]
                 if os.path.exists(e):
                     setattr(stage, t, e)
-        for stage in Main.get_config('enabled_stages'):
-            s = Main.stage_from_name(stage)
+        for s in self.boot_stages:
             if os.path.exists(Main.get_config('stage_elf', s)):
                 s.post_build_setup()
 
@@ -1260,6 +1257,7 @@ class PolicyTaskLoader(ResultsLoader):
 
         for s in Main.get_config("stages_with_policies"):
             n = s.stagename
+
             class setup_policy():
                 def __init__(self, stage):
                     self.stage = stage
@@ -1290,5 +1288,6 @@ class PolicyTaskLoader(ResultsLoader):
                                "create_%s_policy_db" % n)
             a.task_dep.append(os.path.dirname(pdb_done))
             a.task_dep.append(os.path.dirname(target))
+            a.task_dep.append("instance")
             tasks.append(a)
         return tasks

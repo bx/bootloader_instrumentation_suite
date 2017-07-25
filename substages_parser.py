@@ -295,7 +295,7 @@ class MmapRegion():
     def check_regions(cle, regions):
         for (k, v) in regions.iteritems():
             if not v.addresses_resolved:
-                print "ERROR: did not resolve address for region %s %s" % (k, v)
+                raise Exception("ERROR: did not resolve address for region %s %s" % (k, v))
             else:
                 addrs = v.addresses
                 for c in v.children_names:
@@ -450,16 +450,22 @@ class MmapRegion():
     def _resolve_var_addr(self, s, allregions, values):
         val = s
         split = s.split('.')
+        trysymbol = False
         if '.'.join(split[:-1]) in allregions.iterkeys():
             val = self._resolve_region_relative(s, allregions)
-        elif s in values.iterkeys():
+            return val
+        if s in values.iterkeys():
             val = values[s]
-        elif config.Main.stage_from_name(split[0]):
+            return val
+        if config.Main.stage_from_name(split[0]):
             stage = config.Main.stage_from_name(split[0])
+            if not stage.post_build_setup_done:
+                stage.post_build_setup()
             if len(split) > 1:
                 attr = split[1]
                 val = getattr(stage, attr, val)
-        elif s.startswith('.'):
+                return val
+        if s.startswith('.'):
             end = '.end'
             start = '.start'
             if s.endswith(end):
@@ -468,10 +474,12 @@ class MmapRegion():
                 (val, end) = utils.get_section_location(re.sub(start, '', s), self.stage)
             if type(val) == int and val < 0:
                 val = s
-        elif not s.startswith('0x'):
+            return val
+        if not s.startswith('0x'):
             val = utils.get_symbol_location(s, self.stage, nm=True)
             if val < 0:
                 val = s
+            return val
         else:
             val = int(s, 16)
         return val
