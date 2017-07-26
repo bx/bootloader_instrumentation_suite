@@ -42,10 +42,10 @@ class TaskManager():
                  policies, quick, run_trace, select_trace, import_policies,
                  post_trace_processing=[], open_instance=None, run=True,
                  print_cmds=False, hook=False):
-        if not do_build:
-            (print_build_cmd, build_source) = ([], [])
-        else:
-            (print_build_cmd, build_source) = do_build
+        #if not do_build:
+        (print_build_cmd, build_source) = ([], [])
+        #else:
+        #    (print_build_cmd, build_source) = do_build
         bootloader = Main.get_bootloader_cfg()
         if create_test:
             build_source.append(bootloader.software)
@@ -62,15 +62,7 @@ class TaskManager():
         if create_test:
             if not self.boot_task.has_nothing_to_commit():
                 self.boot_task.commit_changes()
-                self.boot_task.build.uptodate = [False]
                 needs_build = True
-            else:
-                if not all(map(os.path.exists, self.boot_task.build.targets)):
-                    self.boot_task.build.uptodate = [False]
-                    needs_build = True
-            if needs_build:
-                self.build(['u-boot'], True)
-            #self.src_manager.builds.append(bootloader.software)
             (self.test_id, gitinfo) = self._calculate_current_id()
             current_id = self.test_id
             run = True
@@ -92,7 +84,9 @@ class TaskManager():
                                                                             self.test_id,
                                                                             enabled_stages,
                                                                             run,
-                                                                            gitinfo)
+                                                                            gitinfo,
+                                                                            self,
+                                                                            needs_build)
 
         if create_test:
             self.ppt = instrumentation_results_manager.PolicyTaskLoader(policies)

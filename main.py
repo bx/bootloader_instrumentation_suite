@@ -218,6 +218,15 @@ if __name__ == '__main__':
                                         args.postprocess_trace,
                                         args.testcfginstance, run,
                                         args.print_cmds)
+
+    if args.create or import_policies or args.print_cmds:
+        task_mgr.create_test_instance()
+    elif args.run_trace:
+        task_mgr.run_trace()
+    elif args.postprocess_trace:
+        task_mgr.postprocess_trace()
+    if args.print_cmds:
+        task_mgr.rt.do_print_cmds()
     if args.buildcommands or args.print_cmds or (args.build and not args.create):
         targets = args.build if args.build else args.buildcommands
         ret = task_mgr.build(targets, True if args.build else False)
@@ -230,11 +239,3 @@ if __name__ == '__main__':
                             print "cd %s" % task.root_dir
                             print action.expand_action()
                     print "\n"
-    elif args.create or import_policies or args.print_cmds:
-        task_mgr.create_test_instance()
-    elif args.run_trace:
-        task_mgr.run_trace()
-    elif args.postprocess_trace:
-        task_mgr.postprocess_trace()
-    if args.print_cmds:
-        task_mgr.rt.do_print_cmds()

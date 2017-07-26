@@ -726,7 +726,7 @@ class SubstagesInfo():
     def open_dbs(self, trace):
         name = Main.get_config('policy_name', self.stage)
         trace_db = Main.get_config("policy_trace_db", self.stage)
-        if not trace_db or not trace:
+        if not trace_db or not trace or not os.path.exists(trace_db):
             self.h5file = None
             self.h5group = None
             self.trace_intervals_table = None
@@ -876,6 +876,10 @@ class SubstagesInfo():
                     res = allowed_writes.search(start)
                 else:
                     res = allowed_writes.search(start, end)
+                if start == 0x8014c4c0:
+                    print allowed_writes
+                    print res
+                    print "%x-%x" % (start, end)
                 if not len(res) == 1:
                     write = r['relocatedpc']
                     print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,

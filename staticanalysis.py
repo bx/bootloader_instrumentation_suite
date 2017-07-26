@@ -693,6 +693,8 @@ class SkipDescriptorGenerator():
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
                 end = "%s:%d" % (l.filename, lineno)
+            if lineno == -1:
+                return {}
         if (startaddr < 0) and (endaddr < 0):
             # move startaddr after any push instructions
             startaddr = self.table._get_line_addr(start, True)
@@ -991,6 +993,9 @@ class WriteSearch():
             else:
                 lineno = labeltool.SrcLabelTool.get_prev_non_label(lineno, fullpath)
                 # print "lineno %s, %s" % (lineno, fullpath)
+            if lineno is None:
+                addr = -1
+                break
             addr = utils.get_line_addr("%s:%d" % (l.filename, lineno), True, stage,
                                        srcdir=Main.get_config("temp_bootloader_src_dir"))
 

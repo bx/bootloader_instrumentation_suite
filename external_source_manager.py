@@ -63,6 +63,9 @@ class CodeTask(object):
                     setattr(self, a, [])
             self.basename = cfg.name
             self.name = name
+            self.file_dep = []
+            self.task_dep = []
+            self.other = []
             self.build_cfg = cfg
             self.root_dir = self.gf('root')
             if os.path.isdir(os.path.join(self.root_dir, ".git")):
@@ -124,7 +127,7 @@ class CodeTaskConfig(CodeTask):
         self.actions = [(self.save_timestamp,),
                         CmdAction(self.format_command(self.gf('build_prepare')),
                                   cwd=self.root_dir, save_out='configured')]
-        # self.uptodate = [task_ran("clean")]
+        self.uptodate = [task_ran("clean")]
 
 
 class CodeTaskBuild(CodeTask):
@@ -155,9 +158,10 @@ class CodeTaskList():
             self.git = git_mgr.GitManager(self.root_dir)
         else:
             self.git = None
-
+        self.clean = CodeTaskClean(cfg)
+        self.config = CodeTaskConfig(cfg)
         self.build = CodeTaskBuild(cfg)
-        self.tasks = [CodeTaskClean(cfg), CodeTaskConfig(cfg), self.build]
+        self.tasks = [self.clean, self.config, self.build]
 
         if always_uptodate:
             for t in self.tasks:

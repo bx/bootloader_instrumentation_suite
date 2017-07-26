@@ -712,11 +712,9 @@ class TraceTaskPrepLoader(ResultsLoader):
         super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not create_test_only)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
-        print "trace id %s" % trace_name
         if self.create:
             self.trace_id = self.create_new_id()
         elif trace_name is None:  # get last id
-            print sorted(self.existing_trace_ids())
             self.trace_id = sorted(self.existing_trace_ids())[-1]
         else:
             if not hook:
@@ -868,10 +866,12 @@ traces: [{}]
 
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
-                 enabled_stages, create, gitinfo):
+                 enabled_stages, create, gitinfo, manager, build):
         super(InstrumentationTaskLoader, self).__init__(test_id, "instance", True)
         self.create = create
+        self.build = build
         self.gitinfo = gitinfo
+        self.manager = manager
         self.enabled_stages = enabled_stages
         self.bootloader = Main.get_bootloader_cfg()
         self.test_data_path = Main.test_data_path
@@ -879,6 +879,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         self.boot_stages = Main.config_class_lookup("Bootstages")
         self.hardwareclass = Main.get_hardwareclass_config()
         self.test_id = test_id
+        self.boot_task = boot_task
         hwname = Main.get_hardwareclass_config().name
         bootname = Main.get_bootloader_cfg().software
         hdir = os.path.join(Main.hw_info_path, hwname)
@@ -1040,6 +1041,7 @@ class InstrumentationTaskLoader(ResultsLoader):
                                    [Main.get_config("stage_elf", s)],
                                    [target, done_target], "staticanalysis_%s" % n)
             tasks.append(rtask)
+
         return tasks
 
     def _image_tasks(self):
@@ -1050,6 +1052,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         elfdst = {}
         imgdst = {}
         deps = []
+
         tasks.append(self._mkdir(self.test_data_path))
         tasks.append(self._mkdir(self._full_path()))
         Main.set_config("test_instance_root", self._full_path())
@@ -1098,6 +1101,12 @@ sha1: {}
             bootimages.append(self._boot_src_path(i.image))
             elfdst[i.stagename] = os.path.join(dstdir, os.path.basename(i.elf))
             imgdst[i.stagename] = os.path.join(dstdir, os.path.basename(i.image))
+        if self.create and not all(map(os.path.exists,
+                                       [i.elf for i in self.boot_stages])) and self.build:
+            self.boot_task.build.uptodate = [False]
+            self.manager.build(self.boot_task.build.task_name())
+            for b in self.boot_task.tasks:
+                b.uptodate = [True]
 
         Main.set_config("stage_elf", lambda s: elfdst[s.stagename])
         Main.set_config("stage_image", lambda s: imgdst[s.stagename])
