@@ -412,14 +412,15 @@ class PostTraceLoader(ResultsLoader):
         tasks = []
         deps = []
         class Do():
-            def __init__(self, s, o):
+            def __init__(self, s, o, o2):
                 self.s = s
                 self.o = o
+                self.o2 = o2
 
             def __call__(self):
                 db_info.create(self.s, "policydb")
                 db_info.get(self.s).consolidate_trace_write_table()
-                db_info.get(self.s).generate_write_range_file(self.o)
+                db_info.get(self.s).generate_write_range_file(self.o, self.o2)
         outs = {}
         el_file = {}
         fns = {}
@@ -433,7 +434,9 @@ class PostTraceLoader(ResultsLoader):
             fns[n] = self._process_path(name, "%s_fn_lists" % n)
             outfile = self._process_path(name,
                                          "%s-write_range_info.txt" % n)
-            a = ActionListTask([PythonInteractiveAction(Do(s, outfile))],
+            outfile2 = self._process_path(name,
+                                         "%s-write_range_info.csv" % n)
+            a = ActionListTask([PythonInteractiveAction(Do(s, outfile, outfile2))],
                                deps, [outfile, fns[n], el_file[n]], name)
             outs[s.stagename] = outfile
             if "watchpoint" in self.tracenames:
@@ -477,8 +480,8 @@ class PostTraceLoader(ResultsLoader):
                 #    a.file_dep.append(os.path.basename(el))
                     # a.task_dep.append("consolidate_writes_ActionListTask:post_trace")
                     # a.file_dep.append(el)
-                a.task_dep.append(os.path.dirname(Main.get_config("policy_db", s)))
-                a.task_dep.append("policy")
+                # a.task_dep.append(os.path.dirname(Main.get_config("policy_db", s)))
+                # a.task_dep.append("policy")
                 a.uptodate = [(False)]
                 tasks.append(a)
 
@@ -1249,13 +1252,13 @@ class PolicyTaskLoader(ResultsLoader):
 
             c = self._copy_file(s_policy,
                                 policies[n])
-            c.task_dep.append(policy_instance_dir)
+            # c.task_dep.append(policy_instance_dir)
             tasks.append(c)
             c.file_dep.append(s_regions)
             c.file_dep.append(s_policy)
             c = self._copy_file(s_regions,
                                 regions[n])
-            c.task_dep = [policy_instance_dir]
+            # c.task_dep = [policy_instance_dir]
             tasks.append(c)
         Main.set_config("policy_file", lambda s: policies[s.stagename])
         Main.set_config("regions_file", lambda s: regions[s.stagename])
@@ -1295,8 +1298,8 @@ class PolicyTaskLoader(ResultsLoader):
                                 staticdb, policies[n], regions[n]],
                                targets,
                                "create_%s_policy_db" % n)
-            a.task_dep.append(os.path.dirname(pdb_done))
-            a.task_dep.append(os.path.dirname(target))
+            # a.task_dep.append(os.path.dirname(pdb_done))
+            # a.task_dep.append(os.path.dirname(target))
             a.task_dep.append("instance")
             tasks.append(a)
         return tasks

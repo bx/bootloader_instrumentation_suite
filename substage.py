@@ -876,10 +876,6 @@ class SubstagesInfo():
                     res = allowed_writes.search(start)
                 else:
                     res = allowed_writes.search(start, end)
-                if start == 0x8014c4c0:
-                    print allowed_writes
-                    print res
-                    print "%x-%x" % (start, end)
                 if not len(res) == 1:
                     write = r['relocatedpc']
                     print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,

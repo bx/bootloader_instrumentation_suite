@@ -363,14 +363,11 @@ class DBInfo():
         self._sdb._reopen(True)
         self._tdb.db.histogram()
 
-    def trace_histograminfo(self, h):
-        self._tdb.db.histograminfo(h)
-
-    def generate_write_range_file(self, out):
+    def generate_write_range_file(self, out, out2):
         self._tdb._reopen(append=True)
         self._sdb._reopen(append=True)
         self._tdb.db.histogram()
-        self.trace_histograminfo(out)
+        self._tdb.db.histograminfo(out, out2)
 
     def consolidate_trace_write_table(self):
         self._tdb.db.histogram()

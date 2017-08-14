@@ -38,43 +38,9 @@ module Funcall_info = struct
       max:Abstract_interp.Int.t option;
     }
                      
-  let is_instr s =
-    match s with
-      Instr _ -> true
-    | _ -> false
-
-  let lexloc_string info =
-    let ({Lexing.pos_fname=f1; Lexing.pos_lnum=l1; _}, _) = info.lexloc in
-    Printf.sprintf "%s:%d"  f1 l1 
-
-  let get_lval info =
-    info.lval
-
-  let get_lvalloc info =
-    info.lvalloc
-
-    
-  let instr_string info =
-    let s = Printer.pp_instr Format.str_formatter info.instr in
-    Format.flush_str_formatter s
-      
-  let eval_lval lval kinstr =
-    !Db.Value.lval_to_loc ~with_alarms:CilE.warn_none_mode kinstr lval
-
-  let has_fulladdr info =
-    not (Integer.is_zero info.lvalfulladdr)
-        
-  let get_fulladdr info =
-    info.lvalfulladdr
-      
-  let lval_string info =
-    let s = Printer.pp_lval Format.str_formatter info.lval in
-    Format.flush_str_formatter s
-
   let form_callstack_string cs =
     List.fold_right (fun c s -> (match c with (f, _) ->
-                                   s ^ "->" ^ (Ast_info.Function.get_name f.fundec))) cs ""
-             
+                                   s ^ "->" ^ (Ast_info.Function.get_name f.fundec))) cs ""             
   let build_callinfo s kinstr =
     if (Db.Value.is_computed()) && (Db.Value.is_reachable_stmt s)  then
       (match Db.Value.get_stmt_state_callstack ~after:true s with
@@ -89,7 +55,6 @@ module Funcall_info = struct
     else
       SS.empty
 end
-
 
 let help_msg = "Resolves as many memory write destinations as possible"
 
@@ -119,25 +84,11 @@ module Output_file = Self.String
                          let help =
                            "file where the message is output (default: console)"
                        end)
-
                        
 module Location_helper= struct
   let loc_to_loc_and_size loc =
     (Locations.loc_to_loc_without_size loc, Locations.loc_size loc)
-                                      
-  let l_to_string pretty l =
-    let s = pretty Format.str_formatter l in
-    Format.flush_str_formatter s
-                               
-  let locbytes_to_string l =
-    l_to_string Locations.Location_Bytes.pretty l
-                
-  let precise_to_string l =
-    l_to_string Precise_locs.pretty_loc l
-
-  let int_to_string i =
-    l_to_string Abstract_interp.Int.pretty i
-
+                                                                     
   let loc_bytes_to_addr_int l =
     try
       match l with
@@ -151,7 +102,7 @@ module Location_helper= struct
     with Not_found -> Integer.zero    
 
   let get_min_max l =
-    try (* value/eval_typ.ml... sizeof_lval_typ typlv *)
+    try
       (match l with
          (llv, lsz) ->
          (match ((Cvalue.V.project_ival llv), (Int_Base.project lsz)) with
@@ -159,12 +110,8 @@ module Location_helper= struct
             (match Ival.min_and_max v with
                (Some(min), Some(max)) -> (Some(min), Some(Integer.add max (Integer.native_div sz (Integer.of_int 8))))
              | _ -> (None, None))))
-    with Cvalue.V.Not_based_on_null -> (None, None)
-               
-      
-      (* Cvalue.V.project_ival : V.t -> Ival.t *)
+    with Cvalue.V.Not_based_on_null -> (None, None)                     
 end
-
 
 module Instr_info = struct
   type instrinfo = {
@@ -179,21 +126,12 @@ module Instr_info = struct
       callinfo:SS.t;
     }
                      
-  let is_instr s =
-    match s with
-      Instr _ -> true
-    | _ -> false
-
   let lexloc_string info =
     let ({Lexing.pos_fname=f1; Lexing.pos_lnum=l1; _}, _) = info.lexloc in
     Printf.sprintf "%s:%d"  f1 l1 
 
-  let get_lval info =
-    info.lval
-
   let get_lvalloc info =
     info.lvalloc
-
     
   let instr_string info =
     let s = Printer.pp_instr Format.str_formatter info.instr in
@@ -201,12 +139,6 @@ module Instr_info = struct
       
   let eval_lval lval kinstr =
     !Db.Value.lval_to_loc ~with_alarms:CilE.warn_none_mode kinstr lval
-
-  let has_fulladdr info =
-    not (Integer.is_zero info.lvalfulladdr)
-        
-  let get_fulladdr info =
-    info.lvalfulladdr
 
   let callstack_str info =
     if SS.is_empty info.callinfo then
@@ -253,6 +185,11 @@ let print_msg =
          Format.flush_str_formatter s;
         )
 
+    method print msg =
+      if tofile then
+        Printf.fprintf file_chan "%s\n" msg
+      else
+        Self.result "%s" msg   
     method print_range info =
       (let {Instr_info.min=min; Instr_info.max=max; _} = info in
        match (min, max) with
@@ -265,18 +202,7 @@ let print_msg =
         (let s = Locations.pretty Format.str_formatter (Instr_info.get_lvalloc info) in
          self#print (Printf.sprintf "%s = %s (%s) .. %s \n" (Instr_info.instr_string info) (Format.flush_str_formatter s) (Instr_info.lexloc_string info) (Instr_info.callstack_str info));
         );
-      ()
-
-    method print_nonzero_lvalue_addr info =
-      if Instr_info.has_fulladdr info then
-        self#print (Printf.sprintf "(%s) %s in %s .. %s\n" (Location_helper.int_to_string (Instr_info.get_fulladdr info)) (Instr_info.lval_string info) (Instr_info.lexloc_string info) (Instr_info.callstack_str info));
-      ()
-        
-    method print msg =
-      if tofile then
-        Printf.fprintf file_chan "%s\n" msg
-      else
-        Self.result "%s" msg                      
+      ()        
     method close =
       if tofile then
         close_out file_chan
@@ -288,21 +214,17 @@ class print_dsts print_obj more = object (self: 'self)
 
   method! vstmt_aux s =
     (match Instr_info.build_instrinfo s self#current_kinstr with
-       Some(info) -> ((* print_obj#print_nonzero_lvalue_addr info;*) print_obj#print_range info;
+       Some(info) -> (print_obj#print_range info;
                      print_obj#print_more info more)
      | _ -> ()
     );
     Cil.DoChildren
 end
-
-
                                   
 let run () =
   if Enabled.get() then
     Visitor.visitFramacFileSameGlobals ( new print_dsts print_msg (More_enabled.get())) (Ast.get ());
-  print_msg#close
-  
-    
+  print_msg#close 
                
 let () = Db.Main.extend run
                          

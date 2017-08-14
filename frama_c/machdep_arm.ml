@@ -28,7 +28,8 @@
 
   let arm = {
       version          = "arm machdep";
-      compiler         = "gcc";
+    compiler         = "gcc";
+    cpp_arch_flags = [];
     (* All types but char and long long are 16 bits *)
     sizeof_short     = 2;
     sizeof_int       = 4;
@@ -38,17 +39,17 @@
     sizeof_double    = 8;
     sizeof_longdouble = 8;
     sizeof_ptr       = 4;
-    sizeof_void      = 4; (* ? *)
-    sizeof_fun       = 1;(* ? *)
-    wchar_t = "int"; (* ? *)
-    alignof_str = 1; (* ? *)
-    alignof_fun = 1; (* ? *)
-    char_is_unsigned = false; (* ? *)
-    underscore_name = false; (* ? *)
-    const_string_literals = false; (* ? *)
-    alignof_aligned = 8;(* ? *)
-    has__builtin_va_list = true;(* ? *)
-    __thread_is_keyword = true; (* ? *)
+    sizeof_void      = 4;
+    sizeof_fun       = 4;
+    wchar_t = "int";
+    alignof_str = 1;
+    alignof_fun = 1;
+    char_is_unsigned = false;
+    underscore_name = false;
+    const_string_literals = false;
+    alignof_aligned = 8;
+    has__builtin_va_list = true;
+    __thread_is_keyword = true;
     alignof_short    =  2;
     alignof_int      = 4;
     alignof_long     = 4;

@@ -62,12 +62,6 @@ module Funcall_info = struct
   let eval_lval lval kinstr =
     !Db.Value.lval_to_loc ~with_alarms:CilE.warn_none_mode kinstr lval
 
-  let has_fulladdr info =
-    not (Integer.is_zero info.lvalfulladdr)
-        
-  let get_fulladdr info =
-    info.lvalfulladdr
-      
   let lval_string info =
     let s = Printer.pp_lval Format.str_formatter info.lval in
     Format.flush_str_formatter s

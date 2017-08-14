@@ -316,17 +316,17 @@ class PreprocessedFileProcessor():
                 continue
 
             name_to_patch_functions = {
-                "chunksize": self.chunksz_patch,
-                "cpuid": self.cpuid_patch,
-                "delete_line": self.delete_line,
+#                "chunksize": self.chunksz_patch,
+                "sdr_cs_offset": self.sdr_cs_offset_patch,
                 "i2c_adap_max": self.i2cadapmax_patch,
                 "i2c_adap_start": self.i2cadapstart_patch,
                 "i2c_init_bus": self.i2cinitbus_patch,
                 "malloc_zero": self.malloc_zero_patch,
-                "memalign": self.memalign_patch,
+#                "memalign": self.memalign_patch,
+                "cpuid": self.cpuid_patch,
+#                "delete_line": self.delete_line,
                 "noreturn": self.noreturn_patch,
                 "return_zero": self.returnzero_patch,
-                "sdr_cs_offset": self.sdr_cs_offset_patch,
                 "val": self.val_patch,
                 "void_to_int": self.void_int_patch,
             }
@@ -417,36 +417,35 @@ class FramaCDstPluginManager():
         self.tee = tee
         self.path = os.path.dirname(os.path.realpath(__file__))
         verbosen = 3 if verbose else 3
+#                            "-slevel 100 "\
+#                            "-slevel-function printf:0  "\
+#                            "-slevel-function puts:0 "\
+
         self.frama_c_args = " -load-script %s -machdep arm " \
-                            " -load-script %s " \
-                            " -load-script %s " \
-                            " -val-use-spec do_fat_read_at -no-results-function printf " \
-                            "-no-results-function get_timer_masked " \
-                            "-no-results-function get_timer " \
-                            "-no-results-function serial_printf "\
-                            "-no-results-function fprintf "\
-                            "-no-results-function fputs -no-results-function fputc"\
-                            " -slevel 100 -slevel-function printf:0  -slevel-function puts:0 "\
-                            " -va -val-initialization-padding-globals=no  -constfold "\
-                            " -kernel-verbose %d -value-verbose %d  -big-ints-hex 0  "\
-                            "-unsafe-arrays "\
-                            " -val-builtin malloc:Frama_C_alloc_size,free:Frama_C_free "\
-                            " -absolute-valid-range 0x40000000-0xffffffff "\
-                            "-no-results-function pointer -no-results-function vsprintf"\
-                            " -val -then -dst -then -call" % (os.path.join(self.path,
-                                                                           "machdep_arm.ml"),
-                                                              os.path.join(self.path,
-                                                                           "dest_analysis.ml"),
-                                                              os.path.join(self.path,
-                                                                           "call_analysis.ml"),
-                                                              verbosen, verbosen)
+                            "-load-script %s " \
+                            "-load-script %s " \
+                            "-no-initialized-padding-locals " \
+                            "-val-use-spec do_fat_read_at "\
+                            "-absolute-valid-range 0x40000000-0xffffffff "\
+                            "-val-builtin malloc:Frama_C_malloc_fresh,free:Frama_C_free "\
+                            "-val-initialization-padding-globals=no  "\
+                            "-constfold "\
+                            "-kernel-verbose %d -value-verbose %d  "\
+                            "-big-ints-hex 0  "\
+                            "-val -then -dst -then -call" % (os.path.join(self.path,
+                                                                          "machdep_arm.ml"),
+                                                             os.path.join(self.path,
+                                                                          "dest_analysis.ml"),
+                                                             os.path.join(self.path,
+                                                                          "call_analysis.ml"),
+                                                             verbosen, verbosen)
         if not self.quick:
             self.frama_c_args = "%s -slevel-function memset:1048576 " \
                                 "-slevel-function malloc:2000  "\
                                 "-slevel-function calloc:2000 " % self.frama_c_args
         if calltracefile:
             self.frama_c_args += " -call-output %s " % calltracefile
-        self.frama_c_main_arg = "-main"
+        self.frama_c_main_arg = " -main"
         self.more = more
         if more:
             self.frama_c_args += " -dst-more"

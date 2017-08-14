@@ -97,12 +97,13 @@ class WriteResults():
 class CallExitBreak(gdb_tools.BootFinishBreakpoint):
     plugin_name = "calltrace"
 
-    def __init__(self, name, controller, stage, entry):
+    def __init__(self, name, controller, stage, entry, depth):
         self.name = name
         self.entry = entry
         self.plugin = controller.get_plugin(self.plugin_name)
         self.controller = controller
         self.valid = True
+        self.depth = depth
         try:
             gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
         except ValueError:
@@ -116,8 +117,10 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
 
     def _stop(self, bp, ret):
         c = self.plugin
-        c.depth -= 1
-        gdb.post_event(WriteResults(c.depth,
+        c.depth = self.depth
+        #if not self.depth == c.depth:
+        #    return
+        gdb.post_event(WriteResults(self.depth,
                                     self.name, "exit", c.pc(),
                                     "",
                                     c._minimal))
@@ -156,8 +159,8 @@ class CallEntryBreak(gdb_tools.BootBreak):
                                     self.name, "entry", self.fnloc,
                                     self.line,
                                     c._minimal))
+        e = CallExitBreak(self.name, self.controller, self.stage, self, c.depth)
         c.depth += 1
-        e = CallExitBreak(self.name, self.controller, self.stage, self)
         if not e.valid:
             c.depth -= 1
         if self.no_rec and self.breakpoint:

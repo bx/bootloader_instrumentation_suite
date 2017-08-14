@@ -245,6 +245,7 @@ class TraceWriteRange(tables.IsDescription):
     numops = tables.UInt32Col()
     cpsr = tables.UInt32Col()
     caller = tables.StringCol(40)
+    substage = tables.UInt8Col()
 
 
 class TraceTable():
@@ -373,19 +374,22 @@ class TraceTable():
                                                           TraceTable.consolidatedwriterangetablename,
                                                           "consolidated write information")
 
-    def histograminfo(self, outfile=None):
+    def histograminfo(self, outfile=None, csvfile=None):
         group = self.get_group()
         rangetable = group.writerange
-
         ret = ''
         if outfile:
             outfile = open(outfile, 'w')
+        if csvfile:
+            csvfile = open(csvfile, 'w')
+            csvfile.write("idx,pc,lrpc,numops,numbytes,substage,fn,lr,note,nudge\n")
         try:
             rs = rangetable.read_sorted('index')
         except ValueError:
             rangetable.cols.index.create_index(kind='full')
             rangetable.cols.index.reindex()
             rs = rangetable.read_sorted('index')
+        i = 0
         for rangerow in rs:
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
@@ -403,13 +407,27 @@ class TraceTable():
                 (rangerow['relocatedpc'], rangerow['pc'], pcfname, rangerow['lr'],
                  lrfname, rangerow['destlo'], rangerow['desthi'], rangerow['byteswritten'],
                  rangerow['numops'], sdisasm, ssrc)
-
+            n = rangerow['byteswritten']
+            if n < 0:
+                n = n * -1
+            r2 = "%s,0x%x,0x%x,%s,%s,%s,%s,%s,,\n" % (i,
+                                                 rangerow['pc'],
+                                                 rangerow['lr'],
+                                                 rangerow['numops'], n,
+                                                 rangerow['substage'],
+                                                 pcfname, lrfname)
             if outfile:
                 outfile.write(r)
+            if csvfile:
+                if rangerow['numops'] > 1:
+                    csvfile.write(r2)
             else:
                 ret = ret + r
+            i += 1
         if outfile:
             outfile.close()
+        if csvfile:
+            csvfile.close()
         return ret
 
     def update_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):
@@ -534,6 +552,7 @@ class TraceTable():
         index = 0
         push = False
         pc = -1
+        substage = -1
         for writerow in self.writestable.read_sorted('index'):
             if (writerow['relocatedpc'] == relocatedpc) and \
                (writerow['relocatedlr'] == relocatedlr) and \
@@ -560,11 +579,12 @@ class TraceTable():
                 currentrow['cpsr'] = writerow['cpsr']
                 currentrow['lr'] = writerow['lr']
                 lr = writerow['lr']
+                substage = writerow['substage']
                 currentrow['numops'] = 1
                 currentrow['pc'] = pc
                 currentrow['relocatedpc'] = relocatedpc
                 currentrow['relocatedlr'] = relocatedlr
-
+                currentrow['substage'] = substage
                 currentrow['index'] = index
                 index += 1
                 size = db_info.get(self.stage).pc_write_size(pc)
