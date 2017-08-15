@@ -41,19 +41,14 @@ class TaskManager():
     def __init__(self, do_build, create_test, enabled_stages,
                  policies, quick, run_trace, select_trace, import_policies,
                  post_trace_processing=[], open_instance=None, run=True,
-                 print_cmds=False, hook=False):
-        #if not do_build:
+                 print_cmds=False, hook=False, rm_dir=True):
         (print_build_cmd, build_source) = ([], [])
-        #else:
-        #    (print_build_cmd, build_source) = do_build
         bootloader = Main.get_bootloader_cfg()
-        if create_test:
-            build_source.append(bootloader.software)
         self.create_test = create_test
         self.print_cmds = print_cmds
         self.src_manager = external_source_manager.SourceLoader(print_build_cmd, build_source)
         self.loaders.append(self.src_manager)
-        if (len(print_build_cmd) + len(build_source) > 0) and not create_test:
+        if (len(print_build_cmd) + len(build_source) > 0):
             return
 
         self.boot_task = [s for s in self.src_manager.code_tasks
@@ -86,7 +81,7 @@ class TaskManager():
                                                                             run,
                                                                             gitinfo,
                                                                             self,
-                                                                            needs_build)
+                                                                            needs_build, rm_dir)
 
         if create_test:
             self.ppt = instrumentation_results_manager.PolicyTaskLoader(policies)

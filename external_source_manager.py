@@ -195,7 +195,7 @@ class CodeTaskList():
 
 class SourceLoader():
     def __init__(self, print_build, do_build):
-        # bootloader_only = len(do_build) == 0
+        self.init_only = True if len(print_build) + len(do_build) == 0 else False
         self.print_build = print_build
         self.do_build = do_build
         self.builds = list(set(do_build + print_build))
@@ -212,13 +212,20 @@ class SourceLoader():
             self.code_tasks.extend(CodeTaskList(s,
                                                 s.name not in self.do_build)
                                    for s in ss if s.name == bootloader.software)
-        for c in self.code_tasks:
-            if c.basename in self.do_build:
+        if self.init_only:
+            for c in self.code_tasks:
                 for t in c.tasks:
-                    t.uptodate = [False]
+                    t.uptodate = [True]
+        else:
+            for c in self.code_tasks:
+                if c.basename in self.do_build:
+                    for t in c.tasks:
+                        t.uptodate = [False]
 
     def list_tasks(self):
         l = []
+        if self.init_only:
+            return l
         for c in self.code_tasks:
             # only if in bulid list
             if c.basename in self.builds:

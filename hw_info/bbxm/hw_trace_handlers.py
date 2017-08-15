@@ -53,11 +53,12 @@ def bbxmqemu(main, boot_config,
             n = main.get_config("trace_events_file", s)
             deps = [n]
             run_cmd += " -trace events=%s,file=%s" % (n, f)
-            # run_cmd += " && touch %s" % main_cfgs['trace_events_done']
-    gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
+
     cfg = {'gdb_commands': ["set tcp connect-timeout 120", "set remotetimeout -1",
-                            "target extended-remote | exec %s" % (run_cmd),
-                            'python execfile(\"%s\")' % gdb_tools]}
+                            "target extended-remote | exec %s" % (run_cmd)]}
+    if not is_watchpoint:
+        gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
+        cfg['gdb_commands'].append('python execfile(\"%s\")' % gdb_tools)
 
     deps.append(qemu)
     ret = cmds + [('configs', cfg), ("set_config", main_cfgs),

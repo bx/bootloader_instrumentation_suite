@@ -869,7 +869,7 @@ traces: [{}]
 
 class InstrumentationTaskLoader(ResultsLoader):
     def __init__(self, boot_task, test_id,
-                 enabled_stages, create, gitinfo, manager, build):
+                 enabled_stages, create, gitinfo, manager, build, rm_tmp=True):
         super(InstrumentationTaskLoader, self).__init__(test_id, "instance", True)
         self.create = create
         self.build = build
@@ -883,6 +883,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         self.hardwareclass = Main.get_hardwareclass_config()
         self.test_id = test_id
         self.boot_task = boot_task
+        self.rm_tmp = rm_tmp
         hwname = Main.get_hardwareclass_config().name
         bootname = Main.get_bootloader_cfg().software
         hdir = os.path.join(Main.hw_info_path, hwname)
@@ -1055,7 +1056,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         elfdst = {}
         imgdst = {}
         deps = []
-
+        targets = []
         tasks.append(self._mkdir(self.test_data_path))
         tasks.append(self._mkdir(self._full_path()))
         Main.set_config("test_instance_root", self._full_path())
@@ -1094,30 +1095,34 @@ sha1: {}
         def rm_src_dir():
             print "removing temporary copy of bootloader source code at %s" % tmpdir
             os.system("rm -rf %s" % tmpdir)
-        atexit.register(rm_src_dir)
+        if self.rm_tmp:
+            atexit.register(rm_src_dir)
         olddir = os.getcwd()
         os.chdir(self.local)
         os.system("git archive %s | tar -C %s -x" % (self.sha, tmpdir))
         os.chdir(olddir)
         for i in self.boot_stages:
-            bootelfs.append(self._boot_src_path(i.elf))
-            bootimages.append(self._boot_src_path(i.image))
+            broot = Main.get_bootloader_cfg().software_cfg.root
+            base = re.sub(broot+"/", "", i.elf)
+            bootelfs.append(os.path.join(tmpdir, base))
+            base = re.sub(broot+"/", "", i.image)
+            bootimages.append(os.path.join(tmpdir, base))
             elfdst[i.stagename] = os.path.join(dstdir, os.path.basename(i.elf))
             imgdst[i.stagename] = os.path.join(dstdir, os.path.basename(i.image))
-        if self.create and not all(map(os.path.exists,
-                                       [i.elf for i in self.boot_stages])) and self.build:
-            self.boot_task.build.uptodate = [False]
-            self.manager.build(self.boot_task.build.task_name())
-            for b in self.boot_task.tasks:
-                b.uptodate = [True]
-
+        targets.extend(elfdst.values())
         Main.set_config("stage_elf", lambda s: elfdst[s.stagename])
         Main.set_config("stage_image", lambda s: imgdst[s.stagename])
         tocpy = bootelfs + bootimages
+        build_cmds = []
+        builder = self.manager.build([Main.get_bootloader_cfg().software], False)[0]
+        for t in builder.tasks:
+            for action in t.list_tasks()['actions']:
+                if isinstance(action, CmdAction):
+                    do = action.expand_action()
+                    build_cmds.append("cd %s && %s" % (tmpdir, do))
+        build_cmds.append("mkdir -p %s && true" % dstdir)
         for i in tocpy:
-            c = self._copy_file(i,
-                                os.path.join(dstdir, os.path.basename(i)))
-            tasks.append(c)
+            build_cmds.append("cp %s %s" % (i, dstdir))
         sdtarget = os.path.join(dstdir, "sd.img")
         sdskeleton = self.hardwareclass.sdskeleton
         tmpdir = tempfile.mkdtemp()
@@ -1129,27 +1134,26 @@ sha1: {}
         update_mnt = []
         for i in imgdst.itervalues():
             update_mnt.append("sudo cp %s %s" % (i,
-                                            tmpmnt))
+                                                 tmpmnt))
         umount = "sudo umount %s" % tmpmnt
         cp_final = "cp %s %s" % (tmpsd, sdtarget)
         rmtmp = "sudo rm -r %s" % tmpdir
-        cmds = [cp, mkdir, mnt] + update_mnt + [umount, cp_final, rmtmp]
+        cmds = build_cmds + [cp, mkdir, mnt] + update_mnt + [umount, cp_final, rmtmp]
         Main.set_config('sd_image', sdtarget)
-        for f in imgdst.itervalues():
-            deps.append(f)
-
+        targets.append(sdtarget)
         mksd = CmdTask(cmds,
-                       deps,
-                       [sdtarget],
+                       [],
+                       targets,
                        "sd_card_image")
+
         if self.create:
-            mksd.uptodate = [False]
             tasks.append(mksd)
+            mksd.uptodate = [False]
         elif os.path.exists(sdtarget):
             mksd.uptodate = [True]
         else:
-            mksd.uptodate = [False]
             tasks.append(mksd)
+
         if 'all' in self.enabled_stages or self.enabled_stages is None:
             Main.set_config('enabled_stages',
                             [s.stagename for
