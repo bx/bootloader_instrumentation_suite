@@ -322,9 +322,9 @@ class PreprocessedFileProcessor():
                 "i2c_adap_start": self.i2cadapstart_patch,
                 "i2c_init_bus": self.i2cinitbus_patch,
                 "malloc_zero": self.malloc_zero_patch,
-#                "memalign": self.memalign_patch,
+ #               "memalign": self.memalign_patch,
                 "cpuid": self.cpuid_patch,
-#                "delete_line": self.delete_line,
+                "delete_line": self.delete_line,
                 "noreturn": self.noreturn_patch,
                 "return_zero": self.returnzero_patch,
                 "val": self.val_patch,
@@ -417,13 +417,13 @@ class FramaCDstPluginManager():
         self.tee = tee
         self.path = os.path.dirname(os.path.realpath(__file__))
         verbosen = 3 if verbose else 3
-#                            "-slevel 100 "\
 #                            "-slevel-function printf:0  "\
 #                            "-slevel-function puts:0 "\
 
         self.frama_c_args = " -load-script %s -machdep arm " \
                             "-load-script %s " \
                             "-load-script %s " \
+                            "-ulevel-force " \
                             "-no-initialized-padding-locals " \
                             "-val-use-spec do_fat_read_at "\
                             "-absolute-valid-range 0x40000000-0xffffffff "\
@@ -432,6 +432,7 @@ class FramaCDstPluginManager():
                             "-constfold "\
                             "-kernel-verbose %d -value-verbose %d  "\
                             "-big-ints-hex 0  "\
+                            "-slevel 2 "\
                             "-val -then -dst -then -call" % (os.path.join(self.path,
                                                                           "machdep_arm.ml"),
                                                              os.path.join(self.path,
