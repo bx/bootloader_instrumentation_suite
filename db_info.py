@@ -171,7 +171,7 @@ class TraceDB(DBObj):
         dbpath = Main.get_config("trace_db", self.stage)
         self._db = database.TraceTable(dbpath, self.stage, False, True)
         print "nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
-
+        print self._db.outname
     def _create(self):
         dbpath = Main.get_config("trace_db", self.stage)
         self._db = database.TraceTable(dbpath, self.stage, True, True)

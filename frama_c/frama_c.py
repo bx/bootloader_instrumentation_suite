@@ -269,7 +269,7 @@ class PreprocessedFileProcessor():
         return re.sub("return", "", line)
 
     def interval_patch(self, line, label):
-        return ";\n"
+        return "val = get_base;\n"
 
     def re_patch(self, line, label):
         return re.sub(label.name, "", line)
@@ -314,15 +314,11 @@ class PreprocessedFileProcessor():
                 print "cline line %d not included in %s, skipping patching label" \
                     % (clineno, l.filename)
                 continue
-
             name_to_patch_functions = {
-#                "chunksize": self.chunksz_patch,
                 "sdr_cs_offset": self.sdr_cs_offset_patch,
-                "i2c_adap_max": self.i2cadapmax_patch,
                 "i2c_adap_start": self.i2cadapstart_patch,
                 "i2c_init_bus": self.i2cinitbus_patch,
-                "malloc_zero": self.malloc_zero_patch,
- #               "memalign": self.memalign_patch,
+                "i2c_adap_max": self.i2cadapmax_patch,
                 "cpuid": self.cpuid_patch,
                 "delete_line": self.delete_line,
                 "noreturn": self.noreturn_patch,
@@ -419,14 +415,12 @@ class FramaCDstPluginManager():
         verbosen = 3 if verbose else 3
 #                            "-slevel-function printf:0  "\
 #                            "-slevel-function puts:0 "\
-
         self.frama_c_args = " -load-script %s -machdep arm " \
                             "-load-script %s " \
                             "-load-script %s " \
-                            "-ulevel-force " \
-                            "-no-initialized-padding-locals " \
                             "-val-use-spec do_fat_read_at "\
-                            "-absolute-valid-range 0x40000000-0xffffffff "\
+                            "-no-initialized-padding-locals " \
+                            "-absolute-valid-range 0x10000000-0xffffffff "\
                             "-val-builtin malloc:Frama_C_malloc_fresh,free:Frama_C_free "\
                             "-val-initialization-padding-globals=no  "\
                             "-constfold "\

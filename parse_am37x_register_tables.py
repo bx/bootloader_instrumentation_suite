@@ -273,11 +273,9 @@ class TITable():
         self.col_info[key] = info
 
 
-
 class TIPDF():
     ntables = 0
     successful = 0
-
 
     @classmethod
     def resolve_dest(cls, dest):
@@ -460,9 +458,7 @@ class TIPDF():
         for l in page:
             if isinstance(l, layout.LTText):
                 lcenter = cls.calculate_center(l)
-                #print "in col label? %s (%s, %s) -- row %s"% (l, physcenter, lcenter, cls.in_same_row(namecol, l))
                 if cls.in_same_row(namecol, l, t) and (abs(lcenter - physcenter) <= 0.2):
-                    #print "yes"
                     text += cls.get_entry_text(l) + " "
         return text.strip()
 
@@ -490,9 +486,11 @@ class TIPDF():
                            default_width=32, name=u'Register Name',
                            namere=None, addrre=None, typre=None, var_sub_fn=None):
         namecol = None
-        t = TITable(var_rules=vr, phys_addrs=pa, namere=namere, name=name, force_phys_addrs=force_phys_addrs,
+        t = TITable(var_rules=vr, phys_addrs=pa,
+                    namere=namere, name=name, force_phys_addrs=force_phys_addrs,
                     offsetre=offsetre, field_center_offset=field_center_offset,
-                    widthre=widthre, default_width=default_width, label_bottom_offset=label_bottom_offset,
+                    widthre=widthre, default_width=default_width,
+                    label_bottom_offset=label_bottom_offset,
                     addrre=addrre, typre=typre, var_sub_fn=var_sub_fn)
         for o in page:
             if cls.is_not_in_table_bounds(tablestart, tableend, o):
@@ -542,22 +540,18 @@ class TIPDF():
                 elif c:
                     t.add_column(cls.get_entry_text(o), o, c)
         if t.force_phys_addrs:
-            #print t.force_phys_addrs
             if not set(t.phys_addrs.iterkeys()) == set(t.force_phys_addrs):
                 # figure split out column
                 missing = []
                 for k in t.force_phys_addrs:
                     if k not in t.phys_addrs:
-                        #print k
                         missing.append(k)
-                #print missing
                 if len(missing) == 2:
                     for k in t.col_info:
                         addrs = k.split()
                         if set(addrs) == set(missing):
                             # split!
                             info = t.col_info[k]
-                            #print info
                             (o1, o2) = cls.split_text(info.obj, addrs[0], addrs[1])
                             bbox = o1.bbox
                             (x1, y1, x2, y2) = o1.bbox
@@ -565,7 +559,6 @@ class TIPDF():
                             o2.bbox = (info.c, y1, x2, y2)
                             del t.col_info[k]
                             del t.phys_addrs[k]
-                            #print t.__dict__
                             t.add_column(addrs[0], o1, TITable.ADDRESS)
                             t.add_column(addrs[1], o2, TITable.ADDRESS)
                             break
@@ -576,7 +569,7 @@ class TIPDF():
     def parse_register_table_from_page(cls, interp, dev, page, sectionname,
                                        table, aftertable,
                                        verbose=False, name_offset=0, skip=False,
-                                       offsetre=None,resetre=None, widthre=None,
+                                       offsetre=None, resetre=None, widthre=None,
                                        namere=None, addrre=None, default_width=32,
                                        typre=None, var_sub_fn=None,
                                        label_bottom_offset=0, force_phys_addrs=[],
@@ -590,7 +583,8 @@ class TIPDF():
         t = cls.find_table_columns(page, table, tablestart, tableend, verbose,
                                    vr=var_rules, pa=phys_addrs, typre=typre,
                                    field_center_offset=field_center_offset,
-                                   label_bottom_offset=label_bottom_offset, force_phys_addrs=force_phys_addrs,
+                                   label_bottom_offset=label_bottom_offset,
+                                   force_phys_addrs=force_phys_addrs,
                                    var_sub_fn=var_sub_fn, offsetre=offsetre, name=name,
                                    resetre=resetre, widthre=widthre, default_width=default_width,
                                    offset=name_offset, namere=namere, addrre=addrre)
@@ -634,7 +628,6 @@ class TIPDF():
         addrvalue = results[aname][i]
         offset = results[TITable.OFFSET][i]
         baseoffset = regexps[TITable.OFFSET].match(offset).groupdict()['base'] if offset else ""
-
 
         baseaddr = regexps[aname].match(addrvalue).groupdict()['base']
 
@@ -698,7 +691,6 @@ class TIPDF():
         offset = results[TITable.OFFSET][i]
         baseoffset = regexps[TITable.OFFSET].match(offset).groupdict()['base'] if offset else ""
 
-
         baseaddr = regexps[aname].match(addrvalue).groupdict()['base']
 
         def add_row(address='',  offset='', typ='', name='', width='', reset=''):
@@ -706,7 +698,6 @@ class TIPDF():
                 newresults[f].append(locals()[f])
 
         variablefield = False
-
 
         baseaddr = int(re.sub("\s", "", baseaddr), 16)
         baseoffset = int(re.sub("\s", "", baseoffset), 16)
@@ -903,7 +894,6 @@ class TIPDF():
         common = {f: results[f][i] for f in commonfields}
 
         name = re.sub("\([d]+\)", "", results[TITable.NAME][i])  # remove any footnotes
-        #name = name + '_' + suffix if suffix else name
 
         variablefield = any(map(lambda x: x in name, t.var_names))
 
@@ -943,7 +933,6 @@ class TIPDF():
 
         return newresults
 
-
     def dcvid_var_sub(cls, aname, i, results, t):
         newresults = {f: [] for f in t._names.iterkeys()}
 
@@ -976,6 +965,7 @@ class TIPDF():
         baseoffset = int(re.sub("\s", "", baseoffset), 16)
         rg = None
         v = None
+
         def find_var(var):
             vals = [name, addrvalue, offset]
             return any(map(lambda x: var in x, vals))
@@ -1435,8 +1425,8 @@ class TIPDF():
         addrfields = t.phys_addrs
         varnames = t.var_names
         for i in addrfields:
-         if len(results[i]) == 0:
-             del results[i]
+            if len(results[i]) == 0:
+                del results[i]
 
         for (a, v) in addrfields.iteritems():
             for i in range(0, nrows):
@@ -1487,8 +1477,6 @@ class TIPDF():
                         break
                 if table is None:
                     break
-                #print tablename
-                #print table
                 tableend = None
                 for o in sorted(l._objs, reverse=True, key=lambda o: o.bbox[1]):
                     if isinstance(o, layout.LTText):
@@ -1555,7 +1543,7 @@ class TIPDF():
         for o in sorted(l._objs, reverse=True, key=lambda o: o.bbox[1]):
             if isinstance(o, layout.LTText):
                 if cls.get_text(o).strip() == u"List of Tables":
-                    font =  cls.lookup_font(o)
+                    font = cls.lookup_font(o)
                     if font == 'Helvetica-Oblique':
                         res = cls.iterate_table_list(parser, document, device, interp,
                                                      pages, l, pageno, output, verbose, index, tables)
@@ -1574,7 +1562,7 @@ class TIPDF():
                 o = objs[i]
 
                 if isinstance(o, layout.LTText):
-                    if  u"Register Call Summary for Register DAPC_EPM2..." in cls.get_text(o):
+                    if u"Register Call Summary for Register DAPC_EPM2..." in cls.get_text(o):
                         done = True
                     else:
                         cls.iter_text_lines(interp, device, pages,
@@ -1591,7 +1579,7 @@ class TIPDF():
 
     @classmethod
     def is_reg_table_label(cls, text):
-        s = [ "Register Summary", "Registers Mapping Summary", "Register Mapping Summary"]
+        s = ["Register Summary", "Registers Mapping Summary", "Register Mapping Summary"]
         if ".." in text:
             return any(map(lambda x: re.search("%s\s*..+" % x, text), s))
         else:
@@ -1633,8 +1621,6 @@ class TIPDF():
                 cls.table_to_csv(title, res, output, verbose)
 
         return res
-
-
 
     @classmethod
     def process_pdf(cls, pdf, output, verbose=False, tables=None):
@@ -1690,6 +1676,7 @@ def parsecsv(f):
     fields = TIPDF.csv_field_order
     return (csvfile, csv.DictReader(csvfile, fields))
 
+
 def checkcsv(f):
     (fd, reader) = parsecsv(f)
     addrdict = {}
@@ -1735,7 +1722,6 @@ def checkcsv(f):
                  mapreg(["SFREGH", "RXFLH"]),
                  mapreg(["UASR", "BLR"])]
     for addr in UART_ADDRS:
-
         for r in UART_DUPS:
             dupset = set()
             for i in r:
@@ -1767,8 +1753,6 @@ def checkcsv(f):
             if not any(map(lambda x: names <= x, known_dups)):
                 print "duplicates in  %s -- %s" % (a, vals)
     fd.close()
-    #print dir(reader)
-    #reader.close()
 
 
 if __name__ == '__main__':
@@ -1777,7 +1761,7 @@ if __name__ == '__main__':
     cmds.add_argument('-p', '--parsepdf', action="store_true")
     cmds.add_argument('-c', '--check', action="store", default=None)
     parser.add_argument('-i', '--pdf', action='store', type=argparse.FileType('rb'),
-                        help='pdf to parse', required=True)
+                        help='pdf to parse')
     parser.add_argument('-o', '--output', action='store', type=argparse.FileType('w'),
                         help='file to store results, stdout is default', default=sys.stdout)
     parser.add_argument('-t', '--table', action='append', default=None)

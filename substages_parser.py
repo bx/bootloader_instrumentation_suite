@@ -460,6 +460,8 @@ class MmapRegion():
         if config.Main.stage_from_name(split[0]):
             stage = config.Main.stage_from_name(split[0])
             if not stage.post_build_setup_done:
+                stage.elf = Main.get_config('stage_elf', stage)
+                stage.image = Main.get_config('stage_image', stage)
                 stage.post_build_setup()
             if len(split) > 1:
                 attr = split[1]
