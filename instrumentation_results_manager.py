@@ -297,11 +297,12 @@ class ResultsLoader(object):
 
 class PostTraceLoader(ResultsLoader):
     _processes_types = {'consolidate_writes': {'fn':
-                                               "_histogram",},
+                                               "_histogram"},
                         'policy_check': {'fn':
-                                         "_policy_check",},
+                                         "_policy_check"},
+                        'noop': {'fn': "_noop"},
                         'browse_db': {'fn':
-                                         "_browse_db",},
+                                      "_browse_db"},
                         'process_watchpoints': {"fn":
                                                 "_watchpoints",
                                                 "traces": ["watchpoint"]}}
@@ -446,6 +447,9 @@ class PostTraceLoader(ResultsLoader):
         Main.set_config("policy_trace_fnlist_dir", lambda s: fns[s.stagename])
         Main.set_config("consolidate_writes_done", lambda s: outs[s.stagename])
         return tasks
+
+    def _noop(self, name, enabled):
+        return []
 
     def _policy_check(self, name, enabled):
         tasks = []
@@ -1019,10 +1023,9 @@ class InstrumentationTaskLoader(ResultsLoader):
                 v = labeltool.get_all_labels(tmpdir)
                 Main.set_config(internal, v)
                 os.chdir(olddir)
-
             return v
-
-        Main.set_config("labels", get_labels)
+        if not Main.get_config("labels"):
+            Main.set_config("labels", get_labels)
         for s in [Main.stage_from_name(st) for st in Main.get_config('enabled_stages')]:
             n = s.stagename
             target = staticdb[n]
@@ -1089,14 +1092,15 @@ sha1: {}
         Main.set_config("instance_git_local", self.local)
         Main.set_config("instance_git_sha", self.sha)
         # make temporary copy of git tree to pull labels from
-        tmpdir = tempfile.mkdtemp()
-        Main.set_config("temp_bootloader_src_dir", tmpdir)
-
-        def rm_src_dir():
-            print "removing temporary copy of bootloader source code at %s" % tmpdir
-            os.system("rm -rf %s" % tmpdir)
-        if self.rm_tmp:
-            atexit.register(rm_src_dir)
+        tmpdir = Main.get_config("temp_bootloader_src_dir")
+        if not tmpdir:
+            tmpdir = tempfile.mkdtemp()
+            Main.set_config("temp_bootloader_src_dir", tmpdir)
+            def rm_src_dir():
+                print "removing temporary copy of bootloader source code at %s" % tmpdir
+                os.system("rm -rf %s" % tmpdir)
+            if self.rm_tmp:
+                atexit.register(rm_src_dir)
         olddir = os.getcwd()
         os.chdir(self.local)
         os.system("git archive %s | tar -C %s -x" % (self.sha, tmpdir))
@@ -1125,9 +1129,9 @@ sha1: {}
             build_cmds.append("cp %s %s" % (i, dstdir))
         sdtarget = os.path.join(dstdir, "sd.img")
         sdskeleton = self.hardwareclass.sdskeleton
-        tmpdir = tempfile.mkdtemp()
-        tmpmnt = os.path.join(tmpdir, "mnt")
-        tmpsd = os.path.join(tmpdir, "sd.img")
+        sdtmpdir = tempfile.mkdtemp()
+        tmpmnt = os.path.join(sdtmpdir, "mnt")
+        tmpsd = os.path.join(sdtmpdir, "sd.img")
         cp = "cp %s %s" % (sdskeleton, tmpsd)
         mkdir = "mkdir -p %s" % (tmpmnt)
         mnt = "sudo mount -o loop,offset=%d %s %s" % (512*63, tmpsd, tmpmnt)
@@ -1137,7 +1141,7 @@ sha1: {}
                                                  tmpmnt))
         umount = "sudo umount %s" % tmpmnt
         cp_final = "cp %s %s" % (tmpsd, sdtarget)
-        rmtmp = "sudo rm -r %s" % tmpdir
+        rmtmp = "sudo rm -r %s" % sdtmpdir
         cmds = build_cmds + [cp, mkdir, mnt] + update_mnt + [umount, cp_final, rmtmp]
         Main.set_config('sd_image', sdtarget)
         targets.append(sdtarget)

@@ -27,6 +27,7 @@ import qemusimpleparse
 import testsuite_utils as utils
 from config import Main
 import capstone
+from capstone.arm import *
 import staticanalysis
 import traceback
 import pytable_utils
@@ -34,7 +35,11 @@ import intervaltree
 import db_info
 import substage
 import sys
-
+import pure_utils
+from capstone import *
+import os
+from unicorn import *
+from unicorn.arm_const import *
 
 l = logging.getLogger("")
 
@@ -59,6 +64,28 @@ class FramaCDstEntry(tables.IsDescription):
 
 
 class WriteDstTable():
+    def _find_mux_pc(self, dst):
+        user = {'res': None,
+                'dst': long(dst)}
+
+        def code_hook(emu, access, addr, size, value, user):
+            dst = long(user['dst'])
+            if addr == dst:
+                pc = emu.reg_read(UC_ARM_REG_PC)
+                user['res'] = pc
+
+            return True
+        user['dst'] = dst
+        h = self.emu.hook_add(UC_HOOK_MEM_WRITE, code_hook, user_data=user)
+        if self._thumb:
+            self.emu.emu_start(self._mux_start | 1, self._mux_end)
+        else:
+            self.emu.emu_start(self._mux_start, self._mux_end)
+        self.emu.hook_del(h)
+        if user['res'] is None:
+            raise Exception("DSF %x" % dst)
+        return user['res']
+
     def __init__(self, h5file, group, stage, name, desc=""):
         self.h5file = h5file
         self.group = group
@@ -66,6 +93,39 @@ class WriteDstTable():
         self._name = name
         self.desc = desc
         self.tables = {}
+
+        self._mux_name = "set_muxconf_regs"
+        (self._mux_start, self._mux_end) = utils.get_symbol_location_start_end(self._mux_name,
+                                                                               self.stage)
+        self.thumbranges = Main.get_config("thumb_ranges",
+                                           self.stage)[0]
+        self._mux_start += 2
+        self._mux_end -= 2
+        if self.thumbranges.overlaps_point(self._mux_start):
+            self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+            self.cs.detail = True
+            self._thumb = True
+            self.emu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
+        else:
+            self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_ARM)
+            self.cs.detail = True
+            self._thumb = False
+            self.emu = Uc(UC_ARCH_ARM, UC_MODE_ARCH)
+        elf = Main.get_config("stage_elf", stage)
+        entrypoint = self._mux_start
+        headers = pure_utils.get_program_headers(Main.cc, elf)
+        for h in headers:
+            if h['filesz'] > 0:
+                codeaddr = h['virtaddr']
+                break
+        alignedstart = self._mux_start & 0xFFFFF0000
+        size = 2*1024*1024
+        fileoffset = alignedstart
+        code = open(elf, "rb").read()[self._mux_start-fileoffset:self._mux_end-fileoffset]
+        self.emu.mem_map(0x40000000, 0x70000000)
+
+        self.emu.mem_write(self._mux_start, code)
+        self.emu.reg_write(0x40000000, ARM_REG_SP)
         self.open()
 
     def name(self, num):
@@ -121,9 +181,28 @@ class WriteDstTable():
             r['dsthi'] = v.end
             r['dst_not_in_ram'] = self._addr_inter_is_not_ram(v)
             r['substage'] = dstinfo.substage
-            r['line'] = dstinfo.key()
+            line = dstinfo.key()
+            r['line'] = line
             r['lvalue'] = dstinfo.lvalue
-            r['writepc'] = dstinfo.pc if dstinfo.pc else db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfo)
+            if not dstinfo.pc:
+                # hack
+                path = dstinfo.path
+                cmd = 'grep -n "MUX_BEAGLE();" %s' % path
+                lineno = Main.shell.run_cmd(cmd, catcherror=True)
+                if lineno:
+                    lineno = int(lineno.split(":")[0])
+                    if path.endswith("board/ti/beagle/beagle.c") and lineno == dstinfo.lineno:
+                        dstinfo.pc = self._find_mux_pc(v.begin)
+
+                else:
+                    dstinfo.pc = db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfo)
+                # figure out which write instruction
+                #lineno = int(os.system("grep %s %s/%s" % ( , root, path))
+
+                if dstinfo.pc == 0:
+                    print "cannot resove just one write instruction from %s" % dstinfo.__dict__
+                    continue
+            r['writepc'] = dstinfo.pc
             r['origpc'] = dstinfo.origpc if dstinfo.origpc else r['writepc']
             r.append()
 
@@ -165,8 +244,20 @@ class WriteDstResult():
                 max_value = 0xFFFFFFFF
             lvalue = res.group(3)
             path = res.group(4)
+            # somewhat of a hack to get relative path
+            root = Main.get_bootloader_cfg().software_cfg.root
+            if path.startswith(root):
+                path = os.path.relpath(path, root)
+                path = os.path.join(Main.get_config("temp_bootloader_src_dir"), path)
+            elif path.startswith(Main.test_suite_path):  # not sure why this happens
+                path = os.path.relpath(path, Main.test_suite_path)
+                path = os.path.join(Main.get_config("temp_bootloader_src_dir"), path)
+            elif path.startswith("/tmp/tmp"):
+                path = "/".join(path.split("/")[3:])
+                path = os.path.join(Main.get_config("temp_bootloader_src_dir"), path)
             lineno = int(res.group(5))
             callstack = res.group(6)
+            # somewhat of a hack for muxconf
             return cls(path, lineno, lvalue,
                        [intervaltree.Interval(min_value, max_value)],
                        callstack=callstack, stage=stage)
@@ -211,7 +302,8 @@ class WriteDstResult():
 
     def key(self):
         # use relative path from bootloader root
-        p = re.sub(Main.get_bootloader_root()+'/', '', self.path)
+        root = Main.get_config("temp_bootloader_src_dir")
+        p = re.sub(root+'/', '', self.path)
         r = "%s:%d" % (p, self.lineno)
         return r
 
@@ -252,7 +344,7 @@ class TraceTable():
     h5tablename = "writes"
     writerangetablename = "write_ranges"
     consolidatedwriterangetablename = "write_ranges_consolidated"
-    ia = staticanalysis.InstructionAnalyzer()
+
 
     def __init__(self, outfile, stage, create=False, write=False):
         self.stage = stage
@@ -501,8 +593,6 @@ class TraceTable():
                 if last is None:
                     last = r[sortindex]
                 dst_not_in_ram = dst_not_in_ram and r['dst_not_in_ram']
-                # if r['dsthi'] < r['dstlo']:
-                #    print "%x %s" % (r['writepc'], r['line'])
                 intervals.addi(r['dstlo'], r['dsthi'])
             if intervals:
                 self._add_intervals_to_table(self.writerangetable_consolidated.tables[n],

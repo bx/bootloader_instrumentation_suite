@@ -895,7 +895,7 @@ class WriteSearch():
             return write[0]['pc']
         else:
             print "0 or more than 1 write (%d) in %s" % (len(write), query)
-            raise Exception('?')
+            #raise Exception('?')
             # either 0 or more than zero results
             return 0
 

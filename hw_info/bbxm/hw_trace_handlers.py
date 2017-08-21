@@ -124,6 +124,17 @@ def breakpoint(main, configs,
             ("gdb_file_dep", gdb_deps), ("done_commands", done_commands)] + other_cmds
 
 
+def noop(main, configs,
+         stages,
+         policies,
+         hw_config,
+         instance_id,
+         test_id,
+         data_root,
+         quick):
+    return {}
+
+
 def calltrace(main, configs,
               stages,
               policies,
@@ -239,21 +250,29 @@ def watchpoint(main,
                data_root,
                quick):
     gdb = main.cc + "gdb"
+
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
-    gdb_cmds = ["%s %s" % (gdb, additional_cmds)]
+    gdb_cmds = ["%s %s -ex 'set tcp auto-retry on' -ex 'set remotetimeout -1' "
+                "-ex 'set tcp connect-timeout unlimited' "
+                "" % (gdb, additional_cmds)]
     if len(stages) > 1:
         return []
     deps = []
     targets = []
     done_commands = []
     s = stages[0]
-    #
+
     gdb_cmds.append('-ex "set pagination off"')
     gdb_cmds.append('-ex "set height unlimited"')
     gdb_cmds.append('-ex "set confirm off"')
     breakpoint = "*0x%x" % s.exitpc
     gdb_cmds.append("-ex 'break %s'" % breakpoint)
-    gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
+    if s.stagename == "main":
+        gdb_cmds.append("-ex 'break *(0x%x) if 0'" % (s.entrypoint))
+        #gdb_cmds.append("-ex 'commands 3\n c \n end'")
+        #gdb_cmds.append("-ex 'c'")
+        #gdb_cmds.append("-ex 'end'")
+
     f = main.get_config('trace_events_file', s)
     deps.append(f)
     done = main.get_config("trace_events_done")
@@ -379,7 +398,7 @@ def bbxmframac(main, boot_config,
                                                                               instance_id,
                                                                               policy_id)
             cmd = "%s %s" % (framac, args)
-            cmds.append(("command", cmd))
+            cmds.append(("interactive", cmd))
             trace_dbs[stage.stagename] = os.path.join(data_root,
                                                       "tracedb-%s.h5" % stage.stagename)
             trace_db_done[stage.stagename] = os.path.join(data_root,

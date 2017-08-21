@@ -488,7 +488,7 @@ class GDBBootController():
                                  [], self.test_instance_name, hook=True)
         tmpdir = Main.get_config("temp_bootloader_src_dir")
         gdb.execute("dir %s" % tmpdir)
-        gdb.execute("set substitute-path %s %s" % (Main.get_bootloader_root(), tmpdir))
+        gdb.execute("set substitute-path %s %s" % (Main.get_bootloader_cfg().software_cfg.root, tmpdir))
         self.hw = Main.get_config("trace_hw")
         if self.hw.name == "bbxmqemu":
             self.isbaremetal = False

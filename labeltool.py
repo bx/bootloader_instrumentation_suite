@@ -289,7 +289,9 @@ class SrcLabelTool():
         self.isasm = isasm
         self.stagename = stage
         if len(path) < 1:
-            self.path = Main.get_bootloader_root()
+            root = Main.get_config("temp_bootloader_src_dir")
+            if not root:
+                raise Exception("dont have temp soruce files yet")
         else:
             self.path = path
         self.lineno = -1
@@ -298,7 +300,10 @@ class SrcLabelTool():
     def label_search(cls, label=None, root=""):
         labels = []
         if len(root) == 0:
-            root = Main.get_bootloader_root()
+            root = Main.get_config("temp_bootloader_src_dir")
+            if not root:
+                raise Exception("dont have temp soruce files yet")
+            #root = Main.get_bootloader_root()
         for (dirpath, dirs, files) in os.walk(root):
             for filename in fnmatch.filter(files, "*.[chsS]"):
                 fullpath = os.path.join(dirpath, filename)
@@ -471,7 +476,7 @@ if __name__ == '__main__':
                         help='print phase labels')
     parser.add_argument('-s', '--stage', action="store", choices=['spl', '.'],
                         default='spl')
-    parser.add_argument('-p', '--srcpath', action="store", default=Main.get_bootloader_root())
+    parser.add_argument('-p', '--srcpath', action="store", default=Main.get_bootloader_cfg().software_cfg.root)
     sourcegroup.add_argument('--summarize', action="store", default="all",
                              help="print out information on label type for source tree")
     args = parser.parse_args()

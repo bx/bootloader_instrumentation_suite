@@ -94,6 +94,19 @@ def addr2functionname(addr, stage):
             return res.group(1)
 
 
+def disassemble(what, stage):
+    cc = Main.cc
+    elf = Main.get_config("stage_elf", stage)
+    srcdir = Main.get_config("temp_bootloader_src_dir")
+    cmd = '%sgdb --cd=%s ' \
+          '-ex "disassemble %s" --batch --nh --nx %s 2>/dev/null' % (cc,
+                                                                     srcdir,
+                                                                     what,
+                                                                     elf)
+    output = Main.shell.run_multiline_cmd(cmd)
+    return output
+
+
 def line2src(line):
     [path, lineno] = line.split(':')
     cmd = "sed -n '%s,%sp' %s 2>/dev/null" % (lineno, lineno, path)
@@ -300,33 +313,6 @@ def get_line_addr(line, start, stage, debug=False, srcdir=None):
     if assembly and (not start):
         res += 1   # give something larger for end endress for non-includive range
     return res
-
-
-# def get_line_addr2(line, stage, debug=False):
-#     cc = Main.cc
-#     elf = Main.get_config("stage_elf", stage)
-#     cmd = "%sgdb -ex 'dir %s' -ex 'info line %s' --batch --nh --nx  %s 2>/dev/null" % (cc,
-#                                                                                        Main.get_bootloader_root(),
-#                                                                                        line, elf)
-#     if debug:
-#         print cmd
-#     output = Main.shell.run_multiline_cmd(cmd)
-#     if debug:
-#         print output
-#     output = output[0]
-
-#     assembly = False
-#     if ("but contains no code." in output) and (".S\" is at address" in output):
-#         readdr = re.compile("is at address (0x[0-9a-fA-F]{0,8})")
-#     else:
-#         readdr = re.compile("starts at address (0x[0-9a-fA-F]{0,8})")
-#     if not readdr:
-#         return -1
-#     addrg = readdr.search(output)
-#     if not addrg:
-#         return -1
-#     res = int(addrg.group(1), 0)
-#     return res
 
 
 def symbol_relocation_file(name, offset, stage, path=None, debug=False):
