@@ -58,6 +58,9 @@ def bbxmqemu(main, boot_config,
                             "target extended-remote | exec %s" % (run_cmd)]}
     if not is_watchpoint:
         gdb_tools = os.path.join(main.test_suite_path, "gdb_tools.py")
+        cfg['gdb_commands'].append('mon trace-event main_uboot_writes off')
+        cfg['gdb_commands'].append('mon  trace-event my_cpu_write off')
+        cfg['gdb_commands'].append('mon  trace-file off')
         cfg['gdb_commands'].append('python execfile(\"%s\")' % gdb_tools)
 
     deps.append(qemu)
@@ -152,7 +155,7 @@ def calltrace(main, configs,
     done_commands = []
     additional_cmds = " ".join("-ex '%s'" % s for s in configs['gdb_commands'])
     calltrace_src = os.path.join(main.test_suite_path, "calltrace", "calltrace.py")
-    blacklist = {'spl': ['__s_init_from_arm'],  # , "get_timer", "get_timer_masked", "__udivsi3" "udelay"],
+    blacklist = {'spl': ['__s_init_from_arm', "get_timer", "get_timer_masked", "udelay"],  # , "get_timer", "get_timer_masked", "__udivsi3" "udelay"],
                  'main': ['__s_init_from_arm', 'get_sp', 'setup_start_tag', "get_timer", "get_timer_masked", "__udivsi3", "udelay"]}
 
     norec = ['sdelay']

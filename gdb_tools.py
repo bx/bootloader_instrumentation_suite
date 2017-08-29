@@ -56,6 +56,7 @@ gdb.execute('set confirm off')
 class BreakpointRegistrar(type):
     def __new__(cls, clsname, bases, attrs):
         newcls = type.__new__(cls, clsname, bases, attrs)
+        newcls.name = clsname
         global breakpoint_classes
         if clsname not in breakpoint_classes.keys():
             breakpoint_classes[clsname] = newcls
@@ -106,7 +107,7 @@ class BootStageData(gdb.Command):
         self._startpoint = val
 
 
-class StartNextStage():
+class StartNextStage(object):
     def __init__(self, controller, stage):
         self.controller = controller
         self.stage = stage
@@ -141,7 +142,7 @@ class GDBBootCommandHandler(gdb.Command):
         self.controller.invoke(cmd, from_tty)
 
 
-class GDBBootController():
+class GDBBootController(object):
     def __init__(self):
         self.breakpoints = []
         self.plugins = []
@@ -317,7 +318,7 @@ class GDBBootController():
             s_info.endbreaks.append(StageEndBreak(addr, self, stage, success))
 
     def insert_substagestart_breakpoints(self, stage):
-        if any(map(lambda x: issubclass(SubstageEntryBreak, x), self.disabled_breakpoints)):
+        if any(map(lambda x: "SubstageEntryBreak" == x, self.disabled_breakpoints)):
             return
         sname = stage.stagename
         s_info = self._stages[sname]
@@ -328,13 +329,13 @@ class GDBBootController():
             SubstageEntryBreak(substages[i], i, self, stage)
 
     def insert_longwrites_breakpoints(self, stage):
-        if any(map(lambda x: issubclass(LongwriteBreak, x), self.disabled_breakpoints)):
+        if any(map(lambda x: x == "LongwriteBreak", self.disabled_breakpoints)):
             return
         for r in db_info.get(stage).longwrites_info():
             LongwriteBreak(self, r, stage)
 
     def insert_reloc_breakpoints(self, stage):
-        if any(map(lambda x: issubclass(RelocBreak, x), self.disabled_breakpoints)):
+        if any(map(lambda x: x == "RelocBreak", self.disabled_breakpoints)):
             return
         for r in db_info.get(stage).reloc_info():
             RelocBreak(self, stage, r)
@@ -346,7 +347,7 @@ class GDBBootController():
                 self.disable_breakpoint(b, disable=not enable, delete=False)
 
     def insert_write_breakpoints(self, stage):
-        if any(map(lambda x: issubclass(WriteBreak, x), self.disabled_breakpoints)):
+        if any(map(lambda x: x == "WriteBreak", list(self.disabled_breakpoints))):
             return
         i = 0
         n = db_info.get(stage).num_writes()
@@ -507,7 +508,7 @@ class GDBBootController():
         global breakpoint_classes
         for b in self.get_breaks(list(breakpoint_classes.itervalues())):
             if b.stage == stage:
-                self.disable_breakpoint(b, delete=isinstance(b, StageEndBreak))
+                self.disable_breakpoint(b, delete=b.name == "StageEndBreak")
 
     def spec_to_addr(self, spec):
         addr = -1
@@ -571,6 +572,7 @@ class GDBBootController():
             self.disabled_breakpoints = self.disabled_breakpoints & set(conf.disabled_breakpoints)
         else:
             self.disabled_breakpoints = set(conf.disabled_breakpoints)
+
         if conf.stage_hook:
             self.stage_hooks.append(conf.stage_hook)
         conf.controller = self
@@ -602,7 +604,7 @@ class CompanionBreakpoint(gdb.Breakpoint):
         return ret
 
 
-class BootBreak():
+class BootBreak(object):
     __metaclass__ = BreakpointRegistrar
 
     def __init__(self, spec, controller, needs_relocation, stage, **kwargs):
@@ -625,7 +627,7 @@ class BootBreak():
                 spec = "*(%s)" % spec
         self.addr = controller.spec_to_addr(spec)
         self.breakpoint = CompanionBreakpoint(spec, self)
-        if any(map(lambda x: isinstance(self, x), controller.disabled_breakpoints)):
+        if any(map(lambda x: self.name == x, controller.disabled_breakpoints)):
             controller.disable_breakpoint(self, delete=False)
         controller.breakpoints.append(self)
 

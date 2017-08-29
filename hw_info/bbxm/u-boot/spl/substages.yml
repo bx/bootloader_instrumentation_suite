@@ -7,7 +7,7 @@ lowlevel_init:
   reclassified_regions:
     RAM.rest0: "stack"
     RAM.rest1: "stack"
-    RAM.rom_stack: "readonly"
+  undefined_regions: ["RAM.rom_stack"]
 
 cpy_clk_code:
   substage_type: "loading"
@@ -23,7 +23,7 @@ lowlevel_init_finish:
 
 _main:
    substage_type: "bookkeeping"
-   undefined_regions: ["RAM.rom_stack", "RAM.downloaded_image.scratch_space", "RAM.downloaded_image.public_stack", "RAM.rest1", "RAM.rest0", "RAM.downloaded_image.unused", "RAM.downloaded_image.public_stack.beginning", "RAM.downloaded_image", "RAM.downloaded_image.public_stack.stack_rest1", "RAM.downloaded_image.public_stack.stack_rest0", "RAM.downloaded_image.downloaded_image_text", "RAM.downloaded_image.downloaded_image_data", "RAM.downloaded_image.public_stack.cpy_clk_code"]
+   undefined_regions: ["RAM.downloaded_image.scratch_space", "RAM.downloaded_image.public_stack", "RAM.rest1", "RAM.rest0", "RAM.downloaded_image.unused", "RAM.downloaded_image.public_stack.beginning", "RAM.downloaded_image", "RAM.downloaded_image.public_stack.stack_rest1", "RAM.downloaded_image.public_stack.stack_rest0", "RAM.downloaded_image.downloaded_image_text", "RAM.downloaded_image.downloaded_image_data", "RAM.downloaded_image.public_stack.cpy_clk_code"]
    reclassified_regions:
      RAM1.global_data: "stack"
      RAM1.later_stack: "readonly"

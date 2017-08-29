@@ -199,10 +199,10 @@ class CallTrace(gdb_tools.GDBPlugin):
                                      bp_hooks=bp_hooks,
                                      stage_hook=self.setup_breakpoints,
                                      exit_hook=self._gdb_exit,
-                                     disabled_breakpoints=[gdb_tools.WriteBreak,
-                                                           gdb_tools.LongwriteBreak,
-                                                           gdb_tools.EndLongwriteBreak,
-                                                           gdb_tools.SubstageEntryBreak],
+                                     disabled_breakpoints=["WriteBreak",
+                                                           "LongwriteBreak",
+                                                           "EndLongwriteBreak",
+                                                           "SubstageEntryBreak"],
                                      parser_args=parser_options)
 
     def no_recursion(self, args):
