@@ -32,6 +32,7 @@ import sys
 import os
 import glob
 import difflib
+import yaml
 
 
 class TaskManager():
@@ -71,6 +72,16 @@ class TaskManager():
                                                               ids, 1, 0)[0]
                     open_instance = os.path.basename(open_instance)
                 self.test_id = open_instance
+            # resolve trace name to something that exists
+            select_trace = instrumentation_results_manager.TraceTaskPrepLoader.get_trace_name(self.test_id,
+                                                                                              select_trace)
+            config_path = os.path.join(instrumentation_results_manager.TraceTaskPrepLoader.test_path(self.test_id,
+                                                                                                     select_trace),
+                                       "config.yml")
+            print config_path
+            with open(config_path, 'r') as f:
+                settings = yaml.load(f)
+                enabled_stages = settings['stages']
             self.boot_task.build.uptodate = [True]
             (current_id, gitinfo) = self._calculate_current_id()
             run = False

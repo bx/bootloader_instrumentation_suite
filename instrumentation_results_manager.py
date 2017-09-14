@@ -440,8 +440,8 @@ class PostTraceLoader(ResultsLoader):
             a = ActionListTask([PythonInteractiveAction(Do(s, outfile, outfile2))],
                                deps, [outfile, fns[n], el_file[n]], name)
             outs[s.stagename] = outfile
-            if "watchpoint" in self.tracenames:
-                a.task_dep = ["import_watchpoints_to_tracedb"]
+            # if "watchpoint" in self.tracenames:
+            #    a.task_dep = ["import_watchpoints_to_tracedb"]
             tasks.append(a)
         Main.set_config("policy_trace_el", lambda s: el_file[s.stagename])
         Main.set_config("policy_trace_fnlist_dir", lambda s: fns[s.stagename])
@@ -719,33 +719,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         super(TraceTaskPrepLoader, self).__init__(test_id, "trace_prep", not create_test_only)
         self.test_root = Main.get_config("test_instance_root")
         self.create = create
-        if self.create:
-            self.trace_id = self.create_new_id()
-        elif trace_name is None:  # get last id
-            self.trace_id = sorted(self.existing_trace_ids())[-1]
-        else:
-            if not hook:
-                existing = sorted(self.existing_trace_ids())
-                if trace_name not in existing:
-                    try:
-                        i = int(trace_name)
-                    except:
-                        i = None
-                    if i is not None:
-                        i = self._format_id(i)
-                        if i in existing:
-                            trace_name = i
-                    res = difflib.get_close_matches(trace_name, existing, 1, 0)
-                    if not res:
-                        if len(existing) == 0:
-                            raise Exception("No exising trace result dirs")
-                        self.trace_id = existing[-1]
-                    else:
-                        self.trace_id = res[0]
-                else:
-                    self.trace_id = trace_name
-            else:
-                self.trace_id = trace_name
+        self.trace_id = self.get_trace_name(test_id, trace_name, create, hook)
         self.new = True
         self.config_path = self._test_path("config.yml")
         if instrumentation_task:
@@ -759,7 +733,6 @@ class TraceTaskPrepLoader(ResultsLoader):
                 self.stagenames = settings['stages']
                 self.hwname = settings['hw']
                 self.tracenames = settings['traces']
-
         self.hw = Main.get_hardwareclass_config().hardware_type_cfgs[self.hwname]
         self.stages = [Main.stage_from_name(s) for s in self.stagenames]
         Main.set_config('enabled_stages', self.stagenames) # update enabled stages
@@ -775,7 +748,45 @@ class TraceTaskPrepLoader(ResultsLoader):
         self.task_adders = [self._setup_tasks, self._openocd_tasks]
         self._add_tasks()
 
-    def _format_id(self, num):
+    @classmethod
+    def _existing_trace_ids(cls, instance_id):
+        for f in glob.glob("%s/*" % os.path.join(cls.instance_root(instance_id),  "trace_data")):
+            if os.path.isdir(f) and not os.path.basename(f) == "trace_data-by_name":
+                yield os.path.basename(f)
+
+    @classmethod
+    def get_trace_name(cls, instance_id, trace_id, create=False, hook=False):
+        if create:
+            trace_id = cls.create_new_id(instance_id)
+        elif trace_id is None:  # get last id
+            self.trace_id = sorted(cls._existing_trace_ids(instance_id))[-1]
+        else:
+            if not hook:
+                existing = sorted(cls._existing_trace_ids(instance_id))
+                if trace_id not in existing:
+                    try:
+                        i = int(trace_id)
+                    except:
+                        i = None
+                    if i is not None:
+                        i = cls._format_id(i)
+                        if i in existing:
+                            trace_id = i
+                    res = difflib.get_close_matches(trace_id, existing, 1, 0)
+                    if not res:
+                        if len(existing) == 0:
+                            raise Exception("No exising trace result dirs")
+                        trace_id = existing[-1]
+                    else:
+                        trace_id = res[0]
+        return cls._format_id(trace_id)
+
+    @classmethod
+    def test_path(cls, instance_id, trace_id):
+        return os.path.join(cls.instance_root(instance_id), "trace_data", trace_id)
+
+    @classmethod
+    def _format_id(cls, num):
         return str(num).zfill(8)
 
     def _openocd_tasks(self):
@@ -805,22 +816,27 @@ class TraceTaskPrepLoader(ResultsLoader):
         Main.set_config('openocd_search_path', search)
         return tasks
 
-    def create_new_id(self):
+    @classmethod
+    def create_new_id(cls, instance_id):
         num = 0
-        existing = sorted(self.existing_trace_ids())
+        existing = sorted(cls.existing_trace_ids(instance_id))
         if len(existing) == 0:
-            return self._format_id(0)
+            return cls._format_id(0)
         while True:
-            if self._format_id(num) in existing:
+            if cls._format_id(num) in existing:
                 num += 1
             else:
                 break
-        return self._format_id(num)
+        return cls._format_id(num)
 
-    def existing_trace_ids(self):
-        for f in glob.glob("%s/*" % self._dest_dir_root_path()):
-            if os.path.isdir(f) and not os.path.basename(f) == "trace_data-by_name":
-                yield os.path.basename(f)
+    # def existing_trace_ids(self, instance_id):
+    #     for f in glob.glob("%s/*" % self._dest_dir_root_path(instance_id)):
+    #         if os.path.isdir(f) and not os.path.basename(f) == "trace_data-by_name":
+    #             yield os.path.basename(f)
+
+    @classmethod
+    def instance_root(cls, instance_id):
+        return os.path.join(Main.test_data_path, instance_id)
 
     def _dest_dir_root_path(self, rel=""):
         return os.path.join(self.test_root, "trace_data", rel)
@@ -1157,7 +1173,6 @@ sha1: {}
             mksd.uptodate = [True]
         else:
             tasks.append(mksd)
-
         if 'all' in self.enabled_stages or self.enabled_stages is None:
             Main.set_config('enabled_stages',
                             [s.stagename for
