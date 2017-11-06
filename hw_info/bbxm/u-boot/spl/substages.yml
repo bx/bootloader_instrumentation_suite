@@ -36,8 +36,6 @@ board_init_f_mem:
      RAM1.global_data: "patching"
      RAM1.later_stack: "stack"
      SRAM.bss.sram_test: "readonly"
-     SRAM.image: "future"
-     SRAM.image_header: "future"
   new_regions: ["SRAM"]
 
 board_init_f_mem_finish:
@@ -45,6 +43,8 @@ board_init_f_mem_finish:
    reclassified_regions:
      RAM1.global_data: "global"
      SRAM.bss.sram_test: "patching"
+     SRAM.image: "future"
+     SRAM.image_header: "future"
 
 board_init_f:
   substage_type: "patching"

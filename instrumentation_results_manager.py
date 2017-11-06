@@ -759,7 +759,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         if create:
             trace_id = cls.create_new_id(instance_id)
         elif trace_id is None:  # get last id
-            self.trace_id = sorted(cls._existing_trace_ids(instance_id))[-1]
+            trace_id = sorted(cls._existing_trace_ids(instance_id))[-1]
         else:
             if not hook:
                 existing = sorted(cls._existing_trace_ids(instance_id))
@@ -819,7 +819,7 @@ class TraceTaskPrepLoader(ResultsLoader):
     @classmethod
     def create_new_id(cls, instance_id):
         num = 0
-        existing = sorted(cls.existing_trace_ids(instance_id))
+        existing = sorted(cls._existing_trace_ids(instance_id))
         if len(existing) == 0:
             return cls._format_id(0)
         while True:
