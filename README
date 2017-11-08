@@ -37,47 +37,44 @@ in a ipython shell and poking around.
 There is the static analysis database (defined in staticanalysis.py) which contains:
 a root group named "staticanalysis"
 within "/staticanalysis", 7 separate tables
-* "relocs" -- Manually generated relocation information (such as what ranges of addresses get relocated during stage and to where)
-* "writes" -- Lists every memory store instruction statically found in the binary's ".text" section. Includes information such as pc, if it's thumb, what registers we must read in order to calculate the destination of the write, how many bytes it writes
-* smcs -- Location of every "smc" instruction (needed for baremetal debugging so we don't try to step through ROM instructions)
-* srcs -- Information on a given instruction such as file/line number, disassmbly, address. 
-* funcs -- Information on a given function (name, start and end addr)
-* longwrites -- Manually generated information on looped writes so that we can generate tracing results of this loop without breaking or stepping through every loop iteration
-* skips -- Manually generated information on instruction ranges the baremetal debugger should "skip" (not step through)
+- "relocs" -- Manually generated relocation information (such as what ranges of addresses get relocated during stage and to where)
+- "writes" -- Lists every memory store instruction statically found in the binary's ".text" section. Includes information such as pc, if it's thumb, what registers we must read in order to calculate the destination of the write, how many bytes it writes
+- smcs -- Location of every "smc" instruction (needed for baremetal debugging so we don't try to step through ROM instructions)
+- srcs -- Information on a given instruction such as file/line number, disassmbly, address.
+- funcs -- Information on a given function (name, start and end addr)
+- longwrites -- Manually generated information on looped writes so that we can generate tracing results of this loop without breaking or stepping through every loop iteration
+- skips -- Manually generated information on instruction ranges the baremetal debugger should "skip" (not step through)
 
 We create a separate one of these databases per boot stage.
 
 The second type of database is a trace table -- generated from runtime tracing information. This table is defined in database.py.
 It has 1 group, which is its stage name. This one group contains 2 tables:
-* "writes": an entry for each store instruction that occurs at runtime. Includes information such as pc (both as seen in ELF and perhaps a different relocated address), destination of write, size of write, lr, cpsr
-* "writerange": a summary of the write tables that consolodates information on sequential writes (of which the writehistogram is generated from)
+- "writes": an entry for each store instruction that occurs at runtime. Includes information such as pc (both as seen in ELF and perhaps a different relocated address), destination of write, size of write, lr, cpsr
+- "writerange": a summary of the write tables that consolodates information on sequential writes (of which the writehistogram is generated from)
 
 
 INSTALL
 (may not be complete, but will list new ones as they are found)
 
-* Patched version of captone -- git@gitlab.cs.dartmouth.edu:bx/capstone.git
-** Be sure to install the python bindings after installing the library (cd bindings/python; setup.py install)
+- capstone from https://github.com/aquynh/capstone
+  - Be sure to install the python bindings after installing the library (cd bindings/python; setup.py install)
 
-* Qemu-linaro, peferably my patched version which implements large-scale watchpoints.
-** git@gitlab.cs.dartmouth.edu:bx/qemu-linaro-bbxm.git
+- Qemu-linaro (optional, and not recommended)
+  - Only if you want to use watchpoint instrumentation, which is waaaaaay slower than breakpoints
+  - if so, use my patched version for watchpoint support, which only works for "-m bbxm" emulated machine
+  - https://github.com/bx/qemu-linaro-patched
+  -
 
-* It also supports a openocd/baremetal target, but I will not document that here.  However the test suite will probably have a panic attack if you do not have a copy of openocd.  The newest version will be fine, although I have a patched version that properly enables debugging on the bbxm.
-** More information about what I did here: https://sourceforge.net/p/openocd/mailman/message/34799168/
-** Patched repo here: git@gitlab.cs.dartmouth.edu:bx/openocd.git
+- It also supports a openocd/baremetal target (optional, not fully functional), but I will not document that here.
+  - Mostly becaue it is not reliale
+  - And it requires a patched version to work with the BeagleBoardxM
+    - https://github.com/bx/qemu-linaro-patched
+  - More information about what I did here: https://sourceforge.net/p/openocd/mailman/message/34799168/
 
-* other python libraries needed:
-** pytables
-** pyinter
-** pygit2 (which needs libgit2 to be installed)
-** ipython
-** config-parser
-
-This test suite is written for python2.7, so make sure that is the version of python you are using (it will not work with python 3)
+This test suite is written for python2.7, so make sure that is the
+version of python you are using (it will not work with python 3)
 
 Also you will need root on your machine so it can set up sdcard images.
-
-
 
 
 CONFIGURATION FILE
@@ -137,11 +134,10 @@ to a Bootstages class with that name.
 
 USAGE
 
-You must first invoke the test suite via:
-main.py -c
+The test suite uses pydoit to manage data collection requirements.
+For example, the test suite needs to preprocess the bootloader binary
+before it is able to execute and instrument the bootloader.
 
-Try to not invoke multiple instances of main.py at once as it may mess
-up your test results.
 
 This creates the directories it needs for its test results directory,
 builds u-boot, creates a new sd image, and runs all static analysis.
@@ -153,9 +149,20 @@ gcc (and in the future any gcc plugins) and create a new
 test_config_instance directory along with a new sdcard image and
 static analysis database when it is invoked.
 
-If you want to generate new trace data without overwriting what you have already collected, execute
-main.py -n
-which will create a new trace data collection directory within your test configuration results trace-data directory
+
+You must first invoke the test suite via: main.py -c
+  - this will cause it to preprocess the bootloader using options specified in bootsuite.yaml
+
+Then if you execute main.py -r
+  - It will execute, instrument, and collect data from the binary
+
+You can then postprocess collected data via
+  - main.py -p consolidate_writes
+  - main.py -p browse_db
+  - main.py -p policy_check
+
+Try to not invoke multiple instances of main.py at once as it may mess
+up your test results.
 
 If any bulids fail you can either ask it to rebuild all software via:
 main.py -b
@@ -165,26 +172,13 @@ main.py -B <software_name>
 (sotware_name as it is written in the software's configuration in bootsuite.yaml)
 
 
-Once everything has been created, you can ask the test suite to print
-all commands that may be of use:
-main.py -a
--or- just those commands that you should use to "execute" the bootloader (execute QEMU + any tracing tools)
+You can ask the test suite to print commands it uses to execute and instrument:
 main.py -p
--or- just print commands for a specific bootstage/hardware trace method configuration
-main.py -T <spl/main> <QemuWatchpointTrace/QemuBreakpointTrace>
-
-It will print out commands you need to both set up "execute" the
 hardware (or emulator) and to run the tracing software.
 
 All tracing tools, with the exception of QEMU watchpoints, will
 directly import their tracing data into the trace database and create the
-human-readable writehistogram file, as long as you allow the scripts
-to finish fully.  To import QEMU watchpoint data you can execute
-(assuming you have the trace data located at the correct path -- which
-will be the case if you ran QEMU watchpoint tracing using the command
-it printed out via '-p'):
-main.py -i
-
+human-readable writehistogram file.
 
 PYTHON MODULES TO INSTALL
 interval
@@ -196,3 +190,4 @@ sortedcontainers
 numpy
 numexpr
 tables
+doit
