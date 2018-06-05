@@ -1,5 +1,6 @@
 OVERVIEW
 
+
 NB: This README is super out-of-date and will eventually be updated
 
 This test suite helps you keep track of different versions of
@@ -11,6 +12,22 @@ images/ELF files, a prepared SD card image, and test results of
 runtime trace analyses.  If it detects changes in the u-boot source or
 build tools it will create a new set of test result directories with a
 new sdcard image and static analysis results.
+
+LARGE PICTURE/TOOLSUITE DESIGN
+
+A significant portion of this tool suite's codebase was written to
+support an manage muliple target (bootloader) versions/builds,
+emulator versions, hardware debugging tool builds/versions, and the
+dependencies between/among different dynamic analyses and analyses of
+data collected from an instrumented execution of the target.  Hence
+this instrumentation suite has become the over-engineered monster with
+which you are now becoming acquainted.
+
+CONFIGURATION
+
+
+
+TEST RESULTS DIRECTORY STRUCTURE
 
 It stores the results in a directory tree in the following manner:
 
@@ -53,7 +70,35 @@ It has 1 group, which is its stage name. This one group contains 2 tables:
 - "writerange": a summary of the write tables that consolodates information on sequential writes (of which the writehistogram is generated from)
 
 
-INSTALL
+[INSTALL]
+
+I recommend setting up a separate python environment for this
+toolsuite using a tool such as virtualenv/virtualenvwrapper.
+
+SOFTWARE REQUIREMENTS
+- git
+- capstone (next branch -- https://github.com/aquynh/capstone/tree/next, I tested this with this commit -- https://github.com/aquynh/capstone/tree/c5dce55db4907f8f3bd326fd96d0b6a613b18e66 )
+- gdbm (GNU database library)
+- libgit2
+- gdb with python2 bindings (most newer versions of gdb support python, however some only have python3, not python2)
+- Python 2 (I recommend version 2.7.11)
+- The following python2 libraries:
+  - doit (version 0.29.0)
+  - PyYAML
+  - pathlib
+  - pygit2
+  - ipython
+  - intervaltree
+  - tables
+  - capstone
+  - unicorn
+  - numpy
+  - sortedcontainers
+  - pdfminer
+  - (optional) ipython v5.7.0 (for embeeded console support)
+  - (optional, only if working with qemu watchpoint) qemu's tracetool.py -- https://raw.githubusercontent.com/qemu/qemu/86b5aacfb972ffe0fa5fac6028e9f0bc61050dda/scripts/tracetool.py , which needs to be placed somewhere in your python path)
+
+
 (may not be complete, but will list new ones as they are found)
 
 - capstone from https://github.com/aquynh/capstone
@@ -66,7 +111,7 @@ INSTALL
   -
 
 - It also supports a openocd/baremetal target (optional, not fully functional), but I will not document that here.
-  - Mostly becaue it is not reliale
+  - Mostly becaue it is not reliable
   - And it requires a patched version to work with the BeagleBoardxM
     - https://github.com/bx/qemu-linaro-patched
   - More information about what I did here: https://sourceforge.net/p/openocd/mailman/message/34799168/

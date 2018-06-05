@@ -29,19 +29,10 @@ import pure_utils
 
 def addr2line(addr, stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf    
     cmd = '%saddr2line -e %s 0x%x 2>/dev/null' % (cc, elf, addr)
     ret = Main.shell.run_cmd(cmd)
     return ret.split()[0]  # sometimes there is extra junk after the line number (like below)
-
-
-# def infoline(line, stage):
-#     cc = Main.cc
-#     elf = Main.get_config("stage_elf", stage)
-#     cmd = '%sgdb -ex "info line %s" --batch --nh --nx %s 2>/dev/null' % (cc, line, elf)
-#     output = Main.shell.run_cmd(cmd).split("\n")
-#     return output
-
 
 def line2addrs(line, stage):
     output = infoline(line, stage)
@@ -73,8 +64,8 @@ def line2addrs(line, stage):
 
 def addr2functionname(addr, stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
-    srcdir = Main.get_config("temp_bootloader_src_dir")
+    elf = stage.elf
+    srcdir = Main.runtime.temp_target_src_dir
     cmd = '%sgdb --cd=%s ' \
           '-ex "x/i 0x%x" --batch --nh --nx %s 2>/dev/null' % (cc,
                                                                srcdir,
@@ -96,8 +87,8 @@ def addr2functionname(addr, stage):
 
 def disassemble(what, stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
-    srcdir = Main.get_config("temp_bootloader_src_dir")
+    elf = stage.elf
+    srcdir = Main.runtime.temp_target_src_dir
     cmd = '%sgdb --cd=%s ' \
           '-ex "disassemble %s" --batch --nh --nx %s 2>/dev/null' % (cc,
                                                                      srcdir,
@@ -119,7 +110,7 @@ def line2src(line):
 
 def disasmrange(start, end, stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     cmd = "%sobjdump -D -w --start-address=0x%x --stop-address=0x%x %s 2>/dev/null" \
           % (cc, start, end, elf)
     return Main.shell.run_cmd(cmd)
@@ -127,7 +118,7 @@ def disasmrange(start, end, stage):
 
 def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     cmd = "%sobjdump -D -w --start-address=0x%x --stop-address=0x%x -j .text %s 2>/dev/null" \
           % (cc, addr, addr+sz, elf)
     if debug:
@@ -137,7 +128,7 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
         return (None, None, None, None)
     if debug:
         print output
-    addrre = re.compile("%x" % addr)
+    addrre = re.compile("[\s]*%x" % addr)
     output = [l for l in output if addrre.match(l)]
 
     name = output[0].strip()
@@ -168,15 +159,15 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
 
 def addr2funcnameobjdump(addr, stage, debug=False):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
-    cmd = "%sobjdump -D -w --start-address=0x%x --stop-address=0x%x %s 2>/dev/null" \
+    elf = stage.elf
+    cmd = "%sobjdump -d -w --start-address=0x%x --stop-address=0x%x %s 2>/dev/null" \
           % (cc, addr, addr + 4, elf)
     if debug:
         print cmd
     output = Main.shell.run_cmd(cmd).split("\n")
     if debug:
         print output
-    addrre = re.compile("%x" % addr)
+    addrre = re.compile("[\s]*%x:" % addr)
     output = [l for l in output if addrre.match(l)]
     if debug:
         print output
@@ -195,8 +186,8 @@ def addr2funcnameobjdump(addr, stage, debug=False):
 
 def addr2disasm(addr, stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
-    srcdir = Main.get_config("temp_bootloader_src_dir")
+    elf = stage.elf
+    srcdir = Main.runtime.temp_target_src_dir
     cmd = '%sgdb --cd=%s ' \
           '-ex "disassemble/r 0x%x,+1" --batch '\
           '--nh --nx %s 2>/dev/null' % (cc,
@@ -230,42 +221,49 @@ def addr2disasm(addr, stage):
 
 def get_c_function_names(stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
-    cmd = '%sreadelf -W -s %s 2>/dev/null' % (cc, elf)
+    elf = stage.elf
+    cmd = '%sreadelf -W -s %s | grep FUNC 2>/dev/null' % (cc, elf)
     output = Main.shell.run_multiline_cmd(cmd)
-    regexp = re.compile("\s+\d+:\s+(?P<addr>[a-fA-f0-9]{8})"
-                        "\s+\w*\s+(?P<t>[A-Z]+)\s+\w*\s+\w*\s+\w*\s+(?P<name>[\w_\-\.]+)\s*$")
+    #regexp = re.compile("\s+\d+:\s+(?P<addr>[a-fA-f0-9]{8})"
+    #                    "\s+\w*\s+(?P<t>[A-Z]+)\s+\w*\s+\w*\s+\w*\s+(?P<name>[\w_\-\.]+)\s*$")
     results = []
     for l in output:
-        m = regexp.search(l)
-        if m is not None:
-            (addr, name, t) = (m.groupdict()['addr'], m.groupdict()['name'], m.groupdict()['t'])
-            if t == "FUNC":
-                results.append((name, int(addr, 16)))
+        cols = l.split()
+        if len(cols) > 7:
+            addr = cols[1]
+            name = cols[7]     
+            results.append((name, int(addr, 16)))        
+        #m = regexp.search(l)
+        #print m
+        #if m is not None:
+        #    (addr, name, t) = (m.groupdict()['addr'], m.groupdict()['name'], m.groupdict()['t'])
+        #    if t == "FUNC":
+        #        results.append((name, int(addr, 16)))
+
     return results
 
 
 def get_section_headers(stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     return pure_utils.get_section_headers(cc, elf)
 
 
 def get_section_location(name, stage):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     return pure_utils.get_section_location(cc, elf, name)
 
 
 def get_symbol_location(name, stage, debug=False, nm=False):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     return pure_utils.get_symbol_location(cc, elf, name, debug, nm)
 
 
 def get_symbol_location_start_end(name, stage, debug=False):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     start = get_symbol_location(name, stage, debug)
     if start >= 0:
         cmd = '%sreadelf -W -s %s | grep %s 2>/dev/null' % (cc, elf, name)
@@ -282,7 +280,7 @@ def get_symbol_location_start_end(name, stage, debug=False):
 
 def get_line_addr(line, start, stage, debug=False, srcdir=None):
     cc = Main.cc
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
     if srcdir:
         srcdir = "--cd=%s " % (srcdir)
     cmd = "%sgdb %s -ex 'info line %s' --batch --nh --nx  %s 2>/dev/null" % (cc,
@@ -318,7 +316,8 @@ def get_line_addr(line, start, stage, debug=False, srcdir=None):
 def symbol_relocation_file(name, offset, stage, path=None, debug=False):
     if path is None:
         path = tempfile.NamedTemporaryFile("rw").name
-    elf = Main.get_config("stage_elf", stage)
+    elf = stage.elf
+    srcdir = Main.runtime.temp_target_src_dir
     cc = Main.cc
     cmd = "%sobjcopy  --extract-symbol -w -N \!%s "\
           "--change-addresses=0x%x %s %s 2>/dev/null" % (cc,

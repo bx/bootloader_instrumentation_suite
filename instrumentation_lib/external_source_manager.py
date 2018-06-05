@@ -74,10 +74,7 @@ class CodeTask(object):
                 self.git = None
 
     def gf(self, field):
-        if not hasattr(self.build_cfg, field):
-            return self.defaults[field]
-        else:
-            return getattr(self.build_cfg, field)
+        return getattr(self.build_cfg, field)
 
     def path(self, rel):
         p = pathlib.Path(self.root_dir) / rel
@@ -90,7 +87,7 @@ class CodeTask(object):
         l = {
             'name': self.name,
             'basename': self.basename,
-            'verbosity': 2,
+            #'verbosity': 2,
             'uptodate': self.uptodate,
             'targets': self.targets,
             'actions': self.actions,
@@ -104,52 +101,70 @@ class CodeTask(object):
             cfg = Main.object_config_lookup(config_type, config_name)
             keywords = Main.__dict__
             keywords.update(cfg.__dict__)
+            # filter out keys that begin with _Main_ which are a result of use of the @property decorator
+            keywords = {k.replace("_Main__", ""): v for (k, v) in keywords.iteritems()}
             cmd = cmd.format(**keywords)
         return cmd
 
 
 class CodeTaskClean(CodeTask):
-    defaults = {'clean': 'make clean'}
+    #defaults = {'clean': 'make clean'}
 
     def __init__(self, cfg):
         super(CodeTaskClean, self).__init__('do_clean', cfg)
-        self.actions = [(self.save_timestamp,),
-                        LongRunning(self.format_command(self.gf("clean")),
-                                    cwd=self.root_dir, save_out='cleaned')]
-        self.uptodate = [run_once]
+        #(self.save_timestamp,),
+        self.actions = [
+                        CmdAction(self.format_command(self.gf("clean")),
+                                    cwd=self.root_dir)]
+        self.uptodate = [True]
 
 
 class CodeTaskConfig(CodeTask):
-    defaults = {'build_prepare': './configure'}
+    #defaults = {'build_prepare': './configure'}
 
     def __init__(self, cfg):
         super(CodeTaskConfig, self).__init__('config', cfg)
-        self.actions = [(self.save_timestamp,),
+        #(self.save_timestamp,),
+        self.actions = [
                         CmdAction(self.format_command(self.gf('build_prepare')),
-                                  cwd=self.root_dir, save_out='configured')]
-        self.uptodate = [task_ran("clean")]
+                                  cwd=self.root_dir)]
+        #self.uptodate = [not task_ran("clean")]
 
 
 class CodeTaskBuild(CodeTask):
-    defaults = {'build_cmd': 'make'}
-
-    def __init__(self, cfg):
+    #defaults = {'build_cmd': 'make'}
+    #defaults.update(CodeTaskClean.defaults)
+    #defaults.update(CodeTaskConfig.defaults)
+    def __init__(self, cfg, printonly=False):
         super(CodeTaskBuild, self).__init__('build', cfg)
-        self.uptodate = [task_ran('config')]
+        if not printonly:
+            c = ""
+            for i in ['clean', 'build_prepare', 'build_cmd']:
+                l = self.gf(i)
+                if l:
+                    c += "%s; " % l            
+        else:
+            c = self.gf("build_cmd")
+        #self.uptodate = [task_ran('config')]
         self.targets = self.all_targets()
-        self.actions = [CmdAction(self.format_command(self.gf("build_cmd")),
+        self.actions = [CmdAction(self.format_command(c),
                                   cwd=self.root_dir)]
 
     def all_targets(self):
-        bins = self.gf("binary")
-        if isinstance(bins, list):
-            return [str(self.path(b)) for b in bins]
-        else:
-            return [str(self.path(self.gf("binary")))]
+        files = self.gf("_files")
+        paths = []
+        for (k, v) in files.iteritems():
+            if v.type == "target":
+                path = v.relative_path
+                root = getattr(v, "root_path", v.software.root)
+                paths.append(os.path.join(root, path))
+
+        return paths
+
 
 
 class CodeTaskList():
-    def __init__(self, cfg, always_uptodate):
+    def __init__(self, cfg, always_uptodate=False, printonly=False):
         self.build_cfg = cfg
         self.basename = cfg.name
         self.always_uptodate = always_uptodate
@@ -158,10 +173,14 @@ class CodeTaskList():
             self.git = git_mgr.GitManager(self.root_dir)
         else:
             self.git = None
-        self.clean = CodeTaskClean(cfg)
-        self.config = CodeTaskConfig(cfg)
-        self.build = CodeTaskBuild(cfg)
-        self.tasks = [self.clean, self.config, self.build]
+        self.build = CodeTaskBuild(cfg, printonly=printonly)
+        if printonly:
+            self.clean = CodeTaskClean(cfg)
+            self.config = CodeTaskConfig(cfg)
+            self.tasks = [self.clean, self.config, self.build]
+        else:
+            self.config = CodeTaskBuild(cfg, printonly=printonly)
+            self.tasks = [self.build]
 
         if always_uptodate:
             for t in self.tasks:
@@ -194,42 +213,36 @@ class CodeTaskList():
 
 
 class SourceLoader():
-    def __init__(self, print_build, do_build):
-        self.init_only = True if len(print_build) + len(do_build) == 0 else False
-        self.print_build = print_build
-        self.do_build = do_build
-        self.builds = list(set(do_build + print_build))
+    def __init__(self, build, print_only=False):
+        self.init_only = True if not build else False
+        self.builds = build
         ss = Main.config_class_lookup("Software")
-        bootloader = Main.get_bootloader_cfg()
+        target_software = Main.target_software
 
-        self.code_tasks = [CodeTaskList(s, s.name not in self.do_build)
+        self.code_tasks = [CodeTaskList(s, s.name not in self.builds, print_only)
                            for s in ss
-                           if hasattr(s, "build_required")
-                           and s.build_required
-                           and (s.name in self.builds)]
-        # always need the bootloader
-        if bootloader.software not in self.builds:
-            self.code_tasks.extend(CodeTaskList(s,
-                                                s.name not in self.do_build)
-                                   for s in ss if s.name == bootloader.software)
-        if self.init_only:
-            for c in self.code_tasks:
-                for t in c.tasks:
-                    t.uptodate = [True]
-        else:
-            for c in self.code_tasks:
-                if c.basename in self.do_build:
-                    for t in c.tasks:
-                        t.uptodate = [False]
+                           if (s.name in self.builds)]
+
+        ## always need the target
+        if target_software.name not in self.builds:
+            self.code_tasks.append(CodeTaskList(Main.target_software, False))
+        #if self.init_only:
+        #    for c in self.code_tasks:
+        #        for t in c.tasks:
+        #            t.uptodate = [True]
+#        else:
+#            for c in self.code_tasks:
+#                if c.basename in self.builds:
+#                    for t in c.tasks:
+#                        t.uptodate = [False]
 
     def list_tasks(self):
-        l = []
-        if self.init_only:
-            return l
+        #l = []
         for c in self.code_tasks:
             # only if in bulid list
             if c.basename in self.builds:
                 name = "task_%s" % c.basename
                 tl = c.list_tasks
-                l.append((name, tl))
-        return l
+                yield (name, tl)
+                #l.append((name, tl))
+        #return l

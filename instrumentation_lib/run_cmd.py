@@ -29,11 +29,13 @@ class Cmd():
     def __init__(self):
         self.returncode = 0
 
-    def _check_output(self, cmd, chdir=None, catcherror=False, teefile=None):
+    def _check_output(self, cmd, chdir=None, catcherror=False, teefile=None, verbose=False):
         cwd = os.getcwd()
-        out = ""
+        out = ""        
         if chdir is not None:
             os.chdir(chdir)
+        if verbose:
+            print cmd
         if catcherror:
             try:
                 if teefile:
@@ -62,13 +64,15 @@ class Cmd():
             out = subprocess.check_output(cmd, shell=True)
         if cwd is not None:
             os.chdir(cwd)
+        if verbose:
+            print out
         return out
 
     def run_cmd(self, cmd, pwd=None, catcherror=False):
         return self._check_output(cmd, pwd, catcherror).strip()
 
-    def run_multiline_cmd(self, cmd, pwd=None, catcherror=True, teefile=None):
-        return self._check_output(cmd, pwd, catcherror, teefile).split('\n')
+    def run_multiline_cmd(self, cmd, pwd=None, catcherror=True, teefile=None, verbose=False):
+        return self._check_output(cmd, pwd, catcherror, teefile, verbose=verbose).split('\n')
 
     def get_last_cmd_return_value(self):
         return self.returncode

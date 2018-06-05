@@ -23,17 +23,10 @@
 import gdb
 import os
 import re
-path = gdb.os.getcwd()
 import sys
-sys.path.append(path)
-version = os.path.join(path, ".python-version")
-if os.path.exists(version):
-    with open(version, 'r') as pv:
-        penv = pv.read().strip()
-        sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
+# sys.path.append(os.path.join(sys.prefix, "lib/python2.7/site-packages"))
 import testsuite_utils as utils
 import gdb_tools
-
 
 open_log = None
 now = False
@@ -94,7 +87,7 @@ class WriteResults():
             self.do()
 
 
-class CallExitBreak(gdb_tools.BootFinishBreakpoint):
+class CallExitBreak(gdb_tools.TargetFinishBreakpoint):
     plugin_name = "calltrace"
 
     def __init__(self, name, controller, stage, entry, depth):
@@ -105,7 +98,7 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
         self.valid = True
         self.depth = depth
         try:
-            gdb_tools.BootFinishBreakpoint.__init__(self, controller, True, stage)
+            gdb_tools.TargetFinishBreakpoint.__init__(self, controller, True, stage)
         except ValueError:
             self.valid = False
 
@@ -130,9 +123,19 @@ class CallExitBreak(gdb_tools.BootFinishBreakpoint):
         return False
 
 
-class CallEntryBreak(gdb_tools.BootBreak):
+class CallEntryBreak(gdb_tools.TargetBreak):
     plugin_name = "calltrace"
 
+    @classmethod
+    def settable(cls, name, c):
+        try:
+            i = gdb.execute("x/x %s" % name, to_string=True).split()[0]
+        except gdb.error as e:
+            #c.gdb_print("%s cannot set breakpoint for %s\n" % (e,
+             #                                                           name), "calltrace")
+            return False
+        return True            
+    
     def __init__(self, name, controller, stage, no_rec):
         self.name = name
         self.no_rec = no_rec
@@ -141,8 +144,9 @@ class CallEntryBreak(gdb_tools.BootBreak):
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
         except gdb.error as e:
-            self.gdb_print("%s\n" % e,
-                           self.plugin.name)
+            controller.gdb_print("%s cannot set breakpoint for %s\n" % (e,
+                                                                        self.name),
+                                 self.plugin.name)
             return
         i = re.sub(':', '', i)
         self.fnloc = int(i, 0)
@@ -151,7 +155,7 @@ class CallEntryBreak(gdb_tools.BootBreak):
                            "::",
                            utils.addr2line(self.fnloc,
                                            stage)) if self.plugin._sourceinfo else ""
-        gdb_tools.BootBreak.__init__(self, spec, controller, True, stage)
+        gdb_tools.TargetBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, bp, ret):
         c = self.plugin
@@ -159,6 +163,7 @@ class CallEntryBreak(gdb_tools.BootBreak):
                                     self.name, "entry", self.fnloc,
                                     self.line,
                                     c._minimal))
+
         e = CallExitBreak(self.name, self.controller, self.stage, self, c.depth)
         c.depth += 1
         if not e.valid:
@@ -180,18 +185,21 @@ class CallTrace(gdb_tools.GDBPlugin):
         bp_hooks = {'StageEndBreak': self.stop_end}
 
         parser_options = [
-            gdb_tools.GDBPluginParser("stage_log", ["stage", "log"]),
+            gdb_tools.GDBPluginParser("stage_log",
+                                      [gdb_tools.GDBPluginParserArg("log_args",
+                                                                    nargs="*", default=[])]),
+                                       
             gdb_tools.GDBPluginParser("blacklist",
-                                      ["stage",
-                                       gdb_tools.GDBPluginPargerArg("fns", nargs="*")]),
+                                      [gdb_tools.GDBPluginParserArg("stage_args",
+                                                                    nargs="*", default=[])]),
             gdb_tools.GDBPluginParser("no_recursion",
-                                      [gdb_tools.GDBPluginPargerArg("recfns",
+                                      [gdb_tools.GDBPluginParserArg("recfns",
                                                                     nargs="*", default=[])]),
             gdb_tools.GDBPluginParser("sourceinfo",
-                                      [gdb_tools.GDBPluginPargerArg("enabled",
+                                      [gdb_tools.GDBPluginParserArg("enabled",
                                                                     nargs="?", default=True)]),
             gdb_tools.GDBPluginParser("minimal",
-                                      [gdb_tools.GDBPluginPargerArg("disabled", nargs="?",
+                                      [gdb_tools.GDBPluginParserArg("disabled", nargs="?",
                                                                     default=False)]),
 
             ]
@@ -199,11 +207,14 @@ class CallTrace(gdb_tools.GDBPlugin):
                                      bp_hooks=bp_hooks,
                                      stage_hook=self.setup_breakpoints,
                                      exit_hook=self._gdb_exit,
-                                     disabled_breakpoints=["WriteBreak",
-                                                           "LongwriteBreak",
-                                                           "EndLongwriteBreak",
-                                                           "SubstageEntryBreak"],
+                                      disabled_breakpoints=[
+                                          #"WriteBreak",
+                                          "LongwriteBreak",
+                                     #                       "EndLongwriteBreak",
+                                     #                       "SubstageEntryBreak"],
+                                          ],
                                      parser_args=parser_options)
+        
 
     def no_recursion(self, args):
         self.no_rec_funs.extend(args.recfns)
@@ -221,10 +232,30 @@ class CallTrace(gdb_tools.GDBPlugin):
             self._sourceinfo = False
 
     def stage_log(self, args):
-        self.stage_logs[args.stage] = args.log
+        current = None
+        nextstage = True
+        for l in args.log_args:
+            if nextstage:
+                current = l
+                nextstage = False
+            elif l == "--":
+                nextstage = True
+            else:
+                self.stage_logs[current] = l
+
 
     def blacklist(self, args):
-        self.blacklisted[args.stage] = args.fns
+        current = None
+        nextstage = True
+        for l in args.stage_args:
+            if nextstage:
+                current = l
+                nextstage = False
+                self.blacklisted[current] = []
+            elif l == "--":
+                nextstage = True
+            else:
+                self.blacklisted[current].append(l)
 
     def pc(self):
         return self.controller.get_reg_value('pc')
@@ -246,7 +277,8 @@ class CallTrace(gdb_tools.GDBPlugin):
             if (not hasblacklist) or (hasblacklist and
                                       (name not in self.blacklisted[stage.stagename])):
                 norec = name in self.no_rec_funs
-                CallEntryBreak(name, c, stage, norec)
+                if CallEntryBreak.settable(name, c):
+                    CallEntryBreak(name, c, stage, norec)
 
     def stop_end(self, bp, ret, c=None):
         if bp is None and c is None:

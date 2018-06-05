@@ -33,7 +33,7 @@ import labeltool
 import pytable_utils
 from config import Main
 import numpy
-
+import importlib
 
 def int_repr(self):
     return "({0:08X}, {1:08X})".format(self.begin, self.end)
@@ -198,6 +198,9 @@ class InstructionAnalyzer():
                 return InstructionAnalyzer.WORD_SIZE/2
             elif mne[-1] == 'd':
                 return InstructionAnalyzer.WORD_SIZE*2
+            else: # strex
+                return InstructionAnalyzer.WORD_SIZE
+
         else:
             print "Do not know how to handle instruction mnemonic %s at %x (%x)" \
                 % (ins.mnemonic, ins.address, 0)
@@ -476,7 +479,7 @@ class LongWriteDescriptor():
         # resume after first conditional branch after write instruction
         while self.writeaddr is None:
             (checkvalue, disasm, funname) = \
-                utils.addr2disasmobjdump(checkaddr, sz, self.stage, self.thumb, debug=False)
+                utils.addr2disasmobjdump(checkaddr, sz, self.stage, self.thumb)
             checkinstr = self.table.ia.disasm(checkvalue, self.thumb, checkaddr)
             if not self.table.ia.is_instr_memstore(checkinstr):
                 checkaddr = checkaddr + len(checkinstr.bytes)
@@ -602,7 +605,7 @@ class RelocDescriptor():
         lineno = WriteSearch.get_real_lineno(label, False, self.stage)
         loc = "%s:%d" % (label.filename, lineno)
         return utils.get_line_addr(loc, True, self.stage,
-                                   srcdir=Main.get_config("temp_bootloader_src_dir"))
+                                   srcdir=Main.get_runtime_config("temp_target_src_dir"))
 
     def set_reloffset(self, offset):
         self.reloffset = offset
@@ -658,8 +661,8 @@ class SkipDescriptorGenerator():
         endaddr = -1
         start = ""
         end = ""
-        elf = Main.get_config("stage_elf", self.stage)
-        srcdir = Main.get_config("temp_bootloader_src_dir")
+        elf = self.stage.elf
+        srcdir = Main.get_runtime_config("temp_target_src_dir")
         isfunc = False
         for l in labels:
             if l.value == "START":
@@ -733,7 +736,7 @@ class ThumbRanges():
     @staticmethod
     def find_thumb_ranges(stage):
         cc = Main.cc
-        elf = Main.get_config("stage_elf", stage)
+        elf = stage.elf
         thumb = intervaltree.IntervalTree()
         arm = intervaltree.IntervalTree()
         data = intervaltree.IntervalTree()
@@ -753,11 +756,11 @@ class ThumbRanges():
                     elif prev == 'a':
                         arm.add(i)
                     else:
-                        if o == "80100020 t $d":  # it's actually arm, so continue
-                            print "HACK"
-                            continue
-                        else:  # normal
-                            data.add(i)
+                        # if o == "80100020 t $d":  # it's actually arm, so continue
+                        #     print "HACK"
+                        #     continue
+                        # else:  # normal
+                        data.add(i)
                 lo = hi
                 prev = o[-1]
             else:
@@ -770,11 +773,11 @@ class ThumbRanges():
 
 
 class WriteSearch():
-    def __init__(self, createdb, stage, verbose=False, readonly=False, delete=False):
+    def __init__(self, createdb, stage, verbose=False, readonly=False):
         self.cc = Main.cc
         self.verbose = verbose
+        outfile = Main.get_static_analysis_config("db", stage)
 
-        outfile = Main.get_config('staticdb', stage)
         self.stage = stage
         self.ia = InstructionAnalyzer()
         self.relocstable = None
@@ -787,24 +790,25 @@ class WriteSearch():
         self.skipstable = None
         self.verbose = verbose
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
+
         if createdb:
-            m = "w" if delete else "a"
+            m = "w"
             self.h5file = tables.open_file(outfile, mode=m,
-                                           title="uboot %s bootloader static analysis"
+                                           title="uboot %s target static analysis"
                                            % stage.stagename)
             self.group = self.h5file.create_group("/", 'staticanalysis',
-                                                  "%s bootloader static analysis"
+                                                  "%s target static analysis"
                                                   % stage.stagename)
         else:
             mo = "a"
             self.h5file = tables.open_file(outfile, mode=mo,
-                                           title="uboot %s bootloader static analysis"
+                                           title="uboot %s target static analysis"
                                            % stage.stagename)
             self.group = self.h5file.get_node("/staticanalysis")
 
     @classmethod
     def _get_src_labels(cls):
-        return Main.get_config("labels")
+        return Main.get_runtime_config("labels")()
 
     def open_all_tables(self):
         self.relocstable = self.group.relocs
@@ -815,15 +819,6 @@ class WriteSearch():
         self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
 
-        # try:
-        #     self.h5file.remove_node(self.group, "stageexits")
-        # except:
-        #     pass
-
-        # print "create exits table"
-        # self.create_stageexit_table()
-        # self.stageexits.flush()
-        # self.stageexits = self.group.stageexits
         self.skipstable = self.group.skips
 
     def print_relocs_table(self):
@@ -861,8 +856,9 @@ class WriteSearch():
             self.create_skip_table()
 
     def _setthumbranges(self):
-        (self._thumbranges, self._armranges, self._dataranges) = Main.get_config("thumb_ranges",
-                                                                                 self.stage)
+        (self._thumbranges, self._armranges, self._dataranges) = Main.get_runtime_config("thumb_ranges", self.stage)()
+
+                                                                                         
 
     @property
     def thumbranges(self):
@@ -903,73 +899,75 @@ class WriteSearch():
         self.skipstable = self.h5file.create_table(self.group, 'skips',
                                                    SkipEntry,
                                                    "other instructions to skip (besides smc)")
+
+        # TODO: REPLACE ALL OF THIS WITH CODE THAT GENERATES THIS FROM LABELS
         # get all instructions for sdelay
-        skiplines = [
-            SkipDescriptorGenerator("do_sdrc_init0", self),
-            SkipDescriptorGenerator("do_sdrc_init1", self),
-            SkipDescriptorGenerator("do_sdrc_init2", self),
-            SkipDescriptorGenerator("write_sdrc_timings0", self),
-            SkipDescriptorGenerator("write_sdrc_timings1", self),
-            SkipDescriptorGenerator("per_clocks_enable0", self),
-            SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
-            SkipDescriptorGenerator("per_clocks_enable3", self),
-            SkipDescriptorGenerator("write_sdrc_timings", self),
-            # SkipDescriptorGenerator("mmc_init_stream", self),
-            SkipDescriptorGenerator("mmc_init_stream0", self),
-            SkipDescriptorGenerator("mmc_init_stream1", self),
-            # SkipDescriptorGenerator("mmc_init_setup", self),
-            SkipDescriptorGenerator("mmc_init_setup1", self),
-            SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
-            # SkipDescriptorGenerator("mmc_send_cmd", self),
-            SkipDescriptorGenerator("mmc_write_data0", self),
-            SkipDescriptorGenerator("mmc_write_data1", self),
-            SkipDescriptorGenerator("mmc_read_data0", self),
-            SkipDescriptorGenerator("mmc_complete_op", self),
-            SkipDescriptorGenerator("mmc_write_data0", self),
-            SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
-            SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
-            SkipDescriptorGenerator("omap_hsmmc_send_cmd1", self),
+        skiplines = []
+        for l in WriteSearch.find_labels(labeltool.SkipLabel, "", self.stage, ""):
+            skiplines.append(SkipDescriptorGenerator(l.name, self))
+        #print "SKIPS------"
+        #for l in skiplines:
+        #    print l.__dict__
+        # skiplines = [
+        #     SkipDescriptorGenerator("do_sdrc_init0", self),
+        #     SkipDescriptorGenerator("do_sdrc_init1", self),
+        #     SkipDescriptorGenerator("do_sdrc_init2", self),
+        #     SkipDescriptorGenerator("write_sdrc_timings0", self),
+        #     SkipDescriptorGenerator("write_sdrc_timings1", self),
+        #     SkipDescriptorGenerator("per_clocks_enable0", self),
+        #     SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
+        #     SkipDescriptorGenerator("per_clocks_enable3", self),
+        #     SkipDescriptorGenerator("write_sdrc_timings", self),
+        #     # SkipDescriptorGenerator("mmc_init_stream", self),
+        #     SkipDescriptorGenerator("mmc_init_stream0", self),
+        #     SkipDescriptorGenerator("mmc_init_stream1", self),
+        #     SkipDescriptorGenerator("mmc_init_setup1", self),
+        #     SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
+        #     SkipDescriptorGenerator("mmc_write_data0", self),
+        #     SkipDescriptorGenerator("mmc_write_data1", self),
+        #     SkipDescriptorGenerator("mmc_read_data0", self),
+        #     SkipDescriptorGenerator("mmc_complete_op", self),
+        #     SkipDescriptorGenerator("mmc_write_data0", self),
+        #     SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
+        #     SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
+        #     SkipDescriptorGenerator("omap_hsmmc_send_cmd1", self),
+        # ]
 
-            # SkipDescriptorGenerator("mmc_read_data0", self),
-            # SkipDescriptorGenerator("mmc_read_data1", self),
-            # SkipDescriptorGenerator("mmc_read_data2", self),
-        ]
+        # skipfuns = [
+        #     SkipDescriptorGenerator("sdelay", self),
+        #     SkipDescriptorGenerator("wait_on_value", self),
+        #     SkipDescriptorGenerator("udelay", self),
+        #     SkipDescriptorGenerator("__udelay", self),
+        #     SkipDescriptorGenerator("_set_gpio_direction", self),
+        #     SkipDescriptorGenerator("_get_gpio_direction", self),
+        #     SkipDescriptorGenerator("omap3_invalidate_l2_cache_secure", self),
+        #     SkipDescriptorGenerator("_get_gpio_value", self),
+        #     SkipDescriptorGenerator("get_sdr_cs_size", self),
+        #     SkipDescriptorGenerator("get_sdr_cs_offset", self),
+        #     SkipDescriptorGenerator("make_cs1_contiguous", self),
+        #     SkipDescriptorGenerator("get_cpu_id", self),
+        #     SkipDescriptorGenerator("set_muxconf_regs", self),
+        #     SkipDescriptorGenerator("get_osc_clk_speed", self),
+        #     SkipDescriptorGenerator("per_clocks_enable", self),
+        #     SkipDescriptorGenerator("timer_init", self),
+        #     SkipDescriptorGenerator("go_to_speed", self),
+        # ]
 
-        skipfuns = [
-            SkipDescriptorGenerator("sdelay", self),
-            SkipDescriptorGenerator("wait_on_value", self),
-            SkipDescriptorGenerator("udelay", self),
-            SkipDescriptorGenerator("__udelay", self),
-            SkipDescriptorGenerator("_set_gpio_direction", self),
-            SkipDescriptorGenerator("_get_gpio_direction", self),
-            SkipDescriptorGenerator("omap3_invalidate_l2_cache_secure", self),
-            SkipDescriptorGenerator("_get_gpio_value", self),
-            SkipDescriptorGenerator("get_sdr_cs_size", self),
-            SkipDescriptorGenerator("get_sdr_cs_offset", self),
-            SkipDescriptorGenerator("make_cs1_contiguous", self),
-            SkipDescriptorGenerator("get_cpu_id", self),
-            SkipDescriptorGenerator("set_muxconf_regs", self),
-            SkipDescriptorGenerator("get_osc_clk_speed", self),
-            SkipDescriptorGenerator("per_clocks_enable", self),
-            SkipDescriptorGenerator("timer_init", self),
-            # SkipDescriptorGenerator("mmc_board_init", self),
-            SkipDescriptorGenerator("go_to_speed", self),
-        ]
+        # if self.stage.stagename == 'spl':  # we may need to add more ranges in the main target
+        #     skiplines.extend([  # identify_nand_chip
+        #         SkipDescriptorGenerator("identify_nand_chip0", self),
+        #         SkipDescriptorGenerator("identify_nand_chip1", self),
+        #     ]
+        #     )
+        #     skipfuns.extend([
+        #         SkipDescriptorGenerator("nand_command", self)
+        #     ])
+        # else:
+        #     skiplines = skiplines
+        #     skipfuns = skipfuns
 
-        if self.stage.stagename == 'spl':  # we may need to add more ranges in the main bootloader
-            skiplines.extend([  # identify_nand_chip
-                SkipDescriptorGenerator("identify_nand_chip0", self),
-                SkipDescriptorGenerator("identify_nand_chip1", self),
-            ]
-            )
-            skipfuns.extend([
-                SkipDescriptorGenerator("nand_command", self)
-            ])
-        else:
-            skiplines = skiplines
-            skipfuns = skipfuns
-
-        skiplabels = skipfuns + skiplines
+        #skiplabels = skipfuns + skiplines
+        skiplabels = skiplines
         r = self.skipstable.row
         for s in skiplabels:
             info = s.get_row_information()
@@ -997,7 +995,7 @@ class WriteSearch():
                 addr = -1
                 break
             addr = utils.get_line_addr("%s:%d" % (l.filename, lineno), True, stage,
-                                       srcdir=Main.get_config("temp_bootloader_src_dir"))
+                                       srcdir=Main.get_runtime_config("temp_target_src_dir"))
 
         if addr < 0:
             return -1
@@ -1009,56 +1007,71 @@ class WriteSearch():
 
     def get_framac_line_addr(self, line, start):
         return utils.get_line_addr(line, start, self.stage,
-                                   srcdir=Main.get_config("temp_bootloader_src_dir"))
+                                   srcdir=Main.get_runtime_config("temp_target_src_dir"))
 
     def _get_line_addr(self, line, start=True, framac=False):
         if framac:
             return self.get_framac_line_addr(line, start)
         else:
             return utils.get_line_addr(line, start, self.stage,
-                                       srcdir=Main.get_config("temp_bootloader_src_dir"))
+                                       srcdir=Main.get_runtime_config("temp_target_src_dir"))
 
     def create_longwrites_table(self):
         self.longwritestable = self.h5file.create_table(self.group, 'longwrites',
                                                         LongWrites, "long writes to precompute")
+        skips = []
+        #print "LONGWRITES--"
+        for r in self.stage.longwrites:
+            skips.append(LongWriteDescriptorGenerator(r.name,
+                                                      r.dregs,
+                                                      r.calcregs,
+                                                      r.subreg,
+                                                      r.writetype,
+                                                      r.interval,
+                                                      r.inplace,
+                                                      self))
 
-        skips = [
-            LongWriteDescriptorGenerator("memset", [], ["r2"], "",
-                                         'count', 1, False, self),
-            LongWriteDescriptorGenerator("memcpy", [], ["r2"], "",
-                                         'count', 1, False, self),
-            LongWriteDescriptorGenerator("bss", [], ["r1"], "",
-                                         'maxaddr', 1, False, self),
-            LongWriteDescriptorGenerator("mmc_read_data", [], ["r8"],
-                                         "", 'count', 4, False, self),
-        ]
+        #for s in skips:
+        #    print s.__dict__
+    
 
-        if self.stage.stagename == "spl":
-            skips = skips
-        else:  # strcpy doesn't work properly, disabling for now
-            mainskips = [
-                LongWriteDescriptorGenerator("memmove", [], ["r2"],
-                                             "", 'count', 1, False, self),
-                LongWriteDescriptorGenerator("relocate_code", [], ["r2"],
-                                             "r1", 'count', 1, False, self),
-                # LongWriteDescriptorGenerator("strncpy", ["r0"], ["r1"],
-                #                              "r2", 'sourcestrn',
-                #                              1, False, self),
-                # LongWriteDescriptorGenerator("_do_env_set", ["r0"], ["r2"],
-                #                              "", 'sourcestr',
-                #                              1, False, self),
-                # LongWriteDescriptorGenerator("strcpy", ["r0"], ["r1"],
-                #                              "", 'sourcestr',
-                #                              1, False, self),
-                LongWriteDescriptorGenerator("cp_delay", [], [99],
-                                             "", 'count', 0, True, self),
-                LongWriteDescriptorGenerator("string", [], ["r0"],
-                                             "", 'count', 1, False, self),
-                # LongWriteDescriptorGenerator("strcat", [], ["r1"], "",
-                #                              "sourcestr", 1, False, self)
+        # skips = [
+        #     LongWriteDescriptorGenerator("memset", [], ["r2"], "",
+        #                                  'count', 1, False, self),
+        #     LongWriteDescriptorGenerator("memcpy", [], ["r2"], "",
+        #                                  'count', 1, False, self),
+        #     LongWriteDescriptorGenerator("bss", [], ["r1"], "",
+        #                                  'maxaddr', 1, False, self),
+        #     LongWriteDescriptorGenerator("mmc_read_data", [], ["r8"],
+        #                                  "", 'count', 4, False, self),
+        # ]
 
-            ]
-            skips.extend(mainskips)
+        # if self.stage.stagename == "spl":
+        #     skips = skips
+        # else:  # strcpy doesn't work properly, disabling for now
+        #     mainskips = [
+        #         LongWriteDescriptorGenerator("memmove", [], ["r2"],
+        #                                      "", 'count', 1, False, self),
+        #         LongWriteDescriptorGenerator("relocate_code", [], ["r2"],
+        #                                      "r1", 'count', 1, False, self),
+        #         # LongWriteDescriptorGenerator("strncpy", ["r0"], ["r1"],
+        #         #                              "r2", 'sourcestrn',
+        #         #                              1, False, self),
+        #         # LongWriteDescriptorGenerator("_do_env_set", ["r0"], ["r2"],
+        #         #                              "", 'sourcestr',
+        #         #                              1, False, self),
+        #         # LongWriteDescriptorGenerator("strcpy", ["r0"], ["r1"],
+        #         #                              "", 'sourcestr',
+        #         #                              1, False, self),
+        #         LongWriteDescriptorGenerator("cp_delay", [], [99],
+        #                                      "", 'count', 0, True, self),
+        #         LongWriteDescriptorGenerator("string", [], ["r0"],
+        #                                      "", 'count', 1, False, self),
+        #         # LongWriteDescriptorGenerator("strcat", [], ["r1"], "",
+        #         #                              "sourcestr", 1, False, self)
+
+        #     ]
+        #     skips.extend(mainskips)
 
         r = self.longwritestable.row
         for s in skips:
@@ -1110,63 +1123,24 @@ class WriteSearch():
 
     @classmethod
     def get_relocation_information(cls, stage):
-        infos = []
-        elf = Main.get_config("stage_elf", stage)
-        cc = Main.cc
-        # name, start, ready, cpystart, cpyend
-        # dstfile = "arch/arm/cpu/armv7/omap3/lowlevel_init.S"
-        r = RelocDescriptor("clk_code", None, None, None, None,
-                            None, stage, True, "go_to_speed")
-        dstaddr = r.dstaddr
-        # its a bit complicated to calculated the address to which
-        # code is being copied, hopefully this works for different builds
-        # line = "arch/arm/cpu/armv7/omap3/lowlevel_init.S:181" #ldr	r1, =SRAM_CLK_CODE
+        rs = []
+        for r in stage.reloc_descrs:
+            path = getattr(r, "path")
+            path = Main.populate_from_config(path)
+            
+            generator = getattr(r, "generator")
+            sys.path.append(os.path.dirname(path))
+            name = re.sub(".py", "", os.path.basename(path))
+            mod = importlib.import_module(name)
+            sys.path.pop()
+            g = getattr(mod, generator)
+            r = g(Main, stage, r.name, RelocDescriptor, utils)
+            rs.append(r)
+        #print "RELOC INFO"
+        #for r in rs:
+        #    print r
+        return rs
 
-        # now disassemble and lookup where the value we need is stored, in the commend
-        srcdir = Main.get_config("temp_bootloader_src_dir")
-        cmd = "%sgdb --cd=%s " \
-              "-ex 'x/i 0x%x' --batch --nh --nx  %s" % (cc,
-                                                        srcdir,
-                                                        dstaddr, elf)
-        output = Main.shell.run_multiline_cmd(cmd)
-        output = output[0].strip()
-        output = output.split(';')[1].strip()
-        dstaddr = int(output, 16)
-        # now get value at this address
-        cmd = "%sgdb --cd=%s " \
-              "-ex 'x/wx 0x%x' --batch --nh --nx  %s" % (cc, srcdir,
-                                                         dstaddr, elf)
-        output = Main.shell.run_multiline_cmd(cmd)
-        output = output[0].strip()
-        dstaddr = int(output.split(':')[1].strip(), 0)
-
-        r.set_reloffset(dstaddr - r.cpystartaddr)
-        infos.append(r.get_row_information())
-        if stage.stagename == 'main':
-            cpystartaddr = utils.get_symbol_location("__image_copy_start", stage)
-            cpyendaddr = utils.get_symbol_location("__image_copy_end", stage)
-            r = RelocDescriptor("reloc_code", None,
-                                None, cpystartaddr,
-                                cpyendaddr, -1, stage, True)
-            reloffset = 0x9ff00000 - 0x800a0000  # hand calculated
-            r.set_reloffset(reloffset)
-            mod = r.relmod
-            infos.append(r.get_row_information())
-
-            # keep origional c_runtime_cpu_setup since it is run from orig location
-            # after relocation. "unrelocate" it but keep orig
-            name = "c_runtime_cpu_setup"
-            (start, end) = utils.get_symbol_location_start_end(name, stage)
-            hereaddr = utils.get_symbol_location("here", stage)
-            startrel = (start + reloffset) % mod
-            endrel = (end + reloffset) % mod
-            r = RelocDescriptor("here", hereaddr, hereaddr,
-                                startrel, endrel, start,
-                                stage, False, name)
-            r.set_reloffset(-1*reloffset)
-            infos.append(r.get_row_information())
-
-        return infos
 
     def create_stageexit_table(self):
         self.stageexits = self.h5file.create_table(self.group, 'stageexits',
@@ -1180,7 +1154,7 @@ class WriteSearch():
                 continue
             loc = "%s:%d" % (l.filename, lineno)
             addr = utils.get_line_addr(loc, True, self.stage,
-                                       srcdir=Main.get_config("temp_bootloader_src_dir"))
+                                       srcdir=Main.get_runtime_config("temp_target_src_dir"))
             success = True if l.name == "success" else False
             r['addr'] = addr
             r['line'] = loc
@@ -1347,11 +1321,11 @@ class WriteSearch():
         self.funcstable = self.h5file.create_table(self.group, 'funcs',
                                                    FuncEntry, "function info")
         # now look at instructions
-        elf = Main.get_config("stage_elf", self.stage)
-        srcdir = Main.get_config("temp_bootloader_src_dir")
+        elf = self.stage.elf
+        srcdir = Main.get_runtime_config("temp_target_src_dir")
         cmd = "%sobjdump -D -w -j .text %s 2>/dev/null" % (self.cc, elf)
         output = Main.shell.run_multiline_cmd(cmd)
-        addr = re.compile("^[0-9a-fA-F]{8}:")
+        addr = re.compile("^[\s0-9a-fA-F]{8}:")
         # objdump doesnt print 'stl', but search for it just in case
         # writes = re.compile("(push)|(stm)|(str)|(stl)")
         smcvals = ["e1600070", "e1600071"]
@@ -1395,6 +1369,7 @@ class WriteSearch():
                         words = [w.decode('hex')[::-1] for w in words]
                         # don't want it to wrip out any null bytes
                         ins = b"%s%s" % (words[0], words[1])
+                    #print "ins: %s %s %x" % (ins, thumb, pc)
                     inscheck = self.ia.disasm(ins, thumb, pc)
                     r['pc'] = pc
                     r['halt'] = True
@@ -1412,6 +1387,7 @@ class WriteSearch():
                         for i in range(len(regs)):
                             r['reg%d' % i] = regs[i]
                         size = self.ia.calculate_store_size(inscheck)
+                        
                         r['writesize'] = size
                         insadded = True
                         r.append()

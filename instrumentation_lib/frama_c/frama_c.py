@@ -31,14 +31,14 @@ import functools
 import shutil
 import glob
 import atexit
-path = os.path.dirname(os.path.realpath(__file__))
-sys.path.append(os.path.join(path, ".."))
-sys.path.append(path)
-version = os.path.join(path, ".python-version")
-if os.path.exists(version):
-    with open(version, 'r') as pv:
-        penv = pv.read().strip()
-        sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
+#path = os.path.dirname(os.path.realpath(__file__))
+#sys.path.append(os.path.join(path, ".."))
+#sys.path.append(path)
+#version = os.path.join(path, ".python-version")
+#if os.path.exists(version):
+#    with open(version, 'r') as pv:
+#        penv = pv.read().strip()
+#        sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
 patches = {}
 
 from doit.action import CmdAction
@@ -380,7 +380,7 @@ class PreprocessedFiles():
                    "console.i"]
 
     @classmethod
-    def instances(cls, stage, root=Main.get_bootloader_cfg().software_cfg.root, quick=False):
+    def instances(cls, stage, root=Main.get_target_cfg().software_cfg.root, quick=False):
         files = cls.files
         fs = map(lambda s: os.path.join(root, s), files)
         fs = map(functools.partial(PreprocessedFileInstance, stage=stage), fs)
@@ -389,7 +389,7 @@ class PreprocessedFiles():
 
 class FramaCDstPluginManager():
     def __init__(self, stage, labels=None, execute=False, quick=False, more=False, verbose=False,
-                 patchdest=Main.get_bootloader_cfg().software_cfg.root,
+                 patchdest=Main.get_target_cfg().software_cfg.root,
                  patch_symlink='', backupdir='',
                  calltracefile=None, tee=None):
         self.frama_c = "frama-c"
@@ -632,14 +632,14 @@ if __name__ == "__main__":
         raise Exception("no such stage named %s" % args.stage)
     cc = Main.cc
     if not args.standalone:
-        d = doit_manager.TaskManager(False, False, [args.stage],
+        d = doit_manager.TaskManager([], [], False, [args.stage],
                                      {args.stage: args.policy_id},
                                      False, {}, args.test_id, False, [],
                                      hook=True, rm_dir=not args.keep_temp)
         labels = Main.get_config("labels")
         l = labels
-        root = Main.get_config("temp_bootloader_src_dir")
-        builder = d.build([Main.get_bootloader_cfg().software], False)[0]
+        root = Main.get_config("temp_target_src_dir")
+        builder = d.build([Main.get_target_cfg().software], False)[0]
         origdir = os.getcwd()
         os.chdir(root)
 
@@ -652,7 +652,7 @@ if __name__ == "__main__":
         elf = Main.get_config("stage_elf", s)
 
     else:
-        root = Main.get_bootloader_cfg().software.root
+        root = Main.get_target_cfg().software.root
         labels = labeltool.get_all_labels(root)
         s.post_build_setup()
         elf = s.elf

@@ -113,7 +113,7 @@ class DBObj():
 
 
 class PolicyDB(DBObj):
-    def _open(self, append=False, trace=True, create_policy=False):
+    def _open(self, append=False, trace=False, create_policy=False):
         self._db = substage.SubstagesInfo(self.stage)
         self._db.open_dbs(trace)
 
@@ -124,7 +124,7 @@ class PolicyDB(DBObj):
         if self._db:
             self._db.close_dbs(True)
 
-    def _create(self, create_policy=False, trace=True):
+    def _create(self, create_policy=False, trace=False):
         self._db = substage.SubstagesInfo(self.stage)
         self._db.create_dbs(trace)
 
@@ -132,14 +132,13 @@ class PolicyDB(DBObj):
 class MMapDB(DBObj):
     def _open(self, append=False):
         self._db = addr_space.AddrSpaceInfo()
-        mmapdb_path = Main.get_config("mmapdb")
+        mmapdb_path = Main.raw.static_analysis.mmap.db
         self._db.open_dbs(mmapdb_path, False)
 
     def _create(self):
         self._db = addr_space.AddrSpaceInfo()
-        mmapdb_path = Main.get_config("mmapdb")
-        cvs = Main.get_config("reglist")
-        self._db.open_dbs(mmapdb_path, True, cvs)
+        mmapdb_path = Main.raw.static_analysis.mmap.db
+        self._db.open_dbs(mmapdb_path, True)
 
     def _close(self):
         self._db.close_dbs()
@@ -151,7 +150,7 @@ class MMapDB(DBObj):
 
 class StaticDB(DBObj):
     def _open(self, append=False):
-        self._db = staticanalysis.WriteSearch(False, self.stage, False, not append, False)
+        self._db = staticanalysis.WriteSearch(False, self.stage, False, not append)
         self._db.open_all_tables()
 
     def _create(self):
@@ -168,12 +167,12 @@ class StaticDB(DBObj):
 
 class TraceDB(DBObj):
     def _open(self, append=False):
-        dbpath = Main.get_config("trace_db", self.stage)
+        dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
         self._db = database.TraceTable(dbpath, self.stage, False, True)
         print "nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
-        print self._db.outname
+
     def _create(self):
-        dbpath = Main.get_config("trace_db", self.stage)
+        dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)        
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
@@ -346,7 +345,7 @@ class DBInfo():
     def print_range_dsts_info(self):
         self._tdb.db.writerangetable.print_dsts_info()
 
-    def update_trace_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):
+    def update_trace_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):        
         self._tdb.db.update_writes(line, pc, lo, hi, stage, origpc, substage)
 
     def get_substage_writes(self, substage):
@@ -462,6 +461,7 @@ class DBInfo():
             substages = substage_names
             num = 0
             intervals = {n: intervaltree.IntervalTree() for n in substages}
+
             for r in wt.read_sorted('index'):
                 pc = r['pc']
                 if num < len(fns) - 1:
@@ -487,7 +487,6 @@ class DBInfo():
                 r['substagenum'] = num
                 r.append()
         table.flush()
-
 
 def close():
     global _singletons

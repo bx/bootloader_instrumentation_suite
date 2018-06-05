@@ -3,7 +3,7 @@
 # Pretty-printer for simple trace backend binary trace files
 #
 # Copyright IBM, Corp. 2010
-#
+# Modified by bx (bx@cs.dartmouth.edu) 2017
 # This work is licensed under the terms of the GNU GPL, version 2.  t
 
 import struct
@@ -13,9 +13,15 @@ import os
 from config import Main
 qemu = Main.object_config_lookup("Software", "qemu")
 sys.path.append(os.path.join(qemu.root, "scripts"))
-from tracetool import _read_events
-from tracetool import Event
-from tracetool.backend.simple import is_string
+try:
+    from tracetool import _read_events
+    from tracetool import Event
+    from tracetool.backend.simple import is_string
+except ImportError as e:
+    sys.stderr.write("QEMU's tracetool is required to analyze QEMU watchpoint events but was not found in your python path.\n")
+    sys.stderr.write("Please download tracetool.py from %s and copy it to one of the following directories in your path:" % "https://raw.githubusercontent.com/qemu/qemu/86b5aacfb972ffe0fa5fac6028e9f0bc61050dda/scripts/tracetool.py\n")
+    sys.stderr.write("%s\n" % sys.path)
+    raise e
 import db_info
 
 header_event_id = 0xffffffffffffffff

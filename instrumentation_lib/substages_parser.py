@@ -279,7 +279,7 @@ class MmapRegion():
         self._raw_reclassifiable = get_value(d, 'reclassifiable', parent_reclassifiable)
         self._csv = get_value(d, 'csv')
         if self._csv:
-            self._csv = os.path.join(Main.get_config('test_instance_root'), self._csv)
+            self._csv = Main.populate_from_config(self._csv)            
         if parent and parent._csv:
             # if parent had csv, don't propigate csv definition
             self._csv = None
@@ -454,15 +454,12 @@ class MmapRegion():
         if '.'.join(split[:-1]) in allregions.iterkeys():
             val = self._resolve_region_relative(s, allregions)
             return val
-        if s in values.iterkeys():
+
+        if values and s in values.iterkeys():
             val = values[s]
             return val
         if config.Main.stage_from_name(split[0]):
             stage = config.Main.stage_from_name(split[0])
-            if not stage.post_build_setup_done:
-                stage.elf = Main.get_config('stage_elf', stage)
-                stage.image = Main.get_config('stage_image', stage)
-                stage.post_build_setup()
             if len(split) > 1:
                 attr = split[1]
                 val = getattr(stage, attr, val)

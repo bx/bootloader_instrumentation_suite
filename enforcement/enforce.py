@@ -25,14 +25,6 @@ import sys
 import os
 import signal
 import intervaltree
-path = gdb.os.getcwd()
-sys.path.append(os.path.join(path, ".."))
-sys.path.append(path)
-version = os.path.join(path, ".python-version")
-if os.path.exists(version):
-    with open(version, 'r') as pv:
-        penv = pv.read().strip()
-        sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
 import gdb_tools
 import substage
 import db_info

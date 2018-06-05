@@ -20,6 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from unicorn import *
+from unicorn.arm_const import *        
+
 import logging
 import re
 import tables
@@ -38,9 +41,6 @@ import sys
 import pure_utils
 from capstone import *
 import os
-from unicorn import *
-from unicorn.arm_const import *
-
 l = logging.getLogger("")
 
 
@@ -50,7 +50,6 @@ def int_repr(self):
 
 intervaltree.Interval.__str__ = int_repr
 intervaltree.Interval.__repr__ = int_repr
-
 
 class FramaCDstEntry(tables.IsDescription):
     line = tables.StringCol(512)  # file/lineno
@@ -93,39 +92,9 @@ class WriteDstTable():
         self._name = name
         self.desc = desc
         self.tables = {}
-
-        self._mux_name = "set_muxconf_regs"
-        (self._mux_start, self._mux_end) = utils.get_symbol_location_start_end(self._mux_name,
-                                                                               self.stage)
-        self.thumbranges = Main.get_config("thumb_ranges",
-                                           self.stage)[0]
-        self._mux_start += 2
-        self._mux_end -= 2
-        if self.thumbranges.overlaps_point(self._mux_start):
-            self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_THUMB)
-            self.cs.detail = True
-            self._thumb = True
-            self.emu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
-        else:
-            self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_ARM)
-            self.cs.detail = True
-            self._thumb = False
-            self.emu = Uc(UC_ARCH_ARM, UC_MODE_ARCH)
-        elf = Main.get_config("stage_elf", stage)
-        entrypoint = self._mux_start
-        headers = pure_utils.get_program_headers(Main.cc, elf)
-        for h in headers:
-            if h['filesz'] > 0:
-                codeaddr = h['virtaddr']
-                break
-        alignedstart = self._mux_start & 0xFFFFF0000
-        size = 2*1024*1024
-        fileoffset = alignedstart
-        code = open(elf, "rb").read()[self._mux_start-fileoffset:self._mux_end-fileoffset]
-        self.emu.mem_map(0x40000000, 0x70000000)
-
-        self.emu.mem_write(self._mux_start, code)
-        self.emu.reg_write(0x40000000, ARM_REG_SP)
+        if hasattr(stage, "write_dst_init"):
+            getattr(self, getattr(stage, "write_dst_init"))()
+        self.thumbranges = getattr(Main.raw.runtime.thumb_ranges, self.stage.stagename)()[0]
         self.open()
 
     def name(self, num):
@@ -171,6 +140,56 @@ class WriteDstTable():
         hw = Main.get_hardwareclass_config()
         return i in hw.non_ram_ranges
 
+
+    def uboot_mux_init(self):
+        self._mux_name = "set_muxconf_regs"
+        (self._mux_start, self._mux_end) = utils.get_symbol_location_start_end(self._mux_name,
+                                                                               self.stage)        
+        self._mux_start += 2
+        self._mux_end -= 2
+        if self.thumbranges.overlaps_point(self._mux_start):
+            self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_THUMB)
+            self.cs.detail = True
+            self._thumb = True
+            self.emu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
+        else:
+            self.cs = capstone.Cs(CS_ARCH_ARM, CS_MODE_ARM)
+            self.cs.detail = True
+            self._thumb = False
+            self.emu = Uc(UC_ARCH_ARM, UC_MODE_ARM)
+        entrypoint = self._mux_start
+        headers = pure_utils.get_program_headers(Main.cc, elf)
+        for h in headers:
+            if h['filesz'] > 0:
+                codeaddr = h['virtaddr']
+                break
+        alignedstart = self._mux_start & 0xFFFFF0000
+        size = 2*1024*1024
+        fileoffset = alignedstart
+        elf = stage.elf        
+        code = open(elf, "rb").read()[self._mux_start-fileoffset:self._mux_end-fileoffset]
+        hw = Main.get_hardwareclass_config()
+        for i in hw.addr_range:
+            self.emu.mem_map(begin, (i.end+1)-begin)
+            
+        self.emu.mem_write(self._mux_start, code)
+        self.emu.reg_write(self.stage.elf.entrypoint, ARM_REG_SP)
+        
+    def uboot_mux(self, dstinfo):
+        # hack
+        path = dstinfo.path
+        cmd = 'grep -n "MUX_BEAGLE();" %s' % path
+        lineno = Main.shell.run_cmd(cmd, catcherror=True)
+        if lineno:
+            # so sorry, this is a hack to deal with the annoying amount of writes
+            # squished into a u-boot macro
+            lineno = int(lineno.split(":")[0])
+            if path.endswith("board/ti/beagle/beagle.c") and lineno == dstinfo.lineno:
+                dstinfo.pc = self._find_mux_pc(v.begin)
+
+        else:
+            dstinfo.pc = db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfo)
+
     def add_dsts_entry(self, dstinfo):
         num = dstinfo.substage
         if num not in self.tables.iterkeys():
@@ -185,23 +204,13 @@ class WriteDstTable():
             r['line'] = line
             r['lvalue'] = dstinfo.lvalue
             if not dstinfo.pc:
-                # hack
-                path = dstinfo.path
-                cmd = 'grep -n "MUX_BEAGLE();" %s' % path
-                lineno = Main.shell.run_cmd(cmd, catcherror=True)
-                if lineno:
-                    lineno = int(lineno.split(":")[0])
-                    if path.endswith("board/ti/beagle/beagle.c") and lineno == dstinfo.lineno:
-                        dstinfo.pc = self._find_mux_pc(v.begin)
-
-                else:
-                    dstinfo.pc = db_info.get(self.stage).get_write_pc_or_zero_from_dstinfo(dstinfo)
-                # figure out which write instruction
-                #lineno = int(os.system("grep %s %s/%s" % ( , root, path))
-
-                if dstinfo.pc == 0:
-                    print "cannot resove just one write instruction from %s" % dstinfo.__dict__
-                    continue
+                if hasattr(self.stage, "write_dest_hook"):
+                    hook = getattr(self, getattr(self.stge, "write_dest_hook"))
+                    hook(dstinfo)
+                    
+            if dstinfo.pc == 0:
+                print "cannot resove just one write instruction from %s" % dstinfo.__dict__
+                continue
             r['writepc'] = dstinfo.pc
             r['origpc'] = dstinfo.origpc if dstinfo.origpc else r['writepc']
             r.append()
@@ -245,16 +254,16 @@ class WriteDstResult():
             lvalue = res.group(3)
             path = res.group(4)
             # somewhat of a hack to get relative path
-            root = Main.get_bootloader_cfg().software_cfg.root
+            root = Main.get_target_cfg().software_cfg.root
             if path.startswith(root):
                 path = os.path.relpath(path, root)
-                path = os.path.join(Main.get_config("temp_bootloader_src_dir"), path)
+                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
             elif path.startswith(Main.test_suite_path):  # not sure why this happens
                 path = os.path.relpath(path, Main.test_suite_path)
-                path = os.path.join(Main.get_config("temp_bootloader_src_dir"), path)
+                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)                
             elif path.startswith("/tmp/tmp"):
                 path = "/".join(path.split("/")[3:])
-                path = os.path.join(Main.get_config("temp_bootloader_src_dir"), path)
+                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)                
             lineno = int(res.group(5))
             callstack = res.group(6)
             # somewhat of a hack for muxconf
@@ -277,8 +286,9 @@ class WriteDstResult():
         self.lvalue = lvalue
         self.stage = stage
         if substage_name is None and callstack:
-            policy = Main.get_config('policy_file', self.stage)
-            self.substages = substage.SubstagesInfo.substage_names(self.stage)
+            policy = getattr(Main.raw.policies.substages_file, self.stage.stagename)
+            get_config('policy_file', self.stage)
+            self.substages = substage.SubstagesInfo.substage_names_from_file(policy)
             self.substages[0] = "frama_go"
             called_fns = callstack.split("->")
             called_fns = filter(len, called_fns)
@@ -301,8 +311,8 @@ class WriteDstResult():
         pass
 
     def key(self):
-        # use relative path from bootloader root
-        root = Main.get_config("temp_bootloader_src_dir")
+        # use relative path from target root
+        root = Main.raw.runtime.temp_target_src_dir
         p = re.sub(root+'/', '', self.path)
         r = "%s:%d" % (p, self.lineno)
         return r
@@ -348,14 +358,16 @@ class TraceTable():
 
     def __init__(self, outfile, stage, create=False, write=False):
         self.stage = stage
-        self.pcmin = stage.minpc
-        self._stage_pcmax = stage.maxpc
+        #self.pcmin = stage.minpc
+        #self._stage_pcmax = stage.maxpc
         self.stagename = stage.stagename
         self.cc = Main.cc
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         self.outname = outfile
+        self.create = create
+        print "Open trace database create %s write %s, %s" % (create, write, outfile)
         if create:
-            m = "w"
+            m = "a"
         self.writestable = None
         if not create:
             self.h5file = tables.open_file(self.outname, mode="a",
@@ -400,7 +412,7 @@ class TraceTable():
     def _setthumbranges(self):
         (self._thumbranges,
          self._armranges,
-         self._dataranges) = Main.get_config("thumb_ranges", self.stage)
+         self._dataranges) = getattr(Main.raw.runtime.thumb_ranges, self.stage.stagename)()
 
     @property
     def rinfos(self):
@@ -631,7 +643,7 @@ class TraceTable():
         histotable = self.h5file.create_table(group, 'writerange',
                                               TraceWriteRange, "qemu memory write ranges")
         histotable.cols.index.create_index(kind='full')
-        srcdir = Main.get_config("temp_bootloader_src_dir")
+        srcdir = Main.raw.runtime.temp_target_src_dir
         relocatedpc = 0
         relocatedlr = 0
         size = 0
@@ -747,44 +759,36 @@ class TraceTable():
 
     def add_write_entry(self, time, pid, size,
                         dest, pc, lr, cpsr, index=0, num=None):
-        o = qemusimpleparse.QemuParsedObject(time, pid, size,
-                                             dest, pc, lr, cpsr)
-        if self.pcmin > self.pcmax:
-            print "%x %x (%x)" % (self.pcmin, self.pcmax, pc)
-            traceback.print_stack()
-        self._add_write_entry(o, self.pcmin,
-                              self.pcmax,
-                              self.writestable, self.rinfos,
-                              index, num)
-
-    @classmethod
-    def _add_write_entry(cls, o, pcmin, pcmax, table,
-                         rinfos, index=1, num=None):
-        if (o.pc <= pcmax) and (o.pc >= pcmin):
+        #if self.pcmin > self.pcmax:
+        #    print "PC not in range %x %x (%x)" % (self.pcmin, self.pcmax, pc)
+            # traceback.print_stack()
+        #if (pc <= self.pcmax) and (pc >= self.pcmin):
             # get relocation info from writesearch database
-            r = table.row
-            r['pid'] = o.pid
-            r['dest'] = o.dest
-            r['relocatedpc'] = o.pc
-            r['relocatedlr'] = o.lr
-            r['time'] = o.time
-            r['reportedsize'] = o.size
-            if index > 0:
-                r['index'] = index
-            else:
-                r['index'] = table.nrows
-            r['cpsr'] = o.cpsr
-            r['pc'] = o.pc
-            r['lr'] = o.lr
-            if num is not None:
-                r['substage'] = num
-            for rinfo in rinfos:
-                offset = rinfo['reloffset']
-                start = (rinfo['startaddr']+offset)
-                end = start + rinfo['size'] + offset
-                # if pc is in a relocated dest range  (for now we assume no overlap)
-                if (start <= o.pc) and (o.pc <= end):
-                    r['pc'] = o.pc - offset
-                    r['lr'] = o.lr - offset
-                    break
-            r.append()
+        r = self.writestable.row
+        r['pid'] = pid
+        r['dest'] = dest
+        r['relocatedpc'] = pc
+        r['relocatedlr'] = lr
+        r['time'] = time
+        r['reportedsize'] = size
+        if index > 0:
+            r['index'] = index
+        else:
+            r['index'] = self.writestable.nrows
+        r['cpsr'] = cpsr
+        r['pc'] = pc
+        r['lr'] = lr
+        if num is not None:
+            r['substage'] = num
+        for rinfo in self.rinfos:
+            offset = rinfo['reloffset']
+            start = (rinfo['startaddr']+offset)
+            end = start + rinfo['size'] + offset
+            # if pc is in a relocated dest range  (for now we assume no overlap)
+            if (start <= pc) and (pc <= end):
+                r['pc'] = pc - offset
+                r['lr'] = lr - offset
+                break
+        r.append()
+
+        

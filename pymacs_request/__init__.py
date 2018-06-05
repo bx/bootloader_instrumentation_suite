@@ -23,6 +23,7 @@
 from __future__ import unicode_literals
 import os, atexit, time, signal, subprocess
 
+name = "emacs_python_pipe"
 
 class Emacs():
     # Requests towards Emacs are written to file "_request", while

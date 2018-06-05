@@ -25,6 +25,7 @@ import re
 
 class QemuParsedObject():
     def __init__(self, time, pid, size, dest, pc, lr, cpsr):
+        #  pid, size, dest, pc, lr, cpsr
         if type(time) == str:
             self.time = float(time)
             self.pid = int(pid)

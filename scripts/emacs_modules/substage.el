@@ -40,5 +40,5 @@
 
   
 
-(provide 'boot-substage)
+(provide 'instr-substage)
 

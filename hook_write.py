@@ -22,17 +22,8 @@
 
 import gdb
 import time
-import cProfile, pstats, StringIO
 import os
 import sys
-path = gdb.os.getcwd()
-sys.path.append(path)
-sys.path.append(os.path.join(path))
-version = os.path.join(path, ".python-version")
-if os.path.exists(version):
-    with open(version, 'r') as pv:
-        penv = pv.read().strip()
-        sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
 import gdb_tools
 from gdb_tools import *
 import db_info
@@ -41,7 +32,6 @@ stepnum = 0
 now = False
 db_written = False
 start = time.time()
-pr = cProfile.Profile()
 
 class WriteLog():
     def __init__(self, msg):
@@ -146,21 +136,12 @@ class HookWrite(gdb_tools.GDBPlugin):
 
     def write_stophook(self, bp, ret):
         global stepnum
-        #global pr
-        #pr.enable()
         stepnum = stepnum + 1
         self.process_write(bp.writeinfo,
                            bp.relocated,
                            bp.stage,
                            bp.controller.current_substage,
                            bp.controller.current_substage_name)
-        #pr.disable()
-        #if stepnum == 10:
-        #    s = StringIO.StringIO()
-        #    sortby = 'cumulative'
-        #    ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        #    ps.print_stats()
-        #    print s.getvalue()
         return False
 
     def longwrite_stophook(self, bp, ret):
@@ -223,7 +204,6 @@ class HookWrite(gdb_tools.GDBPlugin):
     def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage, name):
         global stepnum
         stepnum += 1
-        # gdb.post_event(WriteLog("."))
         gdb.post_event(WriteDatabase(time.time(),
                                      pid, size, writedst, pc, lr,
                                      cpsr, stepnum, origpc, stage, substage,

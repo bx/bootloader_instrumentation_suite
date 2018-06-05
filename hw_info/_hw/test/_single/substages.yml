@@ -1,0 +1,7 @@
+_start:
+  substage_type: "bookkeeping"
+  new_regions: ["ALL"]
+
+main:
+  substage_type: "bookkeeping"
+

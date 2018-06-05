@@ -95,7 +95,7 @@ Software:
          build_required: True
     -
          name: u-boot
-         root: /home/user/software/u-boot/
+         root: implementations/embedded/u-boot/u-boot-bbxm-enhanced
          config_type: Target
          config_name: u-boot-bbxm-verified
          build_prepare: "make ARCH={arch} CROSS_COMPILE={cc} {makecfg}"

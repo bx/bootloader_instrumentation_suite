@@ -81,7 +81,15 @@ class RegEntry(tables.IsDescription):
 class AddrSpaceInfo():
     def __init__(self):
         self.grpname = 'memory'
-        self.base_memory_csv = Main.get_hardwareclass_config().base_mem_map
+        self.csvs = []
+        self.reg_csvs = []
+        for (f, i) in Main.get_hardwareclass_config()._files.iteritems():
+            if i.type == "mmap":
+                if getattr(i, "subtype", "") == "registers":
+                    self.reg_csvs.append(Main.populate_from_config(i.path))
+                else:
+                    self.csvs.append(Main.populate_from_config(i.path))
+            
         self.mem_tablename = "memmap"
         self.reg_tablename = "regs"
         self.h5group = None
@@ -90,13 +98,13 @@ class AddrSpaceInfo():
         self.reg_table = None
 
 
-    def open_dbs(self, loc, create=False, csv=None):
+    def open_dbs(self, loc, create=False):
         if create:
-            self._create_tables(loc, csv)
+            self._create_tables(loc)
         else:
             self._open_tables(loc)
 
-    def _create_tables(self, dbloc, csv):
+    def _create_tables(self, dbloc):
         dname = os.path.dirname(dbloc)
         self.h5file = tables.open_file(dbloc, mode="w",
                                        title="addr space info")
@@ -106,33 +114,34 @@ class AddrSpaceInfo():
         self.reg_table = self.h5file.create_table(self.h5group, self.reg_tablename,
                                                   RegEntry, "")
         self._create_memmap_table()
-        self._create_reg_table(csv)
+        self._create_reg_table()
 
 
-    def create_substage_memmap_table(self, substagecsv):
-        with open(substagecsv) as csvfile:
-            fields = ['name', 'startaddr', 'endaddr', 'perms', 'kind']
-            reader = csv.DictReader(csvfile, fields)
-            r = self.memmap_table.row
-            for entry in reader:
-                for f in fields:
-                    if "addr" in f:
-                        entry[f] = int(entry[f], 0)
-                    else:
-                        entry[f] = entry[f].strip().lower()
-                        if f == 'perms':
-                            entry[f] = getattr(mmap_perms, entry[f])
-                        elif f == 'kind':
-                            entry[f] = getattr(mmap_type, entry[f])
-                    r[f] = entry[f]
-                #r['substage'] = substage
-                r.append()
+    def create_substage_memmap_table(self):
+        for c in self.csvs:
+            with open(c) as csvfile:
+                fields = ['name', 'startaddr', 'endaddr', 'perms', 'kind']
+                reader = csv.DictReader(csvfile, fields)
+                r = self.memmap_table.row
+                for entry in reader:
+                    for f in fields:
+                        if "addr" in f:
+                            entry[f] = int(entry[f], 0)
+                        else:
+                            entry[f] = entry[f].strip().lower()
+                            if f == 'perms':
+                                entry[f] = getattr(mmap_perms, entry[f])
+                            elif f == 'kind':
+                                entry[f] = getattr(mmap_type, entry[f])
+                        r[f] = entry[f]
+                    #r['substage'] = substage
+                    r.append()
         self.memmap_table.cols.startaddr.create_index(kind='full')
         self.memmap_table.cols.endaddr.create_index(kind='full')
         self.memmap_table.flush()
 
     def _create_memmap_table(self):
-        self.create_substage_memmap_table(self.base_memory_csv)
+            self.create_substage_memmap_table()
 
     def print_memmap_table(self):
         for r in self.memmap_table.iterrows():
@@ -153,24 +162,25 @@ class AddrSpaceInfo():
                                                                               r['reset'],
                                                                               r['table'])
 
-    def _create_reg_table(self, csvfile):
+    def _create_reg_table(self):
         fields = ["startaddr", "size", "kind", "name"]
         cc = Main.cc
-        (f, reader) = parse_am37x_register_tables.parsecsv(csvfile)
-        row = self.reg_table.row
-        for r in reader:
-            row['address'] = int(r['address'].strip(), 16) if r['address'] else 0
-            row["offset"] = int(r["offset"].strip(), 16) if r["offset"] else 0
-            row["table"] = r["table"] if r["table"] else ""
-            row["typ"] = r["typ"] if r["typ"] else ""
-            row["width"] = int(r["width"]) if r["width"] else 0
-            row["reset"] = r["reset"] if r["reset"] else ""
-            row["name"] = r["name"] if r["name"] else ""
-            if row['address'] == 0:
-                print "addr not found in %s" % r
+        for c in self.reg_csvs:
+            (f, reader) = parse_am37x_register_tables.parsecsv(c)
+            row = self.reg_table.row
+            for r in reader:
+                row['address'] = int(r['address'].strip(), 16) if r['address'] else 0
+                row["offset"] = int(r["offset"].strip(), 16) if r["offset"] else 0
+                row["table"] = r["table"] if r["table"] else ""
+                row["typ"] = r["typ"] if r["typ"] else ""
+                row["width"] = int(r["width"]) if r["width"] else 0
+                row["reset"] = r["reset"] if r["reset"] else ""
+                row["name"] = r["name"] if r["name"] else ""
+                if row['address'] == 0:
+                    print "addr not found in %s" % r
 
-            row.append()
-        f.close()
+                row.append()
+            f.close()
         self.reg_table.cols.address.create_index(kind='full')
         self.reg_table.flush()
 

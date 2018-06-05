@@ -1,0 +1,5 @@
+regions:
+  ALL:
+      addresses: [0, 0xFFFFFFFFFFFFFFFF]
+      type: "global"
+

@@ -29,22 +29,6 @@ import signal
 import re
 import importlib
 
-path = gdb.os.getcwd()
-sys.path.append(path)
-version = os.path.join(path, ".python-version")
-if os.path.exists(version):
-    with open(version, 'r') as pv:
-        penv = pv.read().strip()
-        sys.path.append(os.path.join(os.path.expanduser("~"), ".pyenv/versions", penv, "lib/python2.7/site-packages"))
-
-from config import Main
-import substage
-import staticanalysis
-import pure_utils
-import config
-import doit_manager
-import db_info
-import testsuite_utils as utils
 
 breakpoint_classes = {}
 now = False
@@ -63,7 +47,7 @@ class BreakpointRegistrar(type):
         return newcls
 
 
-class BootStageData(gdb.Command):
+class TargetStageData(gdb.Command):
     def __init__(self, stage, stop_hooks):
         self.stage = stage
         self.stop_hooks = stop_hooks
@@ -80,14 +64,16 @@ class BootStageData(gdb.Command):
         self.regions_files = None
         self.substages_entrypoints = []
 
-    def init_with_test_instance(self):
+    def init_with_test_instance(self, enable_policy):
         # update stage start/end info now that it has been calculated
         self.stage = Main.stage_from_name(self.stage.stagename)
-
-        if self.substages:
-            self.policy_file = Main.get_config("policy_file", self.stage)
-            self.regions_file = Main.get_config("regions_file", self.stage)
-            self.substages_entrypoints = substage.SubstagesInfo.substage_names(self.stage)
+        if not self.stage.post_build_setup_done:
+            self.stage.post_build_setup(Main.raw.instance_image_cache)
+            
+        if enable_policy and hasattr(Main.raw, "policies") and hasattr(Main.raw.policies, "substages_file"):
+            self.policy_file = getattr(Main.raw.policies.substages_file, self.stage.stagename)
+            self.regions_file = getattr(Main.raw.policies.regions_file, self.stage.stagename) 
+            self.substages_entrypoints = substage.SubstagesInfo.substage_names_from_file(self.policy_file)
         self._entrypoint = self.stage.entrypoint
         self._exitpoint = self.stage.exitpc
         if self._startpoint is None:
@@ -130,7 +116,7 @@ class StartNextStage(object):
             self.do()
 
 
-class GDBBootCommandHandler(gdb.Command):
+class GDBTargetCommandHandler(gdb.Command):
     def __init__(self, name, controller, root=False):
         self.name = name
         self.root = root
@@ -142,18 +128,18 @@ class GDBBootCommandHandler(gdb.Command):
         self.controller.invoke(cmd, from_tty)
 
 
-class GDBBootController(object):
+class GDBTargetController(object):
     def __init__(self):
         self.breakpoints = []
-        self.plugins = []
         self.gone = False
+        self.stages_with_policies = []
         self.disabled_breakpoints = set()
         self.test_instance_name = None
         self.test_trace_name = None
         gdb.execute('set python print-stack full')
-        self.cc = Main.cc
+
         self.name = "gdb_tools"
-        self.command_handlers = [GDBBootCommandHandler(self.name, self, True)]
+        self.command_handlers = [GDBTargetCommandHandler(self.name, self, True)]
 
         self.parser = argparse.ArgumentParser(prog=self.name)
         self.subparser = self.parser.add_subparsers(title=self.name)
@@ -167,16 +153,14 @@ class GDBBootController(object):
         self.current_stage = None
         self._setup = False
         self.calculate_write_dst = False
-        self.qemu_pid = None
         self.isbaremetal = False
-        self.ia = staticanalysis.InstructionAnalyzer()
         self._kill = False
         self.bp_hooks = {}
         self.f_hooks = []
         self.stage_hooks = []
         self.exit_hooks = []
         global breakpoint_classes
-
+        self._import_done = False
         for k in breakpoint_classes.iterkeys():
             self.bp_hooks[k] = []
 
@@ -197,18 +181,20 @@ class GDBBootController(object):
         p.add_argument('name')
         p = self.add_subcommand_parser('stages')
         p.add_argument('stage_name', nargs='*')
-        p = self.add_subcommand_parser('substages')
+        p = self.add_subcommand_parser('enable_policy')
         p.add_argument('stage_name')
-        p.add_argument('substages_name')
+        p = self.add_subcommand_parser('dir')
+        p.add_argument('paths', nargs='*')
+        self.add_subcommand_parser('update_path')
         p = self.add_subcommand_parser('kill')
         p.add_argument('do_kill', nargs='?', default=False)
         p = self.add_subcommand_parser("setup_target")
         p.add_argument('do_setup', nargs='?', default=True)
         p = self.add_subcommand_parser('plugin')
-        p.add_argument('module', nargs='?')
-        self.stage_order = [Main.stage_from_name('spl')]  # default is spl stage only
-        self._stages = {s.stagename: BootStageData(s, self.bp_hooks)
-                        for s in Main.get_bootloader_cfg().supported_stages.itervalues()}
+        p.add_argument('module', nargs='*')
+        p = self.add_subcommand_parser("is_bare_metal")
+        p.add_argument('baremetal', nargs='?', default=False)
+
         self.hw = None
 
     def gdb_exit(self, event):
@@ -244,9 +230,18 @@ class GDBBootController(object):
         self.test_trace_name = args.name
 
     def plugin(self, args):
-        self.install_plugin(args.module)
+        for m in args.module:
+            self.install_plugin(m)
+
+    def is_bare_metal(self, args):
+        if args.baremetal is not True:
+            self.isbaremetal = False
+        else:
+            self.isbaremetal = True
 
     def setup_target(self, args):
+        self._do_import()
+
         if args.do_setup is not True:
             self._setup = False
         else:
@@ -261,7 +256,7 @@ class GDBBootController(object):
     def set_mode(self):
         if self.isbaremetal:
             addr = self.get_reg_value('pc')
-            (ts, arms, ds) = Main.get_config("thumb_ranges", self.current_stage)
+            (ts, arms, ds) = getattr(Main.raw.runtime.thumb_ranges, self.current_stage.stagename)()
             # hack
             if utils.addr2functionname(addr, self.current_stage) == "clear_bss":
                 typ = "thumb"
@@ -326,8 +321,8 @@ class GDBBootController(object):
         self.current_substage_name = substages[0] if substages else ""
         self.current_substage = 0
         for i in range(0, len(substages)):
+            self.gdb_print("Inserting beakpoint for substage '%s' (%s)\n" % (substages[i], i))
             SubstageEntryBreak(substages[i], i, self, stage)
-
     def insert_longwrites_breakpoints(self, stage):
         if any(map(lambda x: x == "LongwriteBreak", self.disabled_breakpoints)):
             return
@@ -348,7 +343,7 @@ class GDBBootController(object):
 
     def insert_write_breakpoints(self, stage):
         if any(map(lambda x: x == "WriteBreak", list(self.disabled_breakpoints))):
-            return
+            return        
         i = 0
         n = db_info.get(stage).num_writes()
         self.gdb_print("%d write breakpoints\n" % n)
@@ -388,8 +383,8 @@ class GDBBootController(object):
     def gdb_print(self, msg, fm="gdb_tools"):
         gdb.write("[%s] %s" % (fm, msg), gdb.STDOUT)
 
-    def substages(self, args):
-        self._stages[args.stage_name].substages = args.substages_name
+    def enable_policy(self, args):
+        self.stages_with_policies.append(args.stage_name)
 
     def add_subcommand_parser(self, name, cmd=None):
         if cmd is None:
@@ -404,6 +399,9 @@ class GDBBootController(object):
             self.subcommand_parsers[cmd.name] = sub
         s.add_argument(name, action='store_true')
         return s
+
+    def dir(self, args):
+        sys.path.extend(args.paths)
 
     def log(self, args):
         gdb.flush()
@@ -474,33 +472,28 @@ class GDBBootController(object):
         if cont:
             self.disable_breakpoint(s, delete=False)
             s.continue_stage()
+        return s
 
     def finalize(self, args):
+        if len(self.stage_order) == 0:
+            self.stage_order = [Main.stage_from_name(s) for s in self._stages.keys()]
+
         substage_names = {s.stagename: self._stages[s.stagename].substages
                           for s in self.stage_order
                           if self._stages[s.stagename].substages is not None}
         stages = [s.stagename for s in self.stage_order]
-        doit_manager.TaskManager(False, False, stages,
-                                 substage_names,
-                                 False,
-                                 None,
+        doit_manager.TaskManager(doit_manager.cmds.hook,
+                                 self.test_instance_name,
                                  self.test_trace_name,
-                                 False,
-                                 [], self.test_instance_name, hook=True)
-        tmpdir = Main.get_config("temp_bootloader_src_dir")
+                                 None, [], [], {}, [])
+
+        tmpdir = Main.raw.runtime.temp_target_src_dir
         gdb.execute("dir %s" % tmpdir)
-        gdb.execute("set substitute-path %s %s" % (Main.get_bootloader_cfg().software_cfg.root, tmpdir))
-        self.hw = Main.get_config("trace_hw")
-        if self.hw.name == "bbxmqemu":
-            self.isbaremetal = False
-        else:
-            self.isbaremetal = True
-        if len(self.stage_order) == 0:
-            self.stage_order = [Main.stage_from_name(s) for s in list(self._stages.iterkeys())]
+        gdb.execute("set substitute-path %s %s" % (Main.target_software.root, tmpdir))
+        self.hw = Main.raw.runtime.trace.hw
         for stage in self.stage_order:
             s = self._stages[stage.stagename]
-            s.init_with_test_instance()
-        # self.f_hooks = list(set(self.f_hooks))
+            s.init_with_test_instance(True if s.stage.stagename in self.stages_with_policies else False)
         for f in self.f_hooks:
             f(args)
 
@@ -541,12 +534,11 @@ class GDBBootController(object):
             bp.delete()
 
     def install_plugin(self, p):
-        sys.path.append(os.path.dirname(p))
+        sys.path = [os.path.dirname(p)] + sys.path
         name = re.sub(".py", "", os.path.basename(p))
         mod = importlib.import_module(name)
         conf = getattr(mod, "plugin_config")
-        self.plugins.append(conf)
-        self.command_handlers.append(GDBBootCommandHandler(conf.name, self))
+        self.command_handlers.append(GDBTargetCommandHandler(conf.name, self))
         if conf.calculate_write_dst:
             self.calculate_write_dst = True
         for subparser in conf.parser_args:
@@ -576,18 +568,44 @@ class GDBBootController(object):
         if conf.stage_hook:
             self.stage_hooks.append(conf.stage_hook)
         conf.controller = self
-        sys.path.pop()
+        sys.path = sys.path[1:]
 
-    def go(self, args):
+    def _do_import(self):
+        if not self._import_done:
+            self._import_done = True
+            global Main
+            from config import Main
+            global substage
+            global doit_manager
+            global substage
+            global staticanalysis
+            global pure_utils
+            global db_info
+            global utils
+            import substage, staticanalysis, pure_utils, doit_manager, db_info
+            import testsuite_utils as utils
+            self.cc = Main.cc
+            self.ia = staticanalysis.InstructionAnalyzer()
+            self.stage_order = [Main.stages[0]]  # default is first stage only
+            self._stages = {s.stagename: TargetStageData(s, self.bp_hooks)
+                            for s in Main.stages}
+
+    def update_path(self, args):
+        self._do_import()
+
+    def go(self, args):        
         if self.gone:
             return
         self.gone = True
         self.finalize(args)
         stage = self.stage_order[0]
         gdb.events.exited.connect(self.gdb_exit)
-        self.prepare_stage(stage, False)
+        s = self.prepare_stage(stage, False)
         self.set_mode()
-        self.gdb_print("ready to go\n")
+        if self.get_reg_value('pc', True) == s.breakpoint.companion.addr:
+            self.gdb_print("First stage already entered\n")
+            s.continue_stage()
+        self.gdb_print("ready to go\n")        
         if not args.prepare_only:
             gdb.execute("c")
 
@@ -604,7 +622,7 @@ class CompanionBreakpoint(gdb.Breakpoint):
         return ret
 
 
-class BootBreak(object):
+class TargetBreak(object):
     __metaclass__ = BreakpointRegistrar
 
     def __init__(self, spec, controller, needs_relocation, stage, **kwargs):
@@ -624,7 +642,7 @@ class BootBreak(object):
         else:
             if (spec.startswith("*") or spec.startswith("0x")) \
                and not spec.startswith("*"):
-                spec = "*(%s)" % spec
+                spec = "*(%s)" % spec                
         self.addr = controller.spec_to_addr(spec)
         self.breakpoint = CompanionBreakpoint(spec, self)
         if any(map(lambda x: self.name == x, controller.disabled_breakpoints)):
@@ -672,7 +690,7 @@ class BootBreak(object):
         return ret
 
 
-class BootFinishBreakpoint(gdb.FinishBreakpoint, BootBreak):
+class TargetFinishBreakpoint(gdb.FinishBreakpoint, TargetBreak):
     def __init__(self,  controller, needs_relocation, stage, **kwargs):
         self.stage = stage
         self.needs_relocation = needs_relocation
@@ -683,7 +701,7 @@ class BootFinishBreakpoint(gdb.FinishBreakpoint, BootBreak):
             setattr(self, k, v)
         if controller.isbaremetal:
             pc = controller.get_reg_value("lr")
-            (ts, arms, ds) = Main.get_config("thumb_ranges", self.stage)
+            (ts, arms, ds) = getattr(Main.raw.runtime.thumbranges, stage.stagename)()
             if not (ts.search(pc) or arms.search(pc)):
                 self.breakpoint = None
                 return
@@ -700,18 +718,18 @@ class BootFinishBreakpoint(gdb.FinishBreakpoint, BootBreak):
         return ret
 
 
-class ReturnBreak(BootBreak):
+class ReturnBreak(TargetBreak):
     def __init__(self, spec, controller, stage):
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
-        BootBreak.__init__(self, spec, controller, True, stage)
+        TargetBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, bp, ret):
         gdb.execute("return")
         return False
 
 
-class WriteBreak(BootBreak):
+class WriteBreak(TargetBreak):
     def __init__(self, spec, controller, stage):
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
@@ -723,7 +741,7 @@ class WriteBreak(BootBreak):
                            'ins': None,
                            'pc': None}
         self.writeinfo = self.emptywrite
-        BootBreak.__init__(self, spec, controller, True, stage)
+        TargetBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, bp, ret):
         cont = self.controller
@@ -760,7 +778,7 @@ class WriteBreak(BootBreak):
         return False
 
 
-class SubstageEntryBreak(BootBreak):
+class SubstageEntryBreak(TargetBreak):
     def __init__(self, fnname, substagenum, controller, stage):
         self.fnname = fnname
         self.substagenum = substagenum
@@ -772,7 +790,7 @@ class SubstageEntryBreak(BootBreak):
             spec = "*(0x%x)" % self.fnloc
         else:
             spec = fnname
-        BootBreak.__init__(self, spec, controller, True, stage)
+        TargetBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, bp, ret):
         self.controller.current_substage = self.substagenum
@@ -780,7 +798,7 @@ class SubstageEntryBreak(BootBreak):
         return False
 
 
-class StageStartBreak(BootBreak):
+class StageStartBreak(TargetBreak):
 
     @classmethod
     def get_addr(cls, controller, stage):
@@ -793,14 +811,14 @@ class StageStartBreak(BootBreak):
             spec = "*(0x%x)" % realstart
         else:
             spec = realstart
-        BootBreak.__init__(self, spec, controller, True, stage)
+        TargetBreak.__init__(self, spec, controller, True, stage)
 
     def continue_stage(self):
         cont = self.controller
         cont.disable_breakpoint(self)
 
         if not gdb.current_progspace().filename:
-            elf = Main.get_config("stage_elf", self.stage)
+            elf = self.stage.elf
             gdb.execute("file %s" % elf)
             cont.gdb_print('loaded file %s\n' % elf)
         cont.gdb_print("Inserting breakpoints for %s %s ...\n" % (self.controller.name,
@@ -808,25 +826,24 @@ class StageStartBreak(BootBreak):
         cont.current_substage = 0
         cont.insert_breakpoints(self.stage)
         cont.gdb_print("Done setting breakpoints\n")
-
+        
         for s in self.controller.stage_hooks:
             s(self, self.stage)
-        cont.gdb_print("return\n")
 
     def _stop(self, bp, ret):
         self.continue_stage()
         return False
 
 
-class StageEndBreak(BootBreak):
+class StageEndBreak(TargetBreak):
     def __init__(self, spec, controller, stage, success):
         self.addr = spec
         self.stage = stage
         self.starttime = time.time()
         if not isinstance(spec, str):
             spec = "*(0x%x)" % spec
-        controller.gdb_print("stage ends at %s\n" % spec)
-        BootBreak.__init__(self, spec, controller, True, stage, success=success)
+        #controller.gdb_print("stage ends at %s\n" % spec)
+        TargetBreak.__init__(self, spec, controller, True, stage, success=success)
 
     def _stop(self, bp, ret):
         cont = self.controller
@@ -844,13 +861,13 @@ class StageEndBreak(BootBreak):
         return ret
 
 
-class EndLongwriteBreak(BootBreak):
+class EndLongwriteBreak(TargetBreak):
     def __init__(self, lwbreak, stage):
         self.stage = stage
         controller = lwbreak.controller
         self.addr = lwbreak.contaddr
         spec = "*(0x%x)" % self.addr if not isinstance(self.addr, str) else self.addr
-        BootBreak.__init__(self, spec, controller, False, stage, lwbreak=lwbreak)
+        TargetBreak.__init__(self, spec, controller, False, stage, lwbreak=lwbreak)
         controller.disable_breakpoint(lwbreak, delete=False)
 
     def _stop(self, bp, ret):
@@ -859,7 +876,7 @@ class EndLongwriteBreak(BootBreak):
         return False
 
 
-class LongwriteBreak(BootBreak):
+class LongwriteBreak(TargetBreak):
     def __init__(self, controller, r, stage):
         self.regs = {}
         self.sregs = r['sregs']
@@ -871,7 +888,7 @@ class LongwriteBreak(BootBreak):
         self.writeinfo = self.emptywrite
 
         spec = "*(0x%x)" % r['breakaddr']
-        BootBreak.__init__(self, spec, controller, True, stage, r=r)
+        TargetBreak.__init__(self, spec, controller, True, stage, r=r)
 
     def _stop(self, bp, ret):
         if self.controller.calculate_write_dst:
@@ -914,7 +931,7 @@ class LongwriteBreak(BootBreak):
         self.contaddr = (self.contaddr + offset) % mod
 
 
-class RelocBreak(BootBreak):
+class RelocBreak(TargetBreak):
     def __init__(self, controller, stage, r):
         self.relocpc = r['relocpc']
         spec = "*(0x%x)" % (self.relocpc)
@@ -922,7 +939,7 @@ class RelocBreak(BootBreak):
         controller.gdb_print("relocation bp starts at %s, moves %x-%x by %x, ready by %x\n"
                              % (spec, r['startaddr'], r['startaddr']+r['size'],
                                 r['reloffset'], r['relocpc']))
-        BootBreak.__init__(self, spec, controller, False, stage, r=r)
+        TargetBreak.__init__(self, spec, controller, False, stage, r=r)
 
     def addr_in_reloc_range(self, breakaddr):
         return (self.startaddr <= breakaddr) and (breakaddr < (self.startaddr + self.size))
@@ -968,7 +985,7 @@ class GDBPlugin():
                 self.bp_hooks[k] = None
 
 
-class GDBPluginPargerArg():
+class GDBPluginParserArg():
     optional_keys = ["nargs", "default"]
 
     def __init__(self, name, **kwargs):
@@ -991,10 +1008,10 @@ class GDBPluginParser():
         self.name = name
         self.args = []
         for a in args:
-            if isinstance(a, GDBPluginPargerArg):
+            if isinstance(a, GDBPluginParserArg):
                 self.args.append(a)
             else:
-                self.args.append(GDBPluginPargerArg(a))
+                self.args.append(GDBPluginParserArg(a))
 
 
 class GDBSubcommandParser():
@@ -1006,4 +1023,4 @@ class GDBSubcommandParser():
 
 
 if __name__ == "__main__":
-    c = GDBBootController()
+    c = GDBTargetController()

@@ -140,13 +140,18 @@ class SubstagesInfo():
         self.unresolved_interval_table = None
         self.interval_type = intervaltype
         self.stage = stage
+        if isinstance(self.stage, str):
+            self.stage = Main.stage_from_name(self.stage)
         self.substage_mmap_info_table = None
         self.substage_mmap_addr_table = None
         self.substage_reloc_info_table = None
         self.substage_info_table = None
         self.substage_region_policy_table = None
-        self.substage_file_path = Main.get_config("policy_file", self.stage)
-        self.mmap_file = Main.get_config("regions_file", self.stage)
+        if not hasattr(Main.raw.policies, "substages_file"):
+            raise Exception("No substage or region definitions are available for processing")
+        self.substage_file_path = Main.get_policy_config("substages_file", self.stage)
+        self.mmap_file = Main.get_policy_config("regions_file", self.stage)        
+        self.process_trace = False
 
     def _var_tablename(self):
         return "vars"
@@ -157,19 +162,19 @@ class SubstagesInfo():
     def mmapgroupname(self):
         return "%s_mmap" % self.stage.stagename
 
-    def create_dbs(self,  trace=True):
-        # print "create %s %s" % (create_policy, trace)
+    def create_dbs(self,  trace):
+        self.process_trace = trace
         self.open_dbs(trace)
         # if create_policy and not self.mmap_created:
-        self.mmap_created = True
+        self.mmap_created = trace
         self.h5mmap.flush()
         self._create_var_table()
         self.populate_substage_policy_tables()
         self.h5mmap.flush()
         if self.mmap_created:
             self.print_substage_tables()
-        self.write_substages_file()
-        if self.h5file:
+        if self.process_trace:
+            self.write_substages_file()
             self.populate_contents_table()
             self.populate_write_interval_table()
 
@@ -181,7 +186,7 @@ class SubstagesInfo():
         cc = Main.cc
         stage = self.stage
         sname = stage.stagename
-        elf = Main.get_config("stage_elf", stage)
+        elf = stage.elf
         cmd = "%snm -n -S %s" % (cc, elf)
         f = StringIO.StringIO(Main.shell.run_cmd(cmd))
         reader = csv.DictReader(f, fields, delimiter=" ",
@@ -295,18 +300,16 @@ class SubstagesInfo():
     def write_substages_file(self):
         stage = self.stage
         substages = self._substage_names()
-        tracename = Main.get_config("trace_traces")
-
-        try:
-            cdb = Main.get_config("calltrace_db", self.stage)
-        except KeyError:
+        tracename = self.process_trace
+        if "calltrace" in Main.raw.runtime.enabled_traces:
+            cdb = getattr(Main.raw.runtime.trace.calltrace.files.org, self.stage.stagename)
+        else:
             cdb = None
-
         if cdb and os.path.exists(cdb):
-            path = Main.get_config("policy_trace_el", self.stage)
+            path = getattr(Main.raw.runtime.trace.calltrace.files.el_file, self.stage.stagename)
             if os.path.exists(path):
                 return
-            calltrace_path = Main.get_config("calltrace_db", self.stage)
+            calltrace_path = cdb
             failed = False
             substage_linenos = []
             for s in substages:
@@ -340,24 +343,23 @@ class SubstagesInfo():
         stage = self.stage
         substages = self._substage_numbers()
         name = self._substage_names()
-        try:
-            substageresultsdir = Main.get_config("policy_trace_fnlist_dir", self.stage)
-        except KeyError:
-            substageresultsdir = None
-        tracename = Main.get_config("trace_traces")
-        try:
-            calltrace_path = Main.get_config("calltrace_db", self.stage)
-        except KeyError:
-            calltrace_path = None
+        substageresultsdir = getattr(Main.raw.postprocess.consolidate_writes.files.fn_lists, stage.stagename)
+        tracename = self.process_trace
+        calltrace_path = getattr(Main.raw.runtime.trace.calltrace.files.org, stage.stagename)   
         if calltrace_path and os.path.exists(calltrace_path) and substageresultsdir:
+            pp = Main.raw.postprocess.consolidate_writes.files
             if not noprepare:
-                el_path = Main.get_config("policy_trace_el", self.stage)
+                el_path = getattr(pp.el_file, stage.stagename)  
                 if os.path.exists(substageresultsdir):
                     return {}
-                pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
-                                         (calltrace_path,
-                                          el_path,
-                                          substageresultsdir))
+                try:
+                    pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
+                                             (calltrace_path,
+                                              el_path,
+                                              substageresultsdir))
+                except AssertionError as e:
+                    print "Emacs data gathering not setup (%s, %s)\n" % (e, e.args)
+                    return {}
             origdir = os.getcwd()
             os.chdir(substageresultsdir)
             files = [os.path.join(substageresultsdir, f) for f in glob.glob("*.txt")]
@@ -370,10 +372,10 @@ class SubstagesInfo():
         stage = self.stage
         substages = self._substage_numbers()
         substagesnamename = self._substage_names()
-        tracename = Main.get_config("trace_traces")
-        if 'framac' in tracename:
+        tracename = self.process_trace
+        if 'framac' == tracename:
             row = self.contents_table.row
-            tracefile = Main.get_config("framac_callstacks", self.stage)
+            tracefile = etattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
             if os.path.exists(tracefile):
                 results = self.parse_frama_c_call_trace_stages(tracefile, self.substage_file_path)
                 for s in substages:
@@ -381,7 +383,7 @@ class SubstagesInfo():
                         row["substagenum"] = s
                         row["functionname"] = f
                         row.append()
-        elif "baremetal" not in tracename:
+        elif "watchpoint" not in tracename:
             raws = self.get_raw_files(False)
             for (num, f) in raws.iteritems():
                 fopen = open(f, "r")
@@ -443,7 +445,7 @@ class SubstagesInfo():
         return intervals
 
     def calculate_intervals(self, substages):
-        tracename = Main.get_config("trace_traces")
+        tracename = self.process_trace
         frama_c = "framac" in tracename
         if frama_c:
             intervals = self.calculate_framac_intervals(substages)
@@ -680,9 +682,9 @@ class SubstagesInfo():
     def populate_mmap_tables(self, mmap_info, info_table, addr_table):
         info_row = info_table.row
         addr_row = addr_table.row
-        if addr_table.nrows > 0:
-            self.mmap_created = False
-            return
+        # if addr_table.nrows > 0:
+        #     self.mmap_created = False
+        #     return
         for (short_name, region) in mmap_info.regions.iteritems():
             info_row['short_name'] = short_name
             info_row['parent_name'] = region.parent.short_name if region.parent else ''
@@ -722,10 +724,16 @@ class SubstagesInfo():
             for a in [r for r in table.read_sorted('minaddr') if r['substagenum'] == num]:
                 print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
             print '---------------------------'
-
+    
     def open_dbs(self, trace):
-        name = Main.get_config('policy_name', self.stage)
-        trace_db = Main.get_config("policy_trace_db", self.stage)
+        self.process_trace = trace
+        if trace:
+            trace_db = getattr(getattr(Main.raw.runtime.trace, trace).files.db, self.stage.stagename)
+            trace_db_done = Main.raw.runtime.trace.done
+            if not (os.path.exists(trace_db_done) and os.path.exists(trace_db)):
+                trace_db = None
+        else:
+            trace_db = None
         if not trace_db or not trace or not os.path.exists(trace_db):
             self.h5file = None
             self.h5group = None
@@ -752,7 +760,7 @@ class SubstagesInfo():
                     self.h5group, 'writeintervals', SubstageWriteIntervals, "")
             else:
                 self.trace_intervals_table = self.h5group.writeintervals
-        mmap_db_path = Main.get_config("policy_db", self.stage)
+        mmap_db_path = Main.get_policy_config("db", self.stage)
         self.h5mmap = tables.open_file(mmap_db_path, mode="a",
                                        title="%s substage mmap info"
                                        % self.stage.stagename)
@@ -850,8 +858,14 @@ class SubstagesInfo():
         return self.substage_names(self.stage)
 
     @classmethod
+    def substage_names_from_file(cls, f): 
+        return substages_parser.SubstagesFileParser.get_substage_fns(f)
+    
+    @classmethod
     def substage_names(cls, stage):
-        policy = Main.get_config('policy_file', stage)
+        if not (("policies" in Main.raw.keys()) and ("substages_file" in Main.raw.policies.keys())):
+            return []
+        policy = Main.get_policy_config('substages_file', stage)
         return substages_parser.SubstagesFileParser.get_substage_fns(policy)
 
     @classmethod
@@ -859,10 +873,10 @@ class SubstagesInfo():
         return range(len(cls.substage_names(stage)))
 
     def check_trace(self, table):
-        print "Checking policy at (%s,%s)" % (self.substage_file_path, self.mmap_file)
         violation = False
         snums = self._substage_numbers()
-        for n in snums:
+        print "---- CHECKING TRACE FOR WRITE VIOLATIONS -----"
+        for n in snums:            
             allowed_writes = self.allowed_writes(n)
             for r in db_info.get(self.stage).get_substage_writes(n):
                 size = r['reportedsize']
@@ -882,8 +896,11 @@ class SubstagesInfo():
                                                                            start,
                                                                            end)
                     violation = True
+                    #exit(0)
         if not violation:
             print "Policy was not violated :)"
+            print "-------------------------------------------"
             return True
         else:
+            print "-------------------------------------------"            
             return False
