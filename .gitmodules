@@ -1,0 +1,3 @@
+[submodule "fiddle_examples"]
+	path = fiddle_examples
+	url = https://github.com/bx/fiddle_examples

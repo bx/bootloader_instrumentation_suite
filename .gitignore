@@ -29,4 +29,4 @@ META.frama-c*
 *.csv
 *.img
 *.pdf
-
+*.egg-info

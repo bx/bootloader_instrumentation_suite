@@ -23,7 +23,7 @@ class PkgInstall(install):
 # execute(os.system, ('cd capstone; ./make.sh install',))
 
 setuptools.setup(
-    name="instrumentation_suite",
+    name="fiddle",
     version='0.0.9',
     packages=setuptools.find_packages(),
     license="MIT",
@@ -33,7 +33,7 @@ setuptools.setup(
     url="https://github.com/bx/bootloader_instrumentation_suite",
     entry_points={
         'console_scripts': [
-            'instrumentation_lib = instrumentation_lib.main:go'
+            'fiddle = fiddle.main:go'
         ],
     },
     install_requires=[
