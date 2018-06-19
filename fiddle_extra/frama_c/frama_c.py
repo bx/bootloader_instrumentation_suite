@@ -236,7 +236,7 @@ class PreprocessedFileProcessor():
         except:
             last = line.index(";")
 
-        value = pure_utils.get_symbol_location(self.cc, self.elf, label.name, self.stage)
+        value = pure_utils.get_symbol_location(self.elf, label.name, self.stage)
         l = "%s = 0x%x;\n" % (line[:last], value)
         return l
 
@@ -245,7 +245,7 @@ class PreprocessedFileProcessor():
         line = line.strip()
         global patches
         if self._data_loc == -1:
-            (self._data_loc, end) = pure_utils.get_section_location(self.cc, self.elf, ".data")
+            (self._data_loc, end) = pure_utils.get_section_location(self.elf, ".data")
         if ("frama_c_tweaks" not in self.path) and \
            (re.match('register volatile gd_t \*gd asm \("r9"\);', line) is not None):
             n = patches.get("gd", 0)
@@ -630,7 +630,6 @@ if __name__ == "__main__":
     s = Main.stage_from_name(args.stage)
     if s is None:
         raise Exception("no such stage named %s" % args.stage)
-    cc = Main.cc
     if not args.standalone:
         d = doit_manager.TaskManager([], [], False, [args.stage],
                                      {args.stage: args.policy_id},

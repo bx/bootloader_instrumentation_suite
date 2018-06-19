@@ -52,7 +52,8 @@ class TaskManager():
     def __init__(self, command, instance, trace, host=None,
                  trace_list=[], stages=[], 
                  policies={}, post_trace_processes=[],
-                 rm_dir=True, quick=False, args=None):
+                 rm_dir=True, quick=False, args=None, verbose=False):
+        self.verbose = verbose
         if command == cmds.list_instances:
             print "Test instances"
             for i in self._get_all_ids():
@@ -125,7 +126,7 @@ class TaskManager():
 
         if command == cmds.create:
             self.pt = instrumentation_results_manager.PolicyTaskLoader(False, policies)
-            self.loaders.append(instrumentation_results_manager.task_manager())
+            self.loaders.append(instrumentation_results_manager.task_manager(verbose))
             return
 
 
@@ -133,7 +134,7 @@ class TaskManager():
             self.pt = instrumentation_results_manager.PolicyTaskLoader(command == cmds.import_policy,
                                                                        policies)
             if cmds.import_policy:
-               self.loaders.append(instrumentation_results_manager.task_manager())
+               self.loaders.append(instrumentation_results_manager.task_manager(verbose))
                return 
             print "-- Avilable policies for instance '%s' --" % instance_id
             for s in Main.stages:
@@ -168,7 +169,7 @@ class TaskManager():
                                                                        command==cmds.postprocess_trace)
         else:
             self.ppt = None
-        self.loaders.append(instrumentation_results_manager.task_manager())
+        self.loaders.append(instrumentation_results_manager.task_manager(verbose))
 
     def _get_all_ids(self):
         root = Main.test_data_path
@@ -190,7 +191,6 @@ class TaskManager():
 
     def _calculate_current_id(self):
         (gitid,  sha) = self.target_task.get_gitinfo()
-        cc = Main.cc
         ccpath = self.target_task.build_cfg.compiler
         #ccpath = "%s%s" % (cc, cc_name)
         if hasattr(Main.target, "makecfg"):

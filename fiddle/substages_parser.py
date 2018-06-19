@@ -475,7 +475,7 @@ class MmapRegion():
                 val = s
             return val
         if not s.startswith('0x'):
-            val = utils.get_symbol_location(s, self.stage, nm=True)
+            val = utils.get_symbol_location(s, self.stage)
             if val < 0:
                 val = s
             return val

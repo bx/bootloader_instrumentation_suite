@@ -79,10 +79,9 @@ class DelTargetAction(PythonInteractiveAction):
 
 
 _manager_singleton = None
-_diabled_tasks = []
 
 
-def task_manager(instance_id=None):
+def task_manager(instance_id=None, verbose=False):
     class TestTaskManager(object):
         def __init__(self, instance_id):
             self.ALL_GROUPS = 0
@@ -91,6 +90,7 @@ def task_manager(instance_id=None):
             self.enabled = [self.ALL_GROUPS]
             self.taskmanagers = {}
             self.grouporder = []
+            self.verbose = verbose
 
         def enable(self, subgroup):
             self.enabled.append(subgroup)
@@ -101,6 +101,10 @@ def task_manager(instance_id=None):
         def add_tasks(self, task_list, subgroup):
             l = self.tasks.get(subgroup, [])
             l.extend(task_list)
+            for t in task_list:
+                if not self.verbose:
+                    #print dir(t)
+                    t.verbosity = 0
             self.tasks[subgroup] = l
 
         def list_tasks(self):
@@ -146,7 +150,7 @@ def task_manager(instance_id=None):
 
             else:
                 for inst in self.tasks[subgroup]:
-                    #print "file dep %s <- %s" % (inst.targets, inst.file_dep)
+                    print "file dep %s <- %s" % (inst.targets, inst.file_dep)
                     r = {
                         'actions': inst.actions,
                         'targets': inst.targets,
@@ -384,7 +388,7 @@ class ResultsLoader(object):
                         else:
                             raise Exception("I do not know how to generate file '%s' (%s), no such generator named '%s'" % (file_raw.name, v.software.name, file_raw.generator))
                     else:
-                        raise Exception("I do not know how to generate file %s, needs a commend or generator" % file_raw.path)
+                        raise Exception("I do not know how to generate file %s, needs a command or generator" % file_raw.path)
         del Main.raw.runtime.current_stage        
         del Main.raw.runtime.current_host
         return tasks
@@ -1232,14 +1236,16 @@ sha1: {}
         def rm_src_dir():
             print "removing temporary copy of target source code at %s" % tmpdir
             os.system("rm -rf %s" % tmpdir)
+            
         if self.rm_tmp:
             atexit.register(rm_src_dir)
         olddir = os.getcwd()
         os.chdir(self.local)
         if Main.target_software.git:
             os.system("git archive %s | tar -C %s -x" % (self.sha, tmpdir))
+            os.system("ls -l %s" % tmpdir)
         else:
-            os.system("cp -avr ./* %s" % tmpdir)
+            os.system("cp -avr ./* %s > /dev/null" % tmpdir)
         os.chdir(olddir)
 
         if os.path.exists(dstdir):

@@ -25,14 +25,51 @@ from config import Main
 import re
 import os
 import pure_utils
+import r2_keeper as r2
+import json
 
+def addr2functionname(addr, stage, debug=False):
+    elf = stage.elf
+    old = r2.gets(elf, "s")
+    r2.get(elf, "s 0x%x" % addr)    
+    s = r2.get(elf, "afi")
+    r2.get(elf, "s %s" % old)    
+    def getname(i):
+        name = i["name"]
+        if i.name.startswith("sym."):
+            name = name[4:]
+    #print "addr2fn %x " % (addr)            
+    for i in s:
+        if len(i) > 1:
+            print s
+            print "%x addr func" % addr
+            raise Exception
+        name = getname(i)
+        
+        return name
+    return ""
 
-def addr2line(addr, stage):
-    cc = Main.cc
-    elf = stage.elf    
-    cmd = '%saddr2line -e %s 0x%x 2>/dev/null' % (cc, elf, addr)
-    ret = Main.shell.run_cmd(cmd)
-    return ret.split()[0]  # sometimes there is extra junk after the line number (like below)
+def get_symbol_location(name, stage, debug=False):
+    elf = stage.elf
+    return pure_utils.get_symbol_location(elf, name, debug)    
+
+def addr2line(addr, stage, debug=False):
+    fn = addr2functionname(addr, stage)
+    addr = get_symbol_location(fn, stage)
+    elf = stage.elf
+    #print "addr2line 0x%x" % addr
+    old = r2.gets(elf, "s")                
+    r2.get(elf, "s 0x%x" % addr)    
+    s = r2.gets(elf, "CL")
+    r2.get(elf, "s %s" % old)    
+    res = s.split()
+    d = r2.gets(elf, "pwd")
+    if debug and res:
+        print "addr2line %s%s:%s" % (d, res[1][2:], res[3])
+    if res:
+        return "%s%s:%s" % (d, res[1][2:], res[3])
+    else:
+        return ""
 
 def line2addrs(line, stage):
     output = infoline(line, stage)
@@ -62,58 +99,17 @@ def line2addrs(line, stage):
         return (startaddr, endaddr)
 
 
-def addr2functionname(addr, stage):
-    cc = Main.cc
-    elf = stage.elf
-    srcdir = Main.runtime.temp_target_src_dir
-    cmd = '%sgdb --cd=%s ' \
-          '-ex "x/i 0x%x" --batch --nh --nx %s 2>/dev/null' % (cc,
-                                                               srcdir,
-                                                               addr,
-                                                               elf)
-    output = Main.shell.run_cmd(cmd)
-    output = output.split('\n')[0].strip()
-    output = output.split(':')[0]
-    if output.lower() == '0x%x:':
-        return ''  # not located in a function
-    else:
-        rgx = re.compile(r'<([A-Za-z0-9_]+)(\+\d+){0,1}>')
-        res = re.search(rgx, output)
-        if res is None:
-            return ''
-        else:
-            return res.group(1)
-
-
-def disassemble(what, stage):
-    cc = Main.cc
-    elf = stage.elf
-    srcdir = Main.runtime.temp_target_src_dir
-    cmd = '%sgdb --cd=%s ' \
-          '-ex "disassemble %s" --batch --nh --nx %s 2>/dev/null' % (cc,
-                                                                     srcdir,
-                                                                     what,
-                                                                     elf)
-    output = Main.shell.run_multiline_cmd(cmd)
-    return output
-
-
 def line2src(line):
-    [path, lineno] = line.split(':')
+    try:
+        [path, lineno] = line.split(':')
+    except ValueError:
+        return ""
     cmd = "sed -n '%s,%sp' %s 2>/dev/null" % (lineno, lineno, path)
     try:
         output = Main.shell.run_cmd(cmd)
         return output
     except:
         return ''
-
-
-def disasmrange(start, end, stage):
-    cc = Main.cc
-    elf = stage.elf
-    cmd = "%sobjdump -D -w --start-address=0x%x --stop-address=0x%x %s 2>/dev/null" \
-          % (cc, start, end, elf)
-    return Main.shell.run_cmd(cmd)
 
 
 def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
@@ -157,75 +153,13 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     return (value, instr, func)
 
 
-def addr2funcnameobjdump(addr, stage, debug=False):
-    cc = Main.cc
-    elf = stage.elf
-    cmd = "%sobjdump -d -w --start-address=0x%x --stop-address=0x%x %s 2>/dev/null" \
-          % (cc, addr, addr + 4, elf)
-    if debug:
-        print cmd
-    output = Main.shell.run_cmd(cmd).split("\n")
-    if debug:
-        print output
-    addrre = re.compile("[\s]*%x:" % addr)
-    output = [l for l in output if addrre.match(l)]
-    if debug:
-        print output
-    name = output[0].strip()
-    func = ""
-    if debug:
-        print name
-    rgx = re.compile(r'%x <([A-Za-z0-9_]+)(\+0x[0-9a-fA-F]+){0,1}>:' % addr)
-    res = re.search(rgx, name)
-    if res is None:
-        func = ''
-    else:
-        func = res.group(1)
-    return func
-
-
-def addr2disasm(addr, stage):
-    cc = Main.cc
-    elf = stage.elf
-    srcdir = Main.runtime.temp_target_src_dir
-    cmd = '%sgdb --cd=%s ' \
-          '-ex "disassemble/r 0x%x,+1" --batch '\
-          '--nh --nx %s 2>/dev/null' % (cc,
-                                        srcdir,
-                                        addr,
-                                        elf)
-    # print cmd
-    output = Main.shell.run_cmd(cmd)
-    voutput = output.split('\n')[1].strip()  # get line with disassembly
-    voutput = voutput.split('\t')
-    # try:
-    # convert to a hex string and then decode it to it is an array of bytes
-    value = (''.join(voutput[1].split())).decode('hex')
-    # except Exception:
-
-    instr = ' '.join(voutput[2:])
-
-    # get function name if possible
-    foutput = output.split(':')[0]
-    if foutput.lower() == '0x%x:':
-        func = ''  # not located in a function
-    else:
-        rgx = re.compile(r'<([A-Za-z0-9_]+)(\+\d+){0,1}>')
-        res = re.search(rgx, foutput)
-        if res is None:
-            func = ''
-        else:
-            func = res.group(1)
-    return (value, instr, func)
-
 
 def get_c_function_names(stage):
     cc = Main.cc
     elf = stage.elf
     cmd = '%sreadelf -W -s %s | grep FUNC 2>/dev/null' % (cc, elf)
     output = Main.shell.run_multiline_cmd(cmd)
-    #regexp = re.compile("\s+\d+:\s+(?P<addr>[a-fA-f0-9]{8})"
-    #                    "\s+\w*\s+(?P<t>[A-Z]+)\s+\w*\s+\w*\s+\w*\s+(?P<name>[\w_\-\.]+)\s*$")
+
     results = []
     for l in output:
         cols = l.split()
@@ -233,49 +167,30 @@ def get_c_function_names(stage):
             addr = cols[1]
             name = cols[7]     
             results.append((name, int(addr, 16)))        
-        #m = regexp.search(l)
-        #print m
-        #if m is not None:
-        #    (addr, name, t) = (m.groupdict()['addr'], m.groupdict()['name'], m.groupdict()['t'])
-        #    if t == "FUNC":
-        #        results.append((name, int(addr, 16)))
 
     return results
 
 
 def get_section_headers(stage):
-    cc = Main.cc
     elf = stage.elf
-    return pure_utils.get_section_headers(cc, elf)
+    return pure_utils.get_section_headers(elf)
 
 
 def get_section_location(name, stage):
-    cc = Main.cc
     elf = stage.elf
-    return pure_utils.get_section_location(cc, elf, name)
-
-
-def get_symbol_location(name, stage, debug=False, nm=False):
-    cc = Main.cc
-    elf = stage.elf
-    return pure_utils.get_symbol_location(cc, elf, name, debug, nm)
+    return pure_utils.get_section_location(elf,name)
 
 
 def get_symbol_location_start_end(name, stage, debug=False):
-    cc = Main.cc
     elf = stage.elf
-    start = get_symbol_location(name, stage, debug)
-    if start >= 0:
-        cmd = '%sreadelf -W -s %s | grep %s 2>/dev/null' % (cc, elf, name)
-        if debug:
-            print cmd
-        output = Main.shell.run_cmd(cmd)
-        if debug:
-            print output
-        size = int(output.split()[2])
-        return (start, start + size)
-    else:
-        return (0, 0)
+    s = r2.get(elf, "isj")    
+    for i in s:
+        if i["name"] == name:
+            addr = i["vaddr"]
+            if debug:
+                print i            
+            return (addr, addr + i["size"])
+    return (-1, -1)
 
 
 def get_line_addr(line, start, stage, debug=False, srcdir=None):
@@ -317,7 +232,7 @@ def symbol_relocation_file(name, offset, stage, path=None, debug=False):
     if path is None:
         path = tempfile.NamedTemporaryFile("rw").name
     elf = stage.elf
-    srcdir = Main.runtime.temp_target_src_dir
+    srcdir = Main.raw.runtime.temp_target_src_dir
     cc = Main.cc
     cmd = "%sobjcopy  --extract-symbol -w -N \!%s "\
           "--change-addresses=0x%x %s %s 2>/dev/null" % (cc,

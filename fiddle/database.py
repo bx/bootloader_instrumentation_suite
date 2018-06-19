@@ -158,9 +158,9 @@ class WriteDstTable():
             self._thumb = False
             self.emu = Uc(UC_ARCH_ARM, UC_MODE_ARM)
         entrypoint = self._mux_start
-        headers = pure_utils.get_program_headers(Main.cc, elf)
+        headers = pure_utils.get_section_headers(elf)
         for h in headers:
-            if h['filesz'] > 0:
+            if h['size'] > 0:
                 codeaddr = h['virtaddr']
                 break
         alignedstart = self._mux_start & 0xFFFFF0000
@@ -365,7 +365,6 @@ class TraceTable():
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         self.outname = outfile
         self.create = create
-        print "Open trace database create %s write %s, %s" % (create, write, outfile)
         if create:
             m = "a"
         self.writestable = None

@@ -439,6 +439,8 @@ class Main(ConfigObject):
     supported_tracing_methods = set()
     cc = ""
     runtime = {}
+    verbose = False
+        
     def __init__(self, kw, name=None, default=False):
         self.default = default
         self._target = None
@@ -450,6 +452,7 @@ class Main(ConfigObject):
         self._stages = None
         self._stages_checked = None
         self._traces = None
+
 
         self.test_suite_path = Main.test_suite_dir
         self._update_raw("test_suite_path", self.test_suite_path)
@@ -830,13 +833,13 @@ class TargetStage(ConfigObject):
             image = os.path.join(root, self.image)
             elf = os.path.join(root, self.elf)
 
-            (lo, hi) = pure_utils.get_min_max_pcs(Main.cc, elf)
+            (lo, hi) = pure_utils.get_min_max_pcs(elf)
             if self.minpc < 0:
                 self.minpc = lo
             if self.maxpc < 0:
                 self.maxpc = hi
             if self.entrypoint < 0:
-                self.entrypoint = pure_utils.get_entrypoint(Main.cc, elf)
+                self.entrypoint = pure_utils.get_entrypoint(elf)
             if self.image_size < 0:
                 self.image_size = pure_utils.get_image_size(self.image)
             if type(self.exitpc) == str:
@@ -883,7 +886,7 @@ def setup_special_fields(bunched):
     _merge_into_munch(bunched, specials)
 
 
-defcfg = os.path.join(Main.test_suite_dir, "defaults.cfg")
+defcfg = os.path.join(Main.test_suite_dir, 'configs', "defaults.cfg")
 Main.raw = {}
 Main.default_raw = {}
 with open(defcfg, 'r') as f:

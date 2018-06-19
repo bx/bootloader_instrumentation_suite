@@ -88,6 +88,7 @@ class CodeTask(object):
             'name': self.name,
             'basename': self.basename,
             #'verbosity': 2,
+            #'verbosity': None,
             'uptodate': self.uptodate,
             'targets': self.targets,
             'actions': self.actions,

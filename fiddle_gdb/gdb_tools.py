@@ -169,6 +169,7 @@ class GDBTargetController(object):
         self.add_subcommand_parser('flushlog')
         p = self.add_subcommand_parser('go')
         p.add_argument('-p', "--prepare_only", action='store_true', default=False)
+        p.add_argument('-r', "--run_not_cont", action='store_true', default=False)        
         p = self.add_subcommand_parser("startat")
         p.add_argument('-s', "--stage", action='store', default='')
         p.add_argument("pc", nargs='?')
@@ -602,12 +603,18 @@ class GDBTargetController(object):
         gdb.events.exited.connect(self.gdb_exit)
         s = self.prepare_stage(stage, False)
         self.set_mode()
-        if self.get_reg_value('pc', True) == s.breakpoint.companion.addr:
-            self.gdb_print("First stage already entered\n")
-            s.continue_stage()
-        self.gdb_print("ready to go\n")        
+        try:
+            if self.get_reg_value('pc', True) == s.breakpoint.companion.addr:
+                self.gdb_print("First stage already entered\n")
+                s.continue_stage()
+        except gdb.error:
+            pass
+        self.gdb_print("ready to go\n")
         if not args.prepare_only:
-            gdb.execute("c")
+            if args.run_not_cont:
+                gdb.execute("r")
+            else:
+                gdb.execute("c")
 
 
 class CompanionBreakpoint(gdb.Breakpoint):

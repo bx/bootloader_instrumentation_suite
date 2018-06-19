@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import tables
+import atexit
 import subprocess
 import re
 import sys
@@ -34,7 +35,7 @@ import pytable_utils
 from config import Main
 import numpy
 import importlib
-
+import r2_keeper as r2
 def int_repr(self):
     return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
@@ -675,23 +676,33 @@ class SkipDescriptorGenerator():
                 isfunc = True
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
+                #print "label %s" % l
+                #print "start %s" % start
                 startaddr = self.table._get_line_addr(start, True)
-                funcname = utils.addr2funcnameobjdump(startaddr, self.stage)
-                cmd = "%sgdb --cd=%s   -ex 'disassemble/r %s' "\
-                      "--batch --nh --nx %s" % (self.table.cc,
-                                                srcdir,
-                                                funcname,
-                                                elf)
-                output = Main.shell.run_multiline_cmd(cmd)
-                if output[1].split('\t')[2] == 'push':
-                    # don't include push instruction
-                    start = output[2].split('\t')
+                if (startaddr % 2) == 1:
+                    startaddr = startaddr - 1
+                
+                #print "lineaddr %s" % startaddr
+                f = pytable_utils.get_unique_result(self.table.funcstable, ("(startaddr <= 0x%x) & (0x%x < endaddr)" % (startaddr, startaddr)))
+                #print "functable lookup for %x %s" % (startaddr, f)
+                if f:
+                    (startaddr, endaddr) = (f['startaddr'], f['endaddr'])
                 else:
-                    start = output[1].split('\t')
-                startaddr = int(start[0].split()[0], 16)
-                end = output[-3].split('\t')
-                endaddr = int(end[0].split()[0], 16)
-                # disasm = "".join(start[2:])
+                    fn = utils.addr2functionname(startaddr, self.stage)
+                    #print "functable lookup for %x %s" % (startaddr, fn)                    
+                    (startaddr, endaddr) = utils.get_symbol_location_start_end(fn, self.stage)
+                #print "disasm %x" % (startaddr)                    
+                r2.get(elf, "s 0x%x" % startaddr)
+                disasm = r2.get(elf, "pdj 2")
+                #print "disasm %x: %s" % (startaddr, disasm)
+                #if "disasm" not in disasm[0]:
+                    
+                if disasm[0]["disasm"].startswith("push"):
+                    firstins = disasm[1]
+                else:
+                    firstins = disasm[0]
+                startaddr = firstins["offset"]
+                #print "start %s,%x" % (startaddr, endaddr) 
             elif l.value == "NEXT":
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
@@ -702,21 +713,25 @@ class SkipDescriptorGenerator():
             # move startaddr after any push instructions
             startaddr = self.table._get_line_addr(start, True)
             endaddr = self.table._get_line_addr(end, False)
-            cmd = "%sgdb --cd=%s -ex 'disassemble/r 0x%x,+8' --batch --nh --nx  %s" % \
-                  (self.table.cc, srcdir,
-                   startaddr, elf)
-            output = Main.shell.run_multiline_cmd(cmd)
-            if output == ['']:
-                print ("failed to locate skip tags %s" % self.__dict__)
-                return {}
-                raise Exception("failed to locate skip tags %s" % self.__dict__)
-            ins = output[1].split('\t')[2]
-            if (ins == 'push'):
-                # don't include push instruction
-                start = output[2].split('\t')
-                startaddr = int(start[0].split()[0], 16)
-        if self.adjuststart:
-            print "sdjust start of %s from %x to %x" % (self.name, startaddr, startaddr + self.adjuststart)
+            if (startaddr % 2) == 1:
+                startaddr = startaddr - 1
+            #old = r2.gets(elf, "s")
+            r2.get(elf, "s 0x%x" % startaddr)
+            #r2.get(elf, "s 0x%x" % old)
+            disasm = r2.get(elf, "pdj 2")
+            if "disasm" in disasm[0]:
+                if (disasm[0][u"disasm"].startswith("push")):
+                    # don't include push instruction                
+                    startins = disasm[1]
+                else:
+                    startins = disasm[0]
+                startaddr = startins["offset"]
+            else:
+                #print "disasm %x: %s" % (startaddr, disasm)                               
+                #print "ZERO %s" % disasm[0]
+                #print disasm[1]
+                pass
+                
         s = startaddr + self.adjuststart
         e = endaddr + self.adjustend
         if e < s:
@@ -724,8 +739,6 @@ class SkipDescriptorGenerator():
             s = e
             e = t
         row['pc'] = s
-        if isfunc and (self.adjustend or self.adjuststart):
-            print "isfunc adj %s %s %s %s" % (isfunc, self.adjustend, self.adjuststart, name)
         row['resumepc'] = e
         row['isfunction'] = isfunc
         row['thumb'] = self.table.thumbranges.overlaps_point(row['pc'])
@@ -774,10 +787,9 @@ class ThumbRanges():
 
 class WriteSearch():
     def __init__(self, createdb, stage, verbose=False, readonly=False):
-        self.cc = Main.cc
         self.verbose = verbose
         outfile = Main.get_static_analysis_config("db", stage)
-
+        
         self.stage = stage
         self.ia = InstructionAnalyzer()
         self.relocstable = None
@@ -790,7 +802,7 @@ class WriteSearch():
         self.skipstable = None
         self.verbose = verbose
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
-
+        
         if createdb:
             m = "w"
             self.h5file = tables.open_file(outfile, mode=m,
@@ -805,6 +817,13 @@ class WriteSearch():
                                            title="uboot %s target static analysis"
                                            % stage.stagename)
             self.group = self.h5file.get_node("/staticanalysis")
+        r2.cd(self.stage.elf, Main.get_runtime_config("temp_target_src_dir"))
+        def q():
+            try:
+                r2.files[self.stage.elf].quit()
+            except IOError:
+                pass
+        atexit.register(q)
 
     @classmethod
     def _get_src_labels(cls):
@@ -1021,6 +1040,8 @@ class WriteSearch():
                                                         LongWrites, "long writes to precompute")
         skips = []
         #print "LONGWRITES--"
+        if not self.is_arm():
+            return
         for r in self.stage.longwrites:
             skips.append(LongWriteDescriptorGenerator(r.name,
                                                       r.dregs,
@@ -1136,9 +1157,6 @@ class WriteSearch():
             g = getattr(mod, generator)
             r = g(Main, stage, r.name, RelocDescriptor, utils)
             rs.append(r)
-        #print "RELOC INFO"
-        #for r in rs:
-        #    print r
         return rs
 
 
@@ -1307,6 +1325,12 @@ class WriteSearch():
                 eregs, r['destsubtract'], r['endvalue'], r['startvalue'],
                 r['writesize'], r['interval'], r['thumb'], r['inplace'], rangetype
             )
+    def is_arm(self):
+        elf = self.stage.elf
+        o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc, elf))
+        o = o.split()
+        return o[1] == "ARM"
+        
 
     def create_writes_table(self, start=0, stop=0):
         self.writestable = self.h5file.create_table(self.group, 'writes',
@@ -1319,38 +1343,32 @@ class WriteSearch():
         self.srcstable = self.h5file.create_table(self.group, 'srcs',
                                                   SrcEntry, "source code info")
         self.funcstable = self.h5file.create_table(self.group, 'funcs',
-                                                   FuncEntry, "function info")
+                                                   FuncEntry, "function info")        
         # now look at instructions
-        elf = self.stage.elf
+        if not self.is_arm():
+            return
         srcdir = Main.get_runtime_config("temp_target_src_dir")
-        cmd = "%sobjdump -D -w -j .text %s 2>/dev/null" % (self.cc, elf)
-        output = Main.shell.run_multiline_cmd(cmd)
-        addr = re.compile("^[\s0-9a-fA-F]{8}:")
         # objdump doesnt print 'stl', but search for it just in case
         # writes = re.compile("(push)|(stm)|(str)|(stl)")
         smcvals = ["e1600070", "e1600071"]
         smcmne = 'smc'
         r = self.writestable.row
         smcr = self.smcstable.row
-        for o in output:
-            insadded = False
-            mne = ''
-            dis = ''
-            ins = ''
-            fname = ''
-            pc = 0
-            thumb = False
-            if (not addr.match(o)):
-                continue
-            else:
-                line = o.split('\t')
-                pc = int(line[0][:-1], 16)
+        sections = r2.get(self.stage.elf, "iSj")
+        for s in sections:
+            for pc in range(s["vaddr"], s["vaddr"] + s["size"]):
+                insadded = False
+                mne = ''
+                dis = ''
+                ins = ''
+                fname = ''
+                thumb = False
                 if (start > 0) and (stop > 0):
                     if (pc < start) or (stop <= pc):
                         continue
-
-                dis = ' '.join(line[2:])
-                val = ''.join(line[1])
+                ins_info = r2.get(self.stage.elf, "pdj 1")[0]
+                dis = ins_info['disasm']
+                val = ins_info['bytes']
                 mne = dis.split()[0]
 
                 if self.ia.is_mne_memstore(mne):
@@ -1360,40 +1378,41 @@ class WriteSearch():
                     if self.thumbranges.overlaps_point(pc):
                         thumb = True
                     r['thumb'] = thumb
-                    ins = (''.join(line[1].split())).decode('hex')
+                    ins = val.decode('hex')
                     if not thumb or (thumb and len(ins) <= 2):
-                        ins = ins[::-1]  # reverse bytes
+                        ins = b"%s" % ins[::-1]  # reverse bytes
                     else:
-                        # reverse words and then bytes within words
-                        words = line[1].split()
-                        words = [w.decode('hex')[::-1] for w in words]
-                        # don't want it to wrip out any null bytes
-                        ins = b"%s%s" % (words[0], words[1])
-                    #print "ins: %s %s %x" % (ins, thumb, pc)
-                    inscheck = self.ia.disasm(ins, thumb, pc)
-                    r['pc'] = pc
-                    r['halt'] = True
+                            # # reverse words and then bytes within words
+                            # words = line[1].split()
+                            # words = [w.decode('hex')[::-1] for w in words]
+                            # # don't want it to wrip out any null bytes
+                            # ins = b"%s%s" % (words[0], words[1])
+                        ins = b"%s" % ins[::-1]
 
-                    # double check capstone is ok with this assembly
-                    if not self.ia.is_mne_memstore(inscheck.mnemonic):
-                        print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
-                        print o
-                        sys.exit(-1)
-                    else:
-                        regs = self.ia.needed_regs(inscheck)
-                        if len(regs) > 4:
-                            print "woops too many registers!"
-                            raise Exception("too many registers or sometin")
-                        for i in range(len(regs)):
-                            r['reg%d' % i] = regs[i]
-                        size = self.ia.calculate_store_size(inscheck)
-                        
-                        r['writesize'] = size
-                        insadded = True
-                        r.append()
+                        inscheck = self.ia.disasm(ins, thumb, pc)
+                        r['pc'] = pc
+                        r['halt'] = True
 
+                        # double check capstone is ok with this assembly
+                        if not self.ia.is_mne_memstore(inscheck.mnemonic):
+                            print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
+                            print o
+                            sys.exit(-1)
+                        else:
+                            regs = self.ia.needed_regs(inscheck)
+                            if len(regs) > 4:
+                                print "woops too many registers!"
+                                raise Exception("too many registers or sometin")
+                            for i in range(len(regs)):
+                                r['reg%d' % i] = regs[i]
+                            size = self.ia.calculate_store_size(inscheck)
+
+                            r['writesize'] = size
+                            insadded = True
+                            r.append()
                 elif (mne == smcmne) or (val in smcvals):  # add to smcs table
-                    ins = (''.join(line[1].split())).decode('hex')[::-1]  # reverse bytes
+                    ins = b"%s" % ins[::-1]
+                    # ins = (''.join(line[1].split())).decode('hex')[::-1]  # reverse bytes
                     smcr['pc'] = pc
                     mne = 'smc'
                     thumb = False
@@ -1409,7 +1428,7 @@ class WriteSearch():
                     try:
                         s = next(s)
                         # do nothing
-                    except StopIteration:
+                    except StopIteration:                        
                         srcr = self.srcstable.row
                         srcr['addr'] = pc
                         srcr['line'] = utils.addr2line(pc, self.stage)
@@ -1419,8 +1438,6 @@ class WriteSearch():
                         srcr['thumb'] = thumb
                         srcr['disasm'] = dis
                         srcr['mne'] = mne
-                        if pc == 0x80106c98:
-                            self.src_row_info(srcr)
                         srcr.append()
                         self.srcstable.flush()
                     f = self.funcstable.where("(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc))
@@ -1428,36 +1445,24 @@ class WriteSearch():
                         f = next(f)
                         # do nothing
                     except StopIteration:
-                        fname = utils.addr2funcnameobjdump(pc, self.stage)
+                        more = r4.get(self.stage.elf, "afij.")
+                        if not len(more) == 1:
+                            continue
+                        fnname = more['name']
+                        if fnname.stargswith("sym."):
+                            fnname = fnname[4:]
                         if len(fname) > 0:
-                            # lookup start and end addresses
-                            # -ix 'set substitute-path %s %s'"
-                            cmd = "%sgdb --cd=%s" \
-                                  " -ex 'disassemble/r %s'"\
-                                  " --batch --nh --nx  %s" \
-                                  % (self.cc,
-                                     srcdir, fname, elf)
-                            output = Main.shell.run_multiline_cmd(cmd)
-                            try:
-                                start = output[1].split('\t')
-                            except IndexError:
-                                # not all things with function names
-                                # can be disassembled this way--
-                                # i think like inlined stuff (do_echo in u-bootmain)
-                                # so just carry on
-                                insadded = False
-                                continue
+                            size = more['size']
                             funcsr = self.funcstable.row
                             funcsr['fname'] = fname
-                            startaddr = int(start[0].split()[0], 16)
-                            end = output[-3].split('\t')
-                            endaddr = int(end[0].split()[0], 16)
+                            startaddr = startaddr
+                            endaddr = startaddr + size
                             funcsr['startaddr'] = startaddr
                             funcsr['endaddr'] = endaddr
                             funcsr.append()
                             self.funcstable.flush()
 
-                insadded = False
+                    insadded = False
 
         self.writestable.flush()
         self.writestable.cols.pc.create_index(kind='full')

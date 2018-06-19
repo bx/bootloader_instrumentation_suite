@@ -138,8 +138,8 @@ def go():
     parser.add_argument('-n', '--select_policy', action=SubstageNameAction, nargs=2)
     parser.add_argument('-H', '--host', action="store", default=host.name,
                         choices=[m.name for m in Main.object_config_lookup("HostConfig")])
-
-    parser.add_argument('-k', '--keep_temp_files', action="store_true")
+    parser.add_argument('-v', '--verbose', action="store_true") 
+    parser.add_argument('-k', '--keep_temp_files', action="store_true")    
     parser.add_argument('-q', '--quick',
                         help='Try to skip some steps to be faster',
                         action='store_true', default=False)
@@ -149,6 +149,7 @@ def go():
     other = None
     shell = run_cmd.Cmd()
     cmd = None
+
     for c in list(doit_manager.cmds):
         n =  c._name_
         if getattr(args, n):
@@ -172,7 +173,8 @@ def go():
                                         args.postprocess_trace,
                                         not args.keep_temp_files,
                                         args.quick,
-                                        other)
+                                        other,
+                                        args.verbose)
 
 
     # task_mgr = doit_manager.TaskManager(args.print_build_commands,

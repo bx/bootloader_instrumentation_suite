@@ -164,7 +164,6 @@ class AddrSpaceInfo():
 
     def _create_reg_table(self):
         fields = ["startaddr", "size", "kind", "name"]
-        cc = Main.cc
         for c in self.reg_csvs:
             (f, reader) = parse_am37x_register_tables.parsecsv(c)
             row = self.reg_table.row

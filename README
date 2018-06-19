@@ -75,6 +75,9 @@ It has 1 group, which is its stage name. This one group contains 2 tables:
 I recommend setting up a separate python environment for this
 toolsuite using a tool such as virtualenv/virtualenvwrapper.
 
+You can install the tools via:
+> setup.py install
+
 SOFTWARE REQUIREMENTS
 - git
 - capstone (next branch -- https://github.com/aquynh/capstone/tree/next, I tested this with this commit -- https://github.com/aquynh/capstone/tree/c5dce55db4907f8f3bd326fd96d0b6a613b18e66 )
@@ -95,43 +98,28 @@ SOFTWARE REQUIREMENTS
   - numpy
   - sortedcontainers
   - pdfminer
+  - munch
+  - functools32
+  - toml.py
   - (optional) ipython v5.7.0 (for embeeded console support)
   - (optional, only if working with qemu watchpoint) qemu's tracetool.py -- https://raw.githubusercontent.com/qemu/qemu/86b5aacfb972ffe0fa5fac6028e9f0bc61050dda/scripts/tracetool.py , which needs to be placed somewhere in your python path)
 
 
 (may not be complete, but will list new ones as they are found)
 
-- capstone from https://github.com/aquynh/capstone
-  - Be sure to install the python bindings after installing the library (cd bindings/python; setup.py install)
-
-- Qemu-linaro (optional, and not recommended)
-  - Only if you want to use watchpoint instrumentation, which is waaaaaay slower than breakpoints
-  - if so, use my patched version for watchpoint support, which only works for "-m bbxm" emulated machine
-  - https://github.com/bx/qemu-linaro-patched
-  -
-
-- It also supports a openocd/baremetal target (optional, not fully functional), but I will not document that here.
-  - Mostly becaue it is not reliable
-  - And it requires a patched version to work with the BeagleBoardxM
-    - https://github.com/bx/qemu-linaro-patched
-  - More information about what I did here: https://sourceforge.net/p/openocd/mailman/message/34799168/
-
 This test suite is written for python2.7, so make sure that is the
 version of python you are using (it will not work with python 3)
 
-Also you will need root on your machine so it can set up sdcard images.
+You will need sudo access on your machine if you are debugging a bootloader.
 
 
-CONFIGURATION FILE
+[Test target configuration]
 
-The test managager searches for a configuration file at
-~/.bootsuite.yaml and if it doesn't find it, it uses the one in the
-bootsuite root directory (called bootsuite.yaml).  With this
-configuration file I was hoping to make it easy to add port the suite
-to different hardware/u-boot configurations, use new types of
-software, change the directory structure, etc.  What you need to know
-about it is that you will probably have to update various paths to get
-it working on your system, namely:
+Fiddle searches for and loads configuration file at ~/.fiddle.cfg or
+the value of the I_CONF environmental variable.  Any missing
+configuration from this file will be extracted from configs/defaults.cfg.
+
+
 
 Main/root: the root directory of which most all other paths are
 calculate from (the one exception to this is openocd_cfg paths,
