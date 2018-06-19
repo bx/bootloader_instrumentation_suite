@@ -1366,12 +1366,17 @@ class WriteSearch():
                 if (start > 0) and (stop > 0):
                     if (pc < start) or (stop <= pc):
                         continue
+                r2.get(self.stage.elf, "s 0x%x" % pc)
                 ins_info = r2.get(self.stage.elf, "pdj 1")[0]
-                dis = ins_info['disasm']
-                val = ins_info['bytes']
-                mne = dis.split()[0]
-
-                if self.ia.is_mne_memstore(mne):
+                if not "disasm" in ins_info:
+                    #print ins_info
+                    mne = None
+                else:
+                    dis = ins_info['disasm']
+                    val = ins_info['bytes']
+                    mne = dis.split()[0]
+                # print mne
+                if mne and self.ia.is_mne_memstore(mne):
                     if self.dataranges.overlaps_point(pc):
                         continue  # test here because some of the smcs are in data ranges
                     thumb = False
@@ -1380,38 +1385,40 @@ class WriteSearch():
                     r['thumb'] = thumb
                     ins = val.decode('hex')
                     if not thumb or (thumb and len(ins) <= 2):
-                        ins = b"%s" % ins[::-1]  # reverse bytes
+                        ins = b"%s" % ins #% ins[::-1]  # reverse bytes
                     else:
-                            # # reverse words and then bytes within words
-                            # words = line[1].split()
-                            # words = [w.decode('hex')[::-1] for w in words]
-                            # # don't want it to wrip out any null bytes
-                            # ins = b"%s%s" % (words[0], words[1])
-                        ins = b"%s" % ins[::-1]
+                        # # reverse words and then bytes within words
+                        # words = line[1].split()
+                        # words = [w.decode('hex')[::-1] for w in words]
+                        # # don't want it to wrip out any null bytes
+                        # ins = b"%s%s" % (words[0], words[1])
+                        ins = b"%s" % ins #% ins[::-1]
 
-                        inscheck = self.ia.disasm(ins, thumb, pc)
-                        r['pc'] = pc
-                        r['halt'] = True
+                    inscheck = self.ia.disasm(ins, thumb, pc)
+                    r['pc'] = pc
+                    r['halt'] = True
 
-                        # double check capstone is ok with this assembly
-                        if not self.ia.is_mne_memstore(inscheck.mnemonic):
-                            print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
-                            print o
-                            sys.exit(-1)
-                        else:
-                            regs = self.ia.needed_regs(inscheck)
-                            if len(regs) > 4:
-                                print "woops too many registers!"
-                                raise Exception("too many registers or sometin")
-                            for i in range(len(regs)):
-                                r['reg%d' % i] = regs[i]
-                            size = self.ia.calculate_store_size(inscheck)
+                    # double check capstone is ok with this assembly
+                    if not self.ia.is_mne_memstore(inscheck.mnemonic):
+                        print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
+                        print "addr: %x" % pc
+                        print ins_info
+                        sys.exit(-1)
+                    else:
+                        regs = self.ia.needed_regs(inscheck)
+                        if len(regs) > 4:
+                            print "woops too many registers!"
+                            raise Exception("too many registers or sometin")
+                        for i in range(len(regs)):
+                            r['reg%d' % i] = regs[i]
+                        size = self.ia.calculate_store_size(inscheck)
 
-                            r['writesize'] = size
-                            insadded = True
-                            r.append()
+                        r['writesize'] = size
+                        insadded = True
+
+                    r.append()
                 elif (mne == smcmne) or (val in smcvals):  # add to smcs table
-                    ins = b"%s" % ins[::-1]
+                    ins = b"%s" % ins #% ins[::-1]
                     # ins = (''.join(line[1].split())).decode('hex')[::-1]  # reverse bytes
                     smcr['pc'] = pc
                     mne = 'smc'
@@ -1445,7 +1452,7 @@ class WriteSearch():
                         f = next(f)
                         # do nothing
                     except StopIteration:
-                        more = r4.get(self.stage.elf, "afij.")
+                        more = r2.get(self.stage.elf, "afij.")
                         if not len(more) == 1:
                             continue
                         fnname = more['name']

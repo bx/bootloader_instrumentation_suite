@@ -9,7 +9,7 @@ def gets(f, cmd):
     if f in files.keys():
         handle = files[f]
     else:
-        handle = r2pipe.open(f)
+        handle = r2pipe.open(f, ['-2'])
         files[f] = handle
         entry[f] = handle.cmd("s")
         handle.cmd('aas')
