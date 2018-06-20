@@ -69,7 +69,12 @@ class InstructionAnalyzer():
             ins = self.thumb.disasm(value, offset, count=1)
         else:
             ins = self.arm.disasm(value, offset, count=1)
-        i = next(ins)
+        try:
+            i = next(ins)
+        except StopIteration as i:
+            print "-%x %s '%s'-" % (pc, thumb, value.encode('hex'))
+            raise i
+            
         if cache:
             self.cache[pc] = i
         return i
@@ -481,6 +486,9 @@ class LongWriteDescriptor():
         while self.writeaddr is None:
             (checkvalue, disasm, funname) = \
                 utils.addr2disasmobjdump(checkaddr, sz, self.stage, self.thumb)
+            if checkvalue == None:
+                checkaddr = checkaddr + sz
+                continue
             checkinstr = self.table.ia.disasm(checkvalue, self.thumb, checkaddr)
             if not self.table.ia.is_instr_memstore(checkinstr):
                 checkaddr = checkaddr + len(checkinstr.bytes)
@@ -679,11 +687,12 @@ class SkipDescriptorGenerator():
                 #print "label %s" % l
                 #print "start %s" % start
                 startaddr = self.table._get_line_addr(start, True)
-                if (startaddr % 2) == 1:
-                    startaddr = startaddr - 1
+                #if (startaddr % 2) == 1:
+                #    startaddr = startaddr - 1
                 
                 #print "lineaddr %s" % startaddr
-                f = pytable_utils.get_unique_result(self.table.funcstable, ("(startaddr <= 0x%x) & (0x%x < endaddr)" % (startaddr, startaddr)))
+                f = utils.addr2functionname(startaddr, self.stage)
+                #pytable_utils.get_unique_result(self.table.funcstable, ("(startaddr <= 0x%x) & (0x%x < endaddr)" % (startaddr, startaddr)))
                 #print "functable lookup for %x %s" % (startaddr, f)
                 if f:
                     (startaddr, endaddr) = (f['startaddr'], f['endaddr'])
@@ -693,6 +702,14 @@ class SkipDescriptorGenerator():
                     (startaddr, endaddr) = utils.get_symbol_location_start_end(fn, self.stage)
                 #print "disasm %x" % (startaddr)                    
                 r2.get(elf, "s 0x%x" % startaddr)
+                thumb = False
+                if self.table.thumbranges.overlaps_point(startaddr):
+                    thumb = True                
+                if thumb:
+                    r2.get(self.stage.elf, "e asm.bits=16")
+                else:
+                    r2.get(self.stage.elf, "e asm.bits=32")
+               
                 disasm = r2.get(elf, "pdj 2")
                 #print "disasm %x: %s" % (startaddr, disasm)
                 #if "disasm" not in disasm[0]:
@@ -713,11 +730,19 @@ class SkipDescriptorGenerator():
             # move startaddr after any push instructions
             startaddr = self.table._get_line_addr(start, True)
             endaddr = self.table._get_line_addr(end, False)
-            if (startaddr % 2) == 1:
-                startaddr = startaddr - 1
+            #if (startaddr % 2) == 1:
+            #    startaddr = startaddr - 1
             #old = r2.gets(elf, "s")
             r2.get(elf, "s 0x%x" % startaddr)
             #r2.get(elf, "s 0x%x" % old)
+            thumb = False
+            if self.table.thumbranges.overlaps_point(startaddr):
+                thumb = True                
+            if thumb:
+                r2.get(self.stage.elf, "e asm.bits=16" )
+            else:
+                r2.get(self.stage.elf, "e asm.bits=32" )                    
+            
             disasm = r2.get(elf, "pdj 2")
             if "disasm" in disasm[0]:
                 if (disasm[0][u"disasm"].startswith("push")):
@@ -769,10 +794,6 @@ class ThumbRanges():
                     elif prev == 'a':
                         arm.add(i)
                     else:
-                        # if o == "80100020 t $d":  # it's actually arm, so continue
-                        #     print "HACK"
-                        #     continue
-                        # else:  # normal
                         data.add(i)
                 lo = hi
                 prev = o[-1]
@@ -797,7 +818,7 @@ class WriteSearch():
         self.writestable = None
         self.smcstable = None
         self.srcstable = None
-        self.funcstable = None
+        #self.funcstable = None
         self.longwritestable = None
         self.skipstable = None
         self.verbose = verbose
@@ -835,7 +856,7 @@ class WriteSearch():
         self.writestable = self.group.writes
         self.smcstable = self.group.smcs
         self.srcstable = self.group.srcs
-        self.funcstable = self.group.funcs
+        #self.funcstable = self.group.funcs
         self.longwritestable = self.group.longwrites
 
         self.skipstable = self.group.skips
@@ -861,7 +882,7 @@ class WriteSearch():
             self.writestable = self.group.writes
             self.smcstable = self.group.smcs
             self.srcstable = self.group.srcs
-            self.funcstable = self.group.funcs
+            #self.funcstable = self.group.funcs
         except tables.exceptions.NoSuchNodeError:
             self.create_writes_table()
         try:
@@ -1217,10 +1238,10 @@ class WriteSearch():
             self.srcstable.reindex_dirty()
         except AttributeError:
             pass
-        try:
-            self.funcstable.reindex_dirty()
-        except AttributeError:
-            pass
+        # try:
+        #     self.funcstable.reindex_dirty()
+        # except AttributeError:
+        #     pass
         if flushonly:
             self.h5file.flush()
         else:
@@ -1228,7 +1249,7 @@ class WriteSearch():
             self.writestable = None
             self.smcstable = None
             self.srcstable = None
-            self.funcstable = None
+            #self.funcstable = None
             self.relocstable = None
             self.longwritestable = None
             self.stageexits = None
@@ -1237,7 +1258,7 @@ class WriteSearch():
         WriteSearch.get_addr_info(addr,
                                   self.writestable,
                                   self.srcstable,
-                                  self.funcstable,
+                                  #self.funcstable,
                                   self.relocstable,
                                   self.longwritestable,
                                   self.skipstable,
@@ -1342,134 +1363,138 @@ class WriteSearch():
                                                   for smc instructions")
         self.srcstable = self.h5file.create_table(self.group, 'srcs',
                                                   SrcEntry, "source code info")
-        self.funcstable = self.h5file.create_table(self.group, 'funcs',
-                                                   FuncEntry, "function info")        
+        # self.funcstable = self.h5file.create_table(self.group, 'funcs',
+        #                                            FuncEntry, "function info")        
         # now look at instructions
         if not self.is_arm():
             return
         srcdir = Main.get_runtime_config("temp_target_src_dir")
-        # objdump doesnt print 'stl', but search for it just in case
-        # writes = re.compile("(push)|(stm)|(str)|(stl)")
-        smcvals = ["e1600070", "e1600071"]
-        smcmne = 'smc'
+
+        allranges = intervaltree.IntervalTree()
+        for s in utils.get_section_headers(self.stage):
+            if s['flags'].endswith('x'):
+                allranges.add(intervaltree.Interval(s['address'], s['address'] + s['size']))
+        allranges.merge_overlaps()
+                              
+        
         r = self.writestable.row
         smcr = self.smcstable.row
-        sections = r2.get(self.stage.elf, "iSj")
-        for s in sections:
-            for pc in range(s["vaddr"], s["vaddr"] + s["size"]):
-                insadded = False
-                mne = ''
-                dis = ''
-                ins = ''
-                fname = ''
-                thumb = False
-                if (start > 0) and (stop > 0):
-                    if (pc < start) or (stop <= pc):
-                        continue
-                r2.get(self.stage.elf, "s 0x%x" % pc)
-                ins_info = r2.get(self.stage.elf, "pdj 1")[0]
-                if not "disasm" in ins_info:
-                    #print ins_info
-                    mne = None
+        allranges = self.thumbranges | self.armranges
+        # loop through all instructions as according to debug symbols
+        for (ra, thumb) in [(self.thumbranges, True), (self.armranges, False)]:
+            for ir in ra:
+                r2.get(self.stage.elf, "s 0x%x" % ir.begin)
+                pc = ir.begin
+                if thumb:
+                    r2.get(self.stage.elf, "e asm.bits=16" )
                 else:
+                    r2.get(self.stage.elf, "e asm.bits=32" )
+                print "%x-%x" % (ir.begin, ir.end)
+                for ins_info in r2.get(self.stage.elf, "pDj %s" % (ir.end - ir.begin)):
+                    pc = ins_info['offset']
+                    insadded = False
+                    if not "disasm" in ins_info or "invalid" in ins_info["type"] or "invalid" in ins_info["disasm"]:
+                        continue
                     dis = ins_info['disasm']
                     val = ins_info['bytes']
                     mne = dis.split()[0]
-                # print mne
-                if mne and self.ia.is_mne_memstore(mne):
-                    if self.dataranges.overlaps_point(pc):
-                        continue  # test here because some of the smcs are in data ranges
-                    thumb = False
-                    if self.thumbranges.overlaps_point(pc):
-                        thumb = True
-                    r['thumb'] = thumb
-                    ins = val.decode('hex')
-                    if not thumb or (thumb and len(ins) <= 2):
-                        ins = b"%s" % ins #% ins[::-1]  # reverse bytes
-                    else:
-                        # # reverse words and then bytes within words
-                        # words = line[1].split()
-                        # words = [w.decode('hex')[::-1] for w in words]
-                        # # don't want it to wrip out any null bytes
-                        # ins = b"%s%s" % (words[0], words[1])
-                        ins = b"%s" % ins #% ins[::-1]
+                    ins = b"%s" % val.decode('hex')
+                    # print "thumb %s" % thumb
+                    #... just in case radare2 doesn't properly report invalid instructions
+                    try:
+                        inscheck = self.ia.disasm(ins, thumb, pc)
+                    except StopIteration:                
+                        print "Radare2 disassembled invalid instruction 0x%x (%s) as %s" % (pc, ins.encode('hex'), ins_info)
+                        continue
+                    if mne != inscheck.mnemonic:
+                        print "R2 and capstone disagree at %x %s" % (pc, thumb)
+                        print "CAPSTONE --->"
+                        print "addr: %x" % inscheck.address
+                        print "op: %s" % inscheck.op_str
+                        print "mne: %s" % inscheck.mnemonic
+                        print "byres: %s" % ["%x" %b for b in inscheck.bytes]
+                        print "size: %s" % inscheck.size                    
+                        print "r2 ------------------------>"
+                        for (k,v) in ins_info.iteritems():
+                            print "%s: %s" % (k, v)
 
-                    inscheck = self.ia.disasm(ins, thumb, pc)
-                    r['pc'] = pc
-                    r['halt'] = True
+                        raise Exception
+                    if mne and self.ia.is_mne_memstore(mne):
+                        if self.dataranges.overlaps_point(pc):
+                            continue  # test here because some of the smcs are in data ranges
+                        r['thumb'] = thumb                    
+                        r['pc'] = pc
+                        r['halt'] = True
 
-                    # double check capstone is ok with this assembly
-                    if not self.ia.is_mne_memstore(inscheck.mnemonic):
-                        print "fail %s %s" % (inscheck.mnemonic, inscheck.op_str)
-                        print "addr: %x" % pc
-                        print ins_info
-                        sys.exit(-1)
-                    else:
-                        regs = self.ia.needed_regs(inscheck)
-                        if len(regs) > 4:
-                            print "woops too many registers!"
-                            raise Exception("too many registers or sometin")
-                        for i in range(len(regs)):
-                            r['reg%d' % i] = regs[i]
-                        size = self.ia.calculate_store_size(inscheck)
+                        # double check capstone is ok with this assembly
+                        if not self.ia.is_mne_memstore(inscheck.mnemonic):
+                            print "INSCHECK FAILED %s %s" % (inscheck.mnemonic, inscheck.op_str)
+                            print "addr: %x" % pc
+                            print ins_info
+                            sys.exit(-1)
+                        else:
+                            regs = self.ia.needed_regs(inscheck)
+                            if len(regs) > 4:
+                                raise Exception("Sorry, too many registers")
+                            for i in range(len(regs)):
+                                r['reg%d' % i] = regs[i]
+                            size = self.ia.calculate_store_size(inscheck)
 
-                        r['writesize'] = size
+                            r['writesize'] = size
                         insadded = True
+                        r.append()
+                    elif mne == 'smc':  # add to smcs table
+                        smcr['pc'] = pc
+                        mne = 'smc'
+                        thumb = False
+                        if self.thumbranges.overlaps_point(pc):
+                            thumb = True
+                        smcr['thumb'] = thumb
+                        insadded = True
+                        smcr.append()
+                        if self.verbose:
+                            print "smc at 0x%x" % pc
+                    if insadded:
+                        s = self.srcstable.where("addr == 0x%x" % (pc))
+                        try:
+                            s = next(s)
+                            # is in table, do nothing
+                        except StopIteration:                        
+                            srcr = self.srcstable.row
+                            srcr['addr'] = pc
+                            srcr['line'] = utils.addr2line(pc, self.stage)
+                            srcr['src'] = utils.line2src(srcr['line'])
+                            srcr['ivalue'] = ins
+                            srcr['ilength'] = len(ins)
+                            srcr['thumb'] = thumb
+                            srcr['disasm'] = dis
+                            srcr['mne'] = mne
+                            srcr.append()
+                            self.srcstable.flush()
+                            # f = self.funcstable.where("(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc))
+                            # try:
+                            #     f = next(f)
+                            #     # do nothing, is in table
+                            # except StopIteration:
+                            #     # HERE
+                            #     more = r2.get(self.stage.elf, "afi.j")
+                            #     if not len(more) == 1:
+                            #         continue
+                            #     fnname = more['name']
+                            #     if fnname.stargswith("sym."):
+                            #         fnname = fnname[4:]
+                            #     if len(fname) > 0:
+                            #         size = more['size']
+                            #         funcsr = self.funcstable.row
+                            #         funcsr['fname'] = fname
+                            #         startaddr = startaddr
+                            #         endaddr = startaddr + size
+                            #         funcsr['startaddr'] = startaddr
+                            #         funcsr['endaddr'] = endaddr
+                            #         funcsr.append()
+                            #         self.funcstable.flush()
 
-                    r.append()
-                elif (mne == smcmne) or (val in smcvals):  # add to smcs table
-                    ins = b"%s" % ins #% ins[::-1]
-                    # ins = (''.join(line[1].split())).decode('hex')[::-1]  # reverse bytes
-                    smcr['pc'] = pc
-                    mne = 'smc'
-                    thumb = False
-                    if self.thumbranges.overlaps_point(pc):
-                        thumb = True
-                    smcr['thumb'] = thumb
-                    insadded = True
-                    smcr.append()
-                    if self.verbose:
-                        print "smc at 0x%x" % pc
-                if insadded:
-                    s = self.srcstable.where("addr == 0x%x" % (pc))
-                    try:
-                        s = next(s)
-                        # do nothing
-                    except StopIteration:                        
-                        srcr = self.srcstable.row
-                        srcr['addr'] = pc
-                        srcr['line'] = utils.addr2line(pc, self.stage)
-                        srcr['src'] = utils.line2src(srcr['line'])
-                        srcr['ivalue'] = ins
-                        srcr['ilength'] = len(ins)
-                        srcr['thumb'] = thumb
-                        srcr['disasm'] = dis
-                        srcr['mne'] = mne
-                        srcr.append()
-                        self.srcstable.flush()
-                    f = self.funcstable.where("(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc))
-                    try:
-                        f = next(f)
-                        # do nothing
-                    except StopIteration:
-                        more = r2.get(self.stage.elf, "afij.")
-                        if not len(more) == 1:
-                            continue
-                        fnname = more['name']
-                        if fnname.stargswith("sym."):
-                            fnname = fnname[4:]
-                        if len(fname) > 0:
-                            size = more['size']
-                            funcsr = self.funcstable.row
-                            funcsr['fname'] = fname
-                            startaddr = startaddr
-                            endaddr = startaddr + size
-                            funcsr['startaddr'] = startaddr
-                            funcsr['endaddr'] = endaddr
-                            funcsr.append()
-                            self.funcstable.flush()
-
-                    insadded = False
+                        insadded = False
 
         self.writestable.flush()
         self.writestable.cols.pc.create_index(kind='full')
@@ -1480,7 +1505,7 @@ class WriteSearch():
         self.srcstable.cols.addr.create_index(kind='full')
         self.srcstable.cols.line.create_index(kind='full')
         self.srcstable.flush()
-        self.funcstable.cols.startaddr.create_index(kind='full')
-        self.funcstable.cols.endaddr.create_index(kind='full')
+        #self.funcstable.cols.startaddr.create_index(kind='full')
+        #self.funcstable.cols.endaddr.create_index(kind='full')
         self.smcstable.flush()
         self.h5file.flush()

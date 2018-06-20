@@ -152,12 +152,14 @@ class StaticDB(DBObj):
     def _open(self, append=False):
         self._db = staticanalysis.WriteSearch(False, self.stage, False, not append)
         self._db.open_all_tables()
-
+        print "nwrite %s" % (self._db.writestable.nrows)
+        
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
         self._db.setup_missing_tables()
 
     def _close(self):
+        print "nwrite %s " % (self._db.writestable.nrows)        
         self._db.closedb(False)
 
     def flush(self):
@@ -396,9 +398,9 @@ class DBInfo():
     def _get_writerangetable(self):
         return self._tdb.db.writerangetable_consolidated
 
-    def function_locations(self, name):
-        return [(r['startaddr'], r['endaddr'])
-                for r in pytable_utils.get_rows(self._sdb.db.funcstable, 'fname == b"%s"' % name)]
+    # def function_locations(self, name):
+    #     return [(r['startaddr'], r['endaddr'])
+    #             for r in pytable_utils.get_rows(self._sdb.db.funcstable, 'fname == b"%s"' % name)]
 
     def pc_write_size(self, pc):
         res = pytable_utils.query(self._sdb.db.writestable,
@@ -416,18 +418,18 @@ class DBInfo():
         return pytable_utils.has_results(self._sdb.db.funcstable,
                                          "(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc))
 
-    def func_at_addr(self, pc):
-        for r in pytable_utils.query(self._sdb.db.funcstable,
-                                     "(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc)):
-            yield r['fname']
+    # def func_at_addr(self, pc):
+    #     for r in pytable_utils.query(self._sdb.db.funcstable,
+    #                                  "(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc)):
+    #         yield r['fname']
 
-    def add_funcs_table_row(self, name, startaddr, endaddr):
-        r = self._sdb.db.funcstable.row
-        r['fname'] = name
-        r['startaddr'] = startaddr
-        r['endaddr'] = endaddr
-        r.append()
-        self._sdb.db.funcstable.flush()
+    # def add_funcs_table_row(self, name, startaddr, endaddr):
+    #     r = self._sdb.db.funcstable.row
+    #     r['fname'] = name
+    #     r['startaddr'] = startaddr
+    #     r['endaddr'] = endaddr
+    #     r.append()
+    #     self._sdb.db.funcstable.flush()
 
     def disasm_and_src_from_pc(self, pc):
         r = pytable_utils.query(self._sdb.db.srcstable, "addr == 0x%x" % pc)

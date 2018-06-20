@@ -113,44 +113,19 @@ def line2src(line):
 
 
 def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
-    cc = Main.cc
-    elf = stage.elf
-    cmd = "%sobjdump -D -w --start-address=0x%x --stop-address=0x%x -j .text %s 2>/dev/null" \
-          % (cc, addr, addr+sz, elf)
-    if debug:
-        print cmd
-    output = Main.shell.run_cmd(cmd).split("\n")
-    if len(output) < 2:
-        return (None, None, None, None)
-    if debug:
-        print output
-    addrre = re.compile("[\s]*%x" % addr)
-    output = [l for l in output if addrre.match(l)]
-
-    name = output[0].strip()
-    disasm = output[1].strip()
-    func = ""
-    rgx = re.compile(r'<([A-Za-z0-9_]+)(\+0x[a-fA-F0-9]+){0,2}>:')
-    res = re.search(rgx, name)
-    if res is None:
-        func = ''
+    old = r2.gets(stage.elf, "s")
+    print "addr2disasmobjdump %x %s %s" % (addr, sz, thumb)
+    r2.get(stage.elf, "s 0x%x" % addr)
+    if thumb:
+        r2.get(stage.elf, "e asm.bits=16" )
     else:
-        func = res.group(1)
-
-    disasm = disasm.split('\t')
-
-    # convert to a hex string and then decode it to it is an array of bytes
-    value = (''. join(disasm[1].split())).decode('hex')
-
-    instr = ' '.join(disasm[2:])
-    if (not thumb) or (len(value) == 2):
-        value = value[::-1]
-    else:
-        sv = value[:2][::-1]
-        ev = value[2:][::-1]
-        value = sv+ev
-
-    return (value, instr, func)
+        r2.get(stage.elf, "e asm.bits=32" )                    
+    
+    i = r2.get(stage.elf, "pdj 1")[0]
+    if "disasm" in i or "invalid" in i["type"] or "invalid" in i["disasm"]:
+        return (None, None, None)    
+    fn = addr2functionname(addr, stage, debug)
+    return (i['bytes'], i['disasm'], fn)
 
 
 

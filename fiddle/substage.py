@@ -422,11 +422,11 @@ class SubstagesInfo():
         return intervals
 
     def fun_info(self, fun):
-        res = db_info.get(self.stage).function_locations(fun)
-        if len(res) == 0:
-            return utils.get_symbol_location_start_end(fun, self.stage)
-        else:
-            return res[0]
+        #res = db_info.get(self.stage).function_locations(fun)
+        #if len(res) == 0:
+        return utils.get_symbol_location_start_end(fun, self.stage)
+        #else:
+        #    return res[0]
 
     def calculate_framac_intervals(self, substages):
 

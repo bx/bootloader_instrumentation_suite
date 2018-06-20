@@ -497,14 +497,8 @@ class TraceTable():
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
             lrfname = ''
-            try:
-                pcfname = next(db_info.get(self.stage).func_at_addr(rangerow['pc']))
-            except StopIteration:
-                pass
-            try:
-                lrfname = next(db_info.get(self.stage).func_at_addr(rangerow['lr']))
-            except StopIteration:
-                pass
+            pcfname = utils.addr2functionname(rangerow['pc'], self.stage)
+            lrfname = utils.addr2functionname(rangerow['lr'], self.stage)
 
             r = "pc=%x/[%x] (%s) lr=%x (%s) [%x-%x] (%d) %d times -- %s -- %s\n" % \
                 (rangerow['relocatedpc'], rangerow['pc'], pcfname, rangerow['lr'],
@@ -703,47 +697,47 @@ class TraceTable():
                 byteswritten = size
                 currentrow['byteswritten'] = size
 
-                lrilength = 0
-                lrthumb = False
-                lrdisasm = ''
-                lrfunc = ''
+                #lrilength = 0
+                #lrthumb = False
+                #lrdisasm = ''
+                #lrfunc = ''
 
                 # check if lr information is in src table
-                if not self.thumbranges.overlaps_point(lr) or self.dataranges.overlaps_point(lr):
+                #if not self.thumbranges.overlaps_point(lr) or self.dataranges.overlaps_point(lr):
                     # lr not code!
-                    continue
-                if db_info.get(self.stage).addr_in_srcs_table(lr):
-                    #  do nothing, already in table
-                    continue
-                else:
-                    lrthumb = self.thumbranges.overlaps_point(lr)
-                    lrilength = 4
-                    if lrthumb:
-                        lrilength = 2
-                    (lrvalue, lrdisasm, lrfunc) = \
-                        utils.addr2disasmobjdump(lr, lrilength,
-                                                 self.stage, lrthumb)
-                    db_info.get(self.stage).add_source_code_info_row(lrthumb,
-                                                                     lr,
-                                                                     lrvalue,
-                                                                     lrdisasm)
-                # now try to add to func table
-                if len(lrfunc) > 0:
-                    if db_info.get(self.stage).addr_in_funcs_table(lr):
-                        # do nothing
-                        continue
-                    else:
-                        cmd = "%sgdb -ex 'dir %s' -ex 'disassemble/r %s' --batch --nh --nx  %s" \
-                              % (self.cc, srcdir, lrfunc, self.stage.elf)
-                        output = Main.shell.run_multiline_cmd(cmd)
-                        try:
-                            start = output[1].split('\t')
-                        except IndexError:
-                            continue
-                        startaddr = int(start[0].split()[0], 16)
-                        end = output[-3].split('\t')
-                        endaddr = int(end[0].split()[0], 16)
-                        db_info.get(self.stage).add_funcs_table_row(lrfunc, startaddr, endaddr)
+                #    continue
+                # if db_info.get(self.stage).addr_in_srcs_table(lr):
+                #     #  do nothing, already in table
+                #     continue
+                # else:
+                #     lrthumb = self.thumbranges.overlaps_point(lr)
+                #     lrilength = 4
+                #     if lrthumb:
+                #         lrilength = 2
+                #     (lrvalue, lrdisasm, lrfunc) = \
+                #         utils.addr2disasmobjdump(lr, lrilength,
+                #                                  self.stage, lrthumb)
+                #     db_info.get(self.stage).add_source_code_info_row(lrthumb,
+                #                                                      lr,
+                #                                                      lrvalue,
+                #                                                      lrdisasm)
+                # # now try to add to func table
+                # if len(lrfunc) > 0:
+                #     if db_info.get(self.stage).addr_in_funcs_table(lr):
+                #         # do nothing
+                #         continue
+                #     else:
+                #         cmd = "%sgdb -ex 'dir %s' -ex 'disassemble/r %s' --batch --nh --nx  %s" \
+                #               % (self.cc, srcdir, lrfunc, self.stage.elf)
+                #         output = Main.shell.run_multiline_cmd(cmd)
+                #         try:
+                #             start = output[1].split('\t')
+                #         except IndexError:
+                #             continue
+                #         startaddr = int(start[0].split()[0], 16)
+                #         end = output[-3].split('\t')
+                #         endaddr = int(end[0].split()[0], 16)
+                #         db_info.get(self.stage).add_funcs_table_row(lrfunc, startaddr, endaddr)
 
         if currentrow is not None:
             currentrow.append()  # append last row

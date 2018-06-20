@@ -37,14 +37,6 @@ def file_md5(filename):
 
 def get_entrypoint(elf):
     return r2.entrypoint(elf)
-    # cmd = "%sreadelf -W -h %s" % (cc, elf)
-    # output = shell.run_multiline_cmd(cmd)
-    # ere = re.compile("Entry point address:[\s]+(0x[a-fA-F0-9]{1,16})")
-    # for l in output:
-    #     matches = ere.search(l)
-    #     if matches:
-    #         return int(matches.group(1), 0)
-
 
 def get_image_size(image):
     cmd = "/usr/bin/wc -c %s" % (image)
