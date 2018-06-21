@@ -218,7 +218,7 @@ class CallTrace(gdb_tools.GDBPlugin):
                                      exit_hook=self._gdb_exit,
                                       disabled_breakpoints=[
                                           #"WriteBreak",
-                                          "LongwriteBreak",
+                                          #"LongwriteBreak",
                                      #                       "EndLongwriteBreak",
                                      #                       "SubstageEntryBreak"],
                                           ],

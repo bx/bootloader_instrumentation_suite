@@ -11,9 +11,14 @@ def gets(f, cmd):
     else:
         handle = r2pipe.open(f, ['-2'])
         files[f] = handle
+        #handle.cmd('e asm.assembler=arm.gnu')
+        
         entry[f] = handle.cmd("s")
         handle.cmd('e anal.bb.maxsize=10000')
         handle.cmd('aas')
+        #handle.cmd('e asm.assembler=arm.gnu')
+        #handle.cmd('e asm.arch=arm.gnu')
+        
     out = handle.cmd(cmd)
     return out
 

@@ -22,7 +22,7 @@
 
 
 def get_rows(table, query):
-    indices = table.where(query)  # [r for r in rows]
+    indices = table.get_where_list(query)  # [r for r in rows]
     return [table[i] for i in indices]
 
 

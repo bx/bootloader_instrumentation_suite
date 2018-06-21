@@ -150,7 +150,7 @@ def task_manager(instance_id=None, verbose=False):
 
             else:
                 for inst in self.tasks[subgroup]:
-                    print "file dep %s <- %s" % (inst.targets, inst.file_dep)
+                    # print "file dep %s <- %s" % (inst.targets, inst.file_dep)
                     r = {
                         'actions': inst.actions,
                         'targets': inst.targets,

@@ -203,10 +203,7 @@ class SubstagesInfo():
                                 lineterminator="\n", skipinitialspace=True)
         row = vtab.row
         for r in reader:
-            if r['name'] is None:
-                r.update()
-                continue  # this means there is no listed size
-            else:
+            if r['name'] is not None:
                 row['name'] = r['name'].strip()
                 row['startaddr'] = int(r['startaddr'].strip(), 16)
                 row['endaddr'] = row['startaddr'] + int(r['size'].strip(), 16)
@@ -386,11 +383,11 @@ class SubstagesInfo():
         tracename = self.process_trace
         if self.contents_table.nrows > 0:
             return
-        if 'framac' == tracename:
-            row = self.contents_table.row
+        if 'framac' == tracename:            
             tracefile = etattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
             if os.path.exists(tracefile):
                 results = self.parse_frama_c_call_trace_stages(tracefile, self.substage_file_path)
+                row = self.contents_table.row                
                 for s in substages:
                     for f in results[s]:
                         row["substagenum"] = s
@@ -398,10 +395,10 @@ class SubstagesInfo():
                         row.append()
         elif "watchpoint" not in tracename:
             raws = self.get_raw_files(False)
+            row = self.contents_table.row
             for (num, f) in raws.iteritems():
                 fopen = open(f, "r")
-                contents = fopen.read()
-                row = self.contents_table.row
+                contents = fopen.read()                
                 for n in contents.split():
                     row["substagenum"] = num
                     row["functionname"] = n
@@ -903,9 +900,10 @@ class SubstagesInfo():
                     res = allowed_writes.search(start, end)
                 if not len(res) == 1:
                     write = r['relocatedpc']
-                    print "Substage %d: invalid write by %x to (%x,%x)" % (n, write,
-                                                                           start,
-                                                                           end)
+                    print "Substage %d: invalid write by pc 0x%x to addr (%x,%x)" % (n,
+                                                                                     write,
+                                                                                     start,
+                                                                                     end)
                     violation = True
                     #exit(0)
         if not violation:

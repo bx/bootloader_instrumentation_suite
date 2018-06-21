@@ -898,6 +898,7 @@ class LongwriteBreak(TargetBreak):
         TargetBreak.__init__(self, spec, controller, True, stage, r=r)
 
     def _stop(self, bp, ret):
+        #print "longwrite break at %s" % self.spec
         if self.controller.calculate_write_dst:
             self.writeinfo = self.emptywrite
             regs = {}

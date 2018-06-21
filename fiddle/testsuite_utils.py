@@ -25,6 +25,7 @@ from config import Main
 import re
 import os
 import pure_utils
+import db_info
 import r2_keeper as r2
 import json
 
@@ -54,10 +55,9 @@ def get_symbol_location(name, stage, debug=False):
     return pure_utils.get_symbol_location(elf, name, debug)    
 
 def addr2line(addr, stage, debug=False):
-    fn = addr2functionname(addr, stage)
+    fn = db_info.get(stage).addr2functionname(addr)
     addr = get_symbol_location(fn, stage)
     elf = stage.elf
-    #print "addr2line 0x%x" % addr
     old = r2.gets(elf, "s")                
     r2.get(elf, "s 0x%x" % addr)    
     s = r2.gets(elf, "CL")
@@ -114,20 +114,20 @@ def line2src(line):
 
 def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     old = r2.gets(stage.elf, "s")
-    r2.get(stage.elf, "s 0x%x" % addr)
-    if thumb:
-        r2.get(stage.elf, "e asm.bits=16" )
-        r2.gets(stage.elf, "ahb 16")        
+    r2.gets(stage.elf, "s 0x%x" % addr)
+    if thumb: # force r2 to use the correct instruction size. sigh.
+        r2.gets(stage.elf, "ahb 16")
+        r2.gets(stage.elf, "e asm.bits=16")
     else:
-        r2.get(stage.elf, "e asm.bits=32" )
-        r2.gets(stage.elf, "ahb 32")        
-    
+        r2.gets(stage.elf, "ahb 32")
+        r2.gets(stage.elf, "e asm.bits=32")
+    r2.get(stage.elf, "pd 1")
     i = r2.get(stage.elf, "pdj 1")[0]
-    i = r2.get(stage.elf, "pdj 1")[0]    
-    if "disasm" in i or "invalid" in i["type"] or "invalid" in i["disasm"]:
+    
+    if "disasm" in i or u"invalid" == i["type"] or u"invalid" == i["disasm"]:
         r2.get(stage.elf, "s %s" % old)        
-        return (None, None, None)    
-    fn = addr2functionname(addr, stage, debug)
+        return (None, None, None)
+    fn = db_info.get(stage).addr2functionname(addr)
     r2.get(stage.elf, "s %s" % old)    
     return (i['bytes'], i['disasm'], fn)
 

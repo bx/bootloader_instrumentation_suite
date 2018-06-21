@@ -497,8 +497,8 @@ class TraceTable():
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
             lrfname = ''
-            pcfname = utils.addr2functionname(rangerow['pc'], self.stage)
-            lrfname = utils.addr2functionname(rangerow['lr'], self.stage)
+            pcfname = db_info.get(self.stage).addr2functionname(rangerow['pc'])
+            lrfname = db_info.get(self.stage).addr2functionname(rangerow['lr'])
 
             r = "pc=%x/[%x] (%s) lr=%x (%s) [%x-%x] (%d) %d times -- %s -- %s\n" % \
                 (rangerow['relocatedpc'], rangerow['pc'], pcfname, rangerow['lr'],
