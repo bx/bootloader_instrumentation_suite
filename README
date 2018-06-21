@@ -1,5 +1,23 @@
 OVERVIEW
 
+tldr; since most of this documentation is outdated
+To run an example on x86_64 linux after installing, arm and aarch64 assume you have arm-linux-gnueabihf-* installed in /usr, and qemu-arm/qemu-aarch64. uboot assumes you have unpacked gcc linaro to ~/software/gcc-linaro-5.2-2015.11-x86_64_arm-linux-gnueabihf/ and built the special qemu
+
+1. Enter target's directory
+cd fiddle_examples/<example>
+2. Tell fiddle to build example and construct static analysis databases (then go take a nap, it may take a while)
+I_CONF=test.cfg fiddle -c
+3; (optional) tell fiddle to import a policy to run analysis on (below is an example for test_arm)
+I_CONF=test.cfg fiddle -I _single policies/example2/substages.yml policies/example2/regions.yml
+4. tell fiddle to execute dynamic analysis (will also take some time)
+I_CONF=test.cfg fiddle -R
+5. (only for arm targets and if policy imported) tell it to postprocess writes (calculate write blocks)
+I_CONF=test.cfg fiddle -p consolidate_writes
+6. (only if #5 completed) tell it to check whether the last run had any policy violations
+I_CONF=test.cfg fiddle -p policy_check
+
+If you want to edit the policy, edit it and start from step 3.
+If you change the test case, restart process from step 2
 
 NB: This README is super out-of-date and will eventually be updated
 
