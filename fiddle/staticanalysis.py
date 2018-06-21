@@ -483,7 +483,8 @@ class LongWriteDescriptor():
             sz = 2
 
         # resume after first conditional branch after write instruction
-        while self.writeaddr is None:
+        i = 1024
+        while (self.writeaddr is None) and i < 1024:
             (checkvalue, disasm, funname) = \
                 utils.addr2disasmobjdump(checkaddr, sz, self.stage, self.thumb)
             if checkvalue == None:
@@ -493,7 +494,9 @@ class LongWriteDescriptor():
             if not self.table.ia.is_instr_memstore(checkinstr):
                 checkaddr = checkaddr + len(checkinstr.bytes)
             self.writeaddr = checkaddr
-
+        if i >= 1024:
+            print "Longwrite not found (%s)" % (self.__dict__)            
+            return
         writes = self.table.writestable.where("0x%x == pc" % (self.writeaddr))
         try:
             write = next(writes)
@@ -730,11 +733,7 @@ class SkipDescriptorGenerator():
             # move startaddr after any push instructions
             startaddr = self.table._get_line_addr(start, True)
             endaddr = self.table._get_line_addr(end, False)
-            #if (startaddr % 2) == 1:
-            #    startaddr = startaddr - 1
-            #old = r2.gets(elf, "s")
             r2.get(elf, "s 0x%x" % startaddr)
-            #r2.get(elf, "s 0x%x" % old)
             thumb = False
             if self.table.thumbranges.overlaps_point(startaddr):
                 thumb = True                
@@ -751,11 +750,6 @@ class SkipDescriptorGenerator():
                 else:
                     startins = disasm[0]
                 startaddr = startins["offset"]
-            else:
-                #print "disasm %x: %s" % (startaddr, disasm)                               
-                #print "ZERO %s" % disasm[0]
-                #print disasm[1]
-                pass
                 
         s = startaddr + self.adjuststart
         e = endaddr + self.adjustend
@@ -1064,6 +1058,7 @@ class WriteSearch():
         if not self.is_arm():
             return
         for r in self.stage.longwrites:
+            print r.__dict__
             skips.append(LongWriteDescriptorGenerator(r.name,
                                                       r.dregs,
                                                       r.calcregs,
@@ -1386,11 +1381,22 @@ class WriteSearch():
                 r2.get(self.stage.elf, "s 0x%x" % ir.begin)
                 pc = ir.begin
                 if thumb:
-                    r2.get(self.stage.elf, "e asm.bits=16" )
+                    r2.gets(self.stage.elf, "e asm.bits=16")
                 else:
-                    r2.get(self.stage.elf, "e asm.bits=32" )
-                print "%x-%x" % (ir.begin, ir.end)
+                    r2.gets(self.stage.elf, "e asm.bits=32")
+                #print r2.gets(self.stage.elf, "e asm.bits")                    
+                #print "%x-%x" % (ir.begin, ir.end)
                 for ins_info in r2.get(self.stage.elf, "pDj %s" % (ir.end - ir.begin)):
+                    if thumb:
+                        r2.gets(self.stage.elf, "ahb 16")
+                    else:
+                        r2.gets(self.stage.elf, "ahb 32")
+                    #else:
+                    #    r2.gets(self.stage.elf, "e asm.bits=32")
+                    # disassemble again since r2 doesn't always disassemble
+                    # thumb correctly on first try : /                    
+                    ins_info = r2.get(self.stage.elf, "pdj 1")
+                    ins_info = r2.get(self.stage.elf, "pdj 1")[0]                    
                     pc = ins_info['offset']
                     insadded = False
                     if not "disasm" in ins_info or "invalid" in ins_info["type"] or "invalid" in ins_info["disasm"]:
@@ -1398,7 +1404,7 @@ class WriteSearch():
                     dis = ins_info['disasm']
                     val = ins_info['bytes']
                     mne = dis.split()[0]
-                    ins = b"%s" % val.decode('hex')
+                    ins = b"%s" % val.decode('hex')                    
                     # print "thumb %s" % thumb
                     #... just in case radare2 doesn't properly report invalid instructions
                     try:
@@ -1407,18 +1413,28 @@ class WriteSearch():
                         print "Radare2 disassembled invalid instruction 0x%x (%s) as %s" % (pc, ins.encode('hex'), ins_info)
                         continue
                     if mne != inscheck.mnemonic:
-                        print "R2 and capstone disagree at %x %s" % (pc, thumb)
+                        if thumb:
+                            r2.gets(self.stage.elf, "e asm.bits=16")
+                            r2.gets(self.stage.elf, "ahb 16")
+                        else:
+                            r2.gets(self.stage.elf, "e asm.bits=32")                        
+                        print "R2 and capstone disagree at %x %s" % (pc, thumb)                        
                         print "CAPSTONE --->"
                         print "addr: %x" % inscheck.address
                         print "op: %s" % inscheck.op_str
                         print "mne: %s" % inscheck.mnemonic
                         print "byres: %s" % ["%x" %b for b in inscheck.bytes]
                         print "size: %s" % inscheck.size                    
-                        print "r2 ------------------------>"
+                        print "r2 ------------------------>"                        
+                        print r2.gets(self.stage.elf, "e asm.bits")
+                        print r2.gets(self.stage.elf, "e asm.bits")                        
                         for (k,v) in ins_info.iteritems():
                             print "%s: %s" % (k, v)
-
-                        raise Exception
+                        r2.get(self.stage.elf, "s 0x%x" % pc)
+                        print r2.gets(self.stage.elf, "pd 1")
+                        if self.ia.is_mne_memstore(mne) or self.ia.is_mne_memstore(inscheck.mnemonic):                            
+                            raise Exception                        
+                        print "... But I guess it doesn't matter because neither instruction modifies memory."
                     if mne and self.ia.is_mne_memstore(mne):
                         if self.dataranges.overlaps_point(pc):
                             continue  # test here because some of the smcs are in data ranges

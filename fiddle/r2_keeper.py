@@ -12,6 +12,7 @@ def gets(f, cmd):
         handle = r2pipe.open(f, ['-2'])
         files[f] = handle
         entry[f] = handle.cmd("s")
+        handle.cmd('e anal.bb.maxsize=10000')
         handle.cmd('aas')
     out = handle.cmd(cmd)
     return out

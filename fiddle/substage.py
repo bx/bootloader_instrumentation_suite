@@ -171,12 +171,17 @@ class SubstagesInfo():
         self._create_var_table()
         self.populate_substage_policy_tables()
         self.h5mmap.flush()
-        if self.mmap_created:
-            self.print_substage_tables()
         if self.process_trace:
             self.write_substages_file()
             self.populate_contents_table()
             self.populate_write_interval_table()
+            self.h5mmap.flush()
+
+        if not self.mmap_created:
+            print "-----------imported following policy ---------"
+            self.print_substage_tables()
+            print "-------------------------------------------"
+            
 
     def _create_var_table(self, substage=-1):
         fields = ["startaddr", "size", "kind", "name"]
@@ -468,8 +473,7 @@ class SubstagesInfo():
         substage_info = substages_parser.SubstagesFileParser(self.stage,
                                                              self.substage_file_path,
                                                              mmap_info)
-        self.populate_mmap_tables(mmap_info, self.substage_mmap_info_table,
-                                  self.substage_mmap_addr_table)
+        self.populate_mmap_tables(mmap_info)
         if not self.mmap_created:
             return
         self.populate_substage_reloc_info_table(substage_info,
@@ -579,7 +583,6 @@ class SubstagesInfo():
     def populate_policy_table(self, ss_info, mmap_info, policy_table):
         regions = list(mmap_info.regions.iterkeys())
         if policy_table.nrows > 0:
-            self.mmap_created = False
             return
         policy_row = policy_table.row
         for s in ss_info.substages.itervalues():
@@ -650,7 +653,6 @@ class SubstagesInfo():
         nums = sorted(ss_info.substages.iterkeys())
         r = reloc_table.row
         if reloc_table.nrows > 0:
-            self.mmap_created = False
             return
         for n in nums:
             s = ss_info.substages[n]
@@ -664,27 +666,36 @@ class SubstagesInfo():
 
     def populate_substage_info_table(self, ss_info, info_table):
         if info_table.nrows > 0:
-            self.mmap_created = False
+            try:
+                info_table.cols.substagenum.reindex()
+                info_table.cols.functionname.reindex()
+                info_table.flush()
+            except Exception:
+                pass
             return
         info_row = info_table.row
+        print ss_info.__dict__
         for (num, s) in ss_info.substages.iteritems():
+            print "(%s, %s)" % (num, s)
             info_row['substagenum'] = s.num
             info_row['stack'] = s.stack
             info_row['comments'] = s.comments
             info_row['functionname'] = s.fn
             info_row['substage_type'] = getattr(substage_types, s.substage_type)
             info_row.append()
-        info_table.flush()
         info_table.cols.substagenum.reindex()
         info_table.cols.functionname.reindex()
         info_table.flush()
+        self.h5mmap.flush()   
 
-    def populate_mmap_tables(self, mmap_info, info_table, addr_table):
+
+    def populate_mmap_tables(self, mmap_info):
+        info_table = self.substage_mmap_info_table
+        addr_table = self.substage_mmap_addr_table
         info_row = info_table.row
         addr_row = addr_table.row
-        # if addr_table.nrows > 0:
-        #     self.mmap_created = False
-        #     return
+        if addr_table.nrows > 0:
+             return
         for (short_name, region) in mmap_info.regions.iteritems():
             info_row['short_name'] = short_name
             info_row['parent_name'] = region.parent.short_name if region.parent else ''
@@ -701,12 +712,9 @@ class SubstagesInfo():
                 addr_row['startaddr'] = a.begin
                 addr_row['endaddr'] = a.end
                 addr_row.append()
-        info_table.flush()
-
         info_table.cols.short_name.reindex()
         info_table.cols.parent_name.reindex()
         info_table.flush()
-        addr_table.flush()
         addr_table.cols.short_name.reindex()
         addr_table.cols.startaddr.reindex()
         addr_table.cols.endaddr.reindex()

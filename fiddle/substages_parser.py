@@ -460,6 +460,7 @@ class MmapRegion():
             return val
         if config.Main.stage_from_name(split[0]):
             stage = config.Main.stage_from_name(split[0])
+            #if not stage.post_build_setup_done:            
             if len(split) > 1:
                 attr = split[1]
                 val = getattr(stage, attr, val)

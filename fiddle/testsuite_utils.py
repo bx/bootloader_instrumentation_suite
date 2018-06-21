@@ -114,14 +114,16 @@ def line2src(line):
 
 def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     old = r2.gets(stage.elf, "s")
-    print "addr2disasmobjdump %x %s %s" % (addr, sz, thumb)
     r2.get(stage.elf, "s 0x%x" % addr)
     if thumb:
         r2.get(stage.elf, "e asm.bits=16" )
+        r2.gets(stage.elf, "ahb 16")        
     else:
-        r2.get(stage.elf, "e asm.bits=32" )                    
+        r2.get(stage.elf, "e asm.bits=32" )
+        r2.gets(stage.elf, "ahb 32")        
     
     i = r2.get(stage.elf, "pdj 1")[0]
+    i = r2.get(stage.elf, "pdj 1")[0]    
     if "disasm" in i or "invalid" in i["type"] or "invalid" in i["disasm"]:
         return (None, None, None)    
     fn = addr2functionname(addr, stage, debug)

@@ -1373,6 +1373,8 @@ sha1: {}
                     raw = getattr(Main.raw.Software, soft.name)
                     self._update_config("runtime.software.%s.cache" % soft.name, cache)                    
                     tasks.extend(self.import_files(soft, raw, cache, host=h, stage=s))
+        for stage in Main.stages:                    
+            stage.post_build_setup(os.path.dirname(stage.image))                    
         return tasks
 
 

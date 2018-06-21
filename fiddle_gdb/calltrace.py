@@ -107,17 +107,22 @@ class CallExitBreak(gdb_tools.TargetFinishBreakpoint):
             self.controller.disable_breakpoint(self.entry, disable=False)
         self.controller.gdb_print("exit breakpoint for %s out of scope\n" % self.name,
                                   self.plugin.name)
+        #print "exit breakpoint for %s out of scope\n" % self.name
+        self.controller.depth = self.depth - 1
 
     def _stop(self, bp, ret):
         c = self.plugin
-        c.depth = self.depth
-        #if not self.depth == c.depth:
-        #    return
+        # don't print exit if it occurred out-of-order with repect
+        # to other function exits
+        #print "%s C.depth %s, %s" % (self.name, c.depth, self.depth)
+        
+        #if c.depth == self.depth:
         gdb.post_event(WriteResults(self.depth,
                                     self.name, "exit", c.pc(),
                                     "",
                                     c._minimal))
-
+        c.depth = self.depth - 1
+        
         if self.entry.no_rec:
             self.controller.disable_breakpoint(self.entry, disable=False)
         return False
@@ -140,6 +145,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
         self.name = name
         self.no_rec = no_rec
         self.stage = stage
+        self.depth = 0
         self.plugin = controller.subcommand_parsers[self.plugin_name].plugin
         try:
             i = gdb.execute("x/x %s" % self.name, to_string=True).split()[0]
@@ -159,15 +165,18 @@ class CallEntryBreak(gdb_tools.TargetBreak):
 
     def _stop(self, bp, ret):
         c = self.plugin
-        gdb.post_event(WriteResults(c.depth,
+        c.depth += 1
+        self.depth = c.depth
+        #print ">  %s, %s" % (self.name, self.depth)        
+        e = CallExitBreak(self.name, self.controller, self.stage, self, self.depth)
+        if not e.valid:
+            self.controller.gdb_print("could not set exit breakpoint for %s\n" % self.name,
+                                      self.plugin.name)
+
+        gdb.post_event(WriteResults(self.depth,
                                     self.name, "entry", self.fnloc,
                                     self.line,
-                                    c._minimal))
-
-        e = CallExitBreak(self.name, self.controller, self.stage, self, c.depth)
-        c.depth += 1
-        if not e.valid:
-            c.depth -= 1
+                                    c._minimal))        
         if self.no_rec and self.breakpoint:
             self.controller.disable_breakpoint(self, delete=False)
         return False
@@ -175,7 +184,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
 
 class CallTrace(gdb_tools.GDBPlugin):
     def __init__(self):
-        self.depth = 0
+        self.depth = -1
         self._minimal = True
         self._sourceinfo = False
         self.results_written = False

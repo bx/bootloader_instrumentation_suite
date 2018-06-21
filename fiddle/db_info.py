@@ -152,14 +152,14 @@ class StaticDB(DBObj):
     def _open(self, append=False):
         self._db = staticanalysis.WriteSearch(False, self.stage, False, not append)
         self._db.open_all_tables()
-        print "nwrite %s" % (self._db.writestable.nrows)
+        #print "nwrite %s" % (self._db.writestable.nrows)
         
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
         self._db.setup_missing_tables()
 
     def _close(self):
-        print "nwrite %s " % (self._db.writestable.nrows)        
+        #print "nwrite %s " % (self._db.writestable.nrows)        
         self._db.closedb(False)
 
     def flush(self):
