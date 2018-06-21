@@ -1440,7 +1440,6 @@ sha1: {}
                        bins,
                        [sdtarget],
                        "sd_card_image")
-
         if os.path.exists(sdtarget):
             mksd.uptodate = [True]
         else:

@@ -177,10 +177,15 @@ class SubstagesInfo():
             self.populate_write_interval_table()
             self.h5mmap.flush()
 
-        if not self.mmap_created:
-            print "-----------imported following policy ---------"
+        print "-----------imported following policy ---------"
+        try:
             self.print_substage_tables()
-            print "-------------------------------------------"
+        except IndexError:
+            # a problem with pytables I cannot figure out
+            # give up
+            pass
+            
+        print "-------------------------------------------"
             
 
     def _create_var_table(self, substage=-1):
@@ -199,6 +204,7 @@ class SubstagesInfo():
         row = vtab.row
         for r in reader:
             if r['name'] is None:
+                r.update()
                 continue  # this means there is no listed size
             else:
                 row['name'] = r['name'].strip()
@@ -378,6 +384,8 @@ class SubstagesInfo():
         substages = self._substage_numbers()
         substagesnamename = self._substage_names()
         tracename = self.process_trace
+        if self.contents_table.nrows > 0:
+            return
         if 'framac' == tracename:
             row = self.contents_table.row
             tracefile = etattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
@@ -461,7 +469,7 @@ class SubstagesInfo():
 
     def populate_write_interval_table(self):
         substages = self._substage_numbers()
-        if len(substages) <= 1:
+        if len(substages) < 1:
             print "No substages defined, not populating write interval table for %s" % (self.stage)
             return
         intervals = self.calculate_intervals(substages)
@@ -474,18 +482,9 @@ class SubstagesInfo():
                                                              self.substage_file_path,
                                                              mmap_info)
         self.populate_mmap_tables(mmap_info)
-        if not self.mmap_created:
-            return
-        self.populate_substage_reloc_info_table(substage_info,
-                                                self.substage_reloc_info_table)
-        if not self.mmap_created:
-            return
-        self.populate_substage_info_table(substage_info,
-                                          self.substage_info_table)
-        if not self.mmap_created:
-            return
-        self.populate_policy_table(substage_info, mmap_info,
-                                   self.substage_region_policy_table)
+        self.populate_substage_reloc_info_table(substage_info)                                                
+        self.populate_substage_info_table(substage_info)
+        self.populate_policy_table(substage_info, mmap_info)
 
     def print_regions(self, info, addr):
         lines = []
@@ -518,6 +517,8 @@ class SubstagesInfo():
                            self.substage_mmap_addr_table)
         print '----------substages----------'
         substages = self._substage_numbers()
+        self.substage_info_table.flush_rows_to_index()
+
         for num in substages:
             for s in pytable_utils.get_rows(self.substage_info_table,
                                          'substagenum == %s' % num):
@@ -580,29 +581,30 @@ class SubstagesInfo():
             if ws:
                 print 'writable regions: %s' % ws
 
-    def populate_policy_table(self, ss_info, mmap_info, policy_table):
+    def populate_policy_table(self, ss_info, mmap_info):
         regions = list(mmap_info.regions.iterkeys())
+        policy_table = self.substage_region_policy_table
         if policy_table.nrows > 0:
             return
         policy_row = policy_table.row
         for s in ss_info.substages.itervalues():
             for r in mmap_info.regions.itervalues():
-                    policy_row['default_perms'] = getattr(perms, r.default_perms)
-                    policy_row['short_name'] = r.short_name
-                    policy_row['region_type'] = getattr(region_types, r.type_at_substage(s.num))
-                    policy_row['substagenum'] = s.num
-                    policy_row['new'] = r.short_name in s.new_regions
-                    policy_row['undefined'] = r.short_name in s.undefined_regions
-                    policy_row['defined'] = r.short_name in s.defined_regions
-                    policy_row['writable'] = r.short_name in s.writable_regions
-                    policy_row['reclassified'] = r.short_name in s.reclassified_regions
-                    policy_row['allowed_symbol'] = False
-                    policy_row['do_print'] = True
-                    if r.parent and r.parent._csv:
-                        policy_row['do_print'] = False
-                    policy_row['symbol_name'] = ''
-                    policy_row['symbol_elf_name'] = ''
-                    policy_row.append()
+                policy_row['default_perms'] = getattr(perms, r.default_perms)
+                policy_row['short_name'] = r.short_name
+                policy_row['region_type'] = getattr(region_types, r.type_at_substage(s.num))
+                policy_row['substagenum'] = s.num
+                policy_row['new'] = r.short_name in s.new_regions
+                policy_row['undefined'] = r.short_name in s.undefined_regions
+                policy_row['defined'] = r.short_name in s.defined_regions
+                policy_row['writable'] = r.short_name in s.writable_regions
+                policy_row['reclassified'] = r.short_name in s.reclassified_regions
+                policy_row['allowed_symbol'] = False
+                policy_row['do_print'] = True
+                if r.parent and r.parent._csv:
+                    policy_row['do_print'] = False
+                policy_row['symbol_name'] = ''
+                policy_row['symbol_elf_name'] = ''
+                policy_row.append()
             for v in s.allowed_symbols:
                 pat = "^(%s)(.[\d]{5})?$" % v
                 found = False
@@ -626,10 +628,13 @@ class SubstagesInfo():
                         policy_row['allowed_symbol'] = True
                         policy_row['do_print'] = True
                         policy_row.append()
+                        #policy_row.update()
+                        #policy_row._flushModRows()
+                        
                         found = True
                         break
                 if not found:
-                        raise Exception("could not find symbol named %s" % v)
+                    raise Exception("could not find symbol named %s" % v)
         policy_table.flush()
 
         policy_table.cols.substagenum.reindex()
@@ -649,11 +654,12 @@ class SubstagesInfo():
     def region_name_from_symbol(self, v):
         return "_Symbols.%s" % (v)
 
-    def populate_substage_reloc_info_table(self, ss_info, reloc_table):
+    def populate_substage_reloc_info_table(self, ss_info):
+        reloc_table = self.substage_reloc_info_table
         nums = sorted(ss_info.substages.iterkeys())
-        r = reloc_table.row
         if reloc_table.nrows > 0:
             return
+        r = reloc_table.row        
         for n in nums:
             s = ss_info.substages[n]
             for relname in s.applied_relocs:
@@ -664,38 +670,30 @@ class SubstagesInfo():
         reloc_table.cols.substagenum.reindex()
         reloc_table.flush()
 
-    def populate_substage_info_table(self, ss_info, info_table):
-        if info_table.nrows > 0:
-            try:
-                info_table.cols.substagenum.reindex()
-                info_table.cols.functionname.reindex()
-                info_table.flush()
-            except Exception:
-                pass
+    def populate_substage_info_table(self, ss_info):
+        if self.substage_info_table.nrows > 0:
             return
-        info_row = info_table.row
-        print ss_info.__dict__
+        info_row = self.substage_info_table.row
         for (num, s) in ss_info.substages.iteritems():
-            print "(%s, %s)" % (num, s)
             info_row['substagenum'] = s.num
             info_row['stack'] = s.stack
             info_row['comments'] = s.comments
             info_row['functionname'] = s.fn
             info_row['substage_type'] = getattr(substage_types, s.substage_type)
             info_row.append()
-        info_table.cols.substagenum.reindex()
-        info_table.cols.functionname.reindex()
-        info_table.flush()
+        self.substage_info_table.cols.substagenum.reindex()
+        self.substage_info_table.cols.functionname.reindex()
+        self.substage_info_table.flush()
         self.h5mmap.flush()   
 
 
     def populate_mmap_tables(self, mmap_info):
         info_table = self.substage_mmap_info_table
         addr_table = self.substage_mmap_addr_table
+        if addr_table.nrows > 0 or info_table.nrows > 0:
+            return
         info_row = info_table.row
-        addr_row = addr_table.row
-        if addr_table.nrows > 0:
-             return
+        addr_row = addr_table.row        
         for (short_name, region) in mmap_info.regions.iteritems():
             info_row['short_name'] = short_name
             info_row['parent_name'] = region.parent.short_name if region.parent else ''
@@ -719,6 +717,7 @@ class SubstagesInfo():
         addr_table.cols.startaddr.reindex()
         addr_table.cols.endaddr.reindex()
         addr_table.flush()
+        self.h5mmap.flush()
 
     def print_intervals(self):
         table = self.trace_intervals_table
@@ -729,8 +728,13 @@ class SubstagesInfo():
         for num in substages:
             name = names[num]
             print "%s intervals for substage %d" % (name, num)
+            num = 0
             for a in [r for r in table.read_sorted('minaddr') if r['substagenum'] == num]:
                 print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
+                if num > 10:
+                    print "..."
+                    break
+                num += 1
             print '---------------------------'
     
     def open_dbs(self, trace):
@@ -751,7 +755,6 @@ class SubstagesInfo():
             self.h5file = tables.open_file(trace_db, mode="a",
                                            title="%s substage info" %
                                            self.stage.stagename)
-            self.h5file.flush()
             groupname = self.groupname()
             try:
                 self.h5group = self.h5file.create_group("/", groupname, "")

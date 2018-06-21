@@ -125,8 +125,10 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     i = r2.get(stage.elf, "pdj 1")[0]
     i = r2.get(stage.elf, "pdj 1")[0]    
     if "disasm" in i or "invalid" in i["type"] or "invalid" in i["disasm"]:
+        r2.get(stage.elf, "s %s" % old)        
         return (None, None, None)    
     fn = addr2functionname(addr, stage, debug)
+    r2.get(stage.elf, "s %s" % old)    
     return (i['bytes'], i['disasm'], fn)
 
 
