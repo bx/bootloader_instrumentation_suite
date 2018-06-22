@@ -53,19 +53,16 @@ setuptools.setup(
         'ipython==5.7.0',
         'functools32',
         'toml.py',
+        'enum34',
         'r2pipe',
     ],
     cmdclass={'install': PkgInstall},
     package_data={
-        'fiddle_gdb': ['gdb_tools.py', 'hook_write.py',
-                        'caltrace.py',
-                        'enforce.py'],
-         'fiddle_extras': ["parse_am37x_register_tables",
-                           "frama_c/frama_c.py", "frama_c/__init__.py",
+         'fiddle_extras': [
+                           
                            "frama_c/Makefile", "frama_c/machdep_arm.ml",
                            "frama_c/call.ml", "frama_c/dest_analysis.ml",
-                           "frama_c/call_analysis.ml",
-                           "scripts/sort_distogram.py"],
+                           "frama_c/call_analysis.ml"],
          'hw_info': ['bbxm/ocdinit', "bbxm/ocdinit2", "_hw"]
         
     },

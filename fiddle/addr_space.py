@@ -27,8 +27,7 @@ import tables
 import os
 from config import Main
 import csv
-import parse_am37x_register_tables
-
+from fiddle_extra import parse_am37x_register_tables
 register_map = {}
 
 

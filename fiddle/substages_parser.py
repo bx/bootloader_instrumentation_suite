@@ -27,7 +27,7 @@ import config
 import re
 import sys
 import testsuite_utils as utils
-import parse_am37x_register_tables
+from fiddle_extra import parse_am37x_register_tables
 from config import Main
 from collections import OrderedDict
 import db_info

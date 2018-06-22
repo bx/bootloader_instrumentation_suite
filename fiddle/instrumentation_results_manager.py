@@ -55,7 +55,7 @@ import pure_utils
 import external_source_manager
 from doit.tools import create_folder
 import tempfile
-import parse_am37x_register_tables
+
 import addr_space
 import staticanalysis
 import labeltool
