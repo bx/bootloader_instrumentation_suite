@@ -63,7 +63,8 @@ setuptools.setup(
                            "frama_c/Makefile", "frama_c/machdep_arm.ml",
                            "frama_c/call.ml", "frama_c/dest_analysis.ml",
                            "frama_c/call_analysis.ml"],
-         'hw_info': ['bbxm/ocdinit', "bbxm/ocdinit2", "_hw"]
+         'hw_info': ['bbxm/ocdinit', "bbxm/ocdinit2", "_hw"],
+         'configs': ['defaults.cfg']  
         
     },
     zip_safe=False,

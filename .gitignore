@@ -30,3 +30,4 @@ META.frama-c*
 *.img
 *.pdf
 *.egg-info
+*.pdf
