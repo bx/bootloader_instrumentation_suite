@@ -863,7 +863,7 @@ if cfg not in os.environ.keys():
     if not os.path.exists(config):
         oldconfig = config
         path = os.path.dirname(os.path.realpath(__file__))
-        path = os.path.realpath(os.path.join(path), "..")
+        path = os.path.realpath(os.path.join(path, ".."))
         config = os.path.join(path, "fiddle.cfg")
 else:
     config = os.path.realpath(os.environ[cfg])
