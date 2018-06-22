@@ -4,6 +4,8 @@ tldr; since most of this documentation is outdated
 To run an example on x86_64 linux after installing, arm and aarch64 assume you have arm-linux-gnueabihf-* installed in /usr, and qemu-arm/qemu-aarch64. uboot assumes you have unpacked gcc linaro to ~/software/gcc-linaro-5.2-2015.11-x86_64_arm-linux-gnueabihf/ and built the special qemu
 To use the uboot example you need to download the am37x technical reference from http://www.ti.com/lit/pdf/sprugn4 (TI's  "AM/DM37x Multimedia Device Technical Reference Manual (Silicon Revision 1.x) (Rev. R)")
 and copy it to $(fiddle install path)/hw_info/bbxm/am37x_technical_reference.pdf
+you will also need to push a copy of the beagleboard base SD image from https://cs.dartmouth.edu/~bx/beagleboard-xm-orig.img
+to $(fiddle install path)/hw_info/bbxm/beagleboard-xm-orig.img
 
 To work with the uboot/BBxM example, you
 
