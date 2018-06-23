@@ -38,7 +38,7 @@ import hashlib
 import subprocess
 import substages_parser
 import db_info
-import pymacs_request
+from fiddle_extra import pymacs_request
 import testsuite_utils as utils
 import addr_space
 def int_repr(self):

@@ -886,7 +886,7 @@ def setup_special_fields(bunched):
     _merge_into_munch(bunched, specials)
 
 
-defcfg = os.path.join(Main.test_suite_dir, 'configs', "defaults.cfg")
+defcfg = os.path.join(Main.test_suite_dir, 'fiddle', 'configs', "defaults.cfg")
 Main.raw = {}
 Main.default_raw = {}
 with open(defcfg, 'r') as f:

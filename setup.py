@@ -26,7 +26,7 @@ class PkgInstall(install):
 setuptools.setup(
     name="fiddle",
     version='0.0.9',
-    packages=setuptools.find_packages(),
+    packages=['fiddle', 'fiddle_gdb', 'fiddle_extra'],
     license="MIT",
     long_description=open("README").read(),
     author="bx",
@@ -58,15 +58,15 @@ setuptools.setup(
     ],
     cmdclass={'install': PkgInstall},
     package_data={
-         'fiddle_extras': [
-                           
-                           "frama_c/Makefile", "frama_c/machdep_arm.ml",
-                           "frama_c/call.ml", "frama_c/dest_analysis.ml",
-                           "frama_c/call_analysis.ml"],
-         'hw_info': ['bbxm/ocdinit', "bbxm/ocdinit2", "_hw", 'ocdinit',
-                     'regs.csv', 'trace-events', 'hw_info.py'],
-         'configs': ['defaults.cfg']  
-        
+         'fiddle_extras': [                           
+             "frama_c/Makefile", "frama_c/machdep_arm.ml",
+             "frama_c/call.ml", "frama_c/dest_analysis.ml",
+             "frama_c/call_analysis.ml"],
+        'fiddle': ['configs/defaults.cfg',
+                   'hw_info/bbxm/ocdinit', "hw_info/bbxm/ocdinit2", "hw_info/_hw/test/_single", 'hw_info/bbxm/ocdinit',
+                   'hw_info/bbxm.regs.csv', 'hw_info/bbxm/trace-events', 'hw_info/bbxm/hw_info.py',
+                   'hw_info/bbxm/am37x_base_memory_map.csv',
+                   'hw_info/bbxm/am37x_technical_reference.pdf'],        
     },
     zip_safe=False,
 )

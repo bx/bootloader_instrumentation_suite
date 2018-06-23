@@ -1382,6 +1382,8 @@ class WriteSearch():
         allranges = intervaltree.IntervalTree()
         for s in utils.get_section_headers(self.stage):
             if s['flags'].endswith('x'):
+                if s['size'] == 0:
+                    continue
                 allranges.add(intervaltree.Interval(s['address'], s['address'] + s['size']))
         allranges.merge_overlaps()
                               
