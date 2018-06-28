@@ -132,7 +132,7 @@ def go():
     host = Main.object_config_lookup("HostConfig", c.default_host)
     parser.add_argument('-t', '--select_trace', action="store",
                         help="Select existing instance's trace by name")
-    parser.add_argument("-T", "--trace_methods", default=host.default_tracing,  action="append",
+    parser.add_argument("-T", "--trace_methods",  action="append",
                         choices=[m.name for m in Main.object_config_lookup("TraceMethod")])
     parser.add_argument('-s', '--stages', action='append', default=[s.stagename for s in Main.default_stages])
     parser.add_argument('-n', '--select_policy', action=SubstageNameAction, nargs=2)
@@ -163,6 +163,9 @@ def go():
         policy = args.import_policy
     else:
         policy = args.import_policy
+    if not args.trace_methods:
+         args.trace_methods=host.default_tracing
+
     task_mgr = doit_manager.TaskManager(cmd,
                                         args.select_instance,
                                         args.select_trace,

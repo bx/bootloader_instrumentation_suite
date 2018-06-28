@@ -31,3 +31,5 @@ META.frama-c*
 *.pdf
 *.egg-info
 *.pdf
+/build
+/dist

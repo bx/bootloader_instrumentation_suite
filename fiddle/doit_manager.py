@@ -147,7 +147,7 @@ class TaskManager():
                         print "%s\t%s" % (timestr, os.path.basename(f))
             return        
 
-
+        print trace_list
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(trace_id,
                                                                       create_trace,
                                                                       run_trace,
@@ -159,7 +159,6 @@ class TaskManager():
         self.pt = instrumentation_results_manager.PolicyTaskLoader(command == cmds.import_policy,
                                                                    policies)
 
-        
         self.rt = instrumentation_results_manager.TraceTaskLoader(create_trace,
                                                                   run_trace,
                                                                   command == cmds.print_trace_commands,

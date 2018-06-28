@@ -361,11 +361,12 @@ class SubstagesInfo():
                 if os.path.exists(substageresultsdir):
                     return {}
                 try:
+                    print pymacs_request.__file__
                     pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
                                              (calltrace_path,
                                               el_path,
                                               substageresultsdir))
-                except AssertionError as e:
+                except Exception as e:
                     print "Emacs data gathering not setup (%s, %s)\n" % (e, e.args)
                     return {}
             origdir = os.getcwd()

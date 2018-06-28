@@ -75,7 +75,7 @@ class InstructionAnalyzer():
         except StopIteration as i:
             print "-%x %s '%s'-" % (pc, thumb, value.encode('hex'))
             raise i
-            
+
         if cache:
             self.cache[pc] = i
         return i
@@ -477,7 +477,7 @@ class LongWriteDescriptor():
         self.calcregs = calcregs
         self.subreg = subreg
         self.destregs = destregs
-        
+
         if writeline == "":
             self.writeline = self.breakline
         else:
@@ -492,10 +492,10 @@ class LongWriteDescriptor():
         r2.get(self.stage.elf, "s 0x%x" % writestart)
         if self.thumb:
             r2.get(self.stage.elf, "e asm.bits=16" )
-            r2.gets(self.stage.elf, "ahb 16")        
+            r2.gets(self.stage.elf, "ahb 16")
         else:
             r2.get(self.stage.elf, "e asm.bits=32" )
-            r2.gets(self.stage.elf, "ahb 32")        
+            r2.gets(self.stage.elf, "ahb 32")
 
         r2.get(self.stage.elf, "pd")
         i = r2.get(self.stage.elf, "pdj")
@@ -507,7 +507,7 @@ class LongWriteDescriptor():
                 continue
 
             self.value = b"%s" % instr["bytes"]
-            self.disasm = instr["disasm"]            
+            self.disasm = instr["disasm"]
             self.writeaddr = instr["offset"]
             break
         if not self.writeaddr:
@@ -544,12 +544,12 @@ class LongWriteDescriptor():
         else:
             r2.gets(self.stage.elf, "ahb 32")
             r2.gets(self.stage.elf, "e asm.bits=32")
-        
+
         for i in r2.get(self.stage.elf, "pdj 14"):
             pass
         for i in r2.get(self.stage.elf, "pdj 14"):
             if (not "disasm" in i) or u"invalid" == i["type"] or u"invalid" == i["disasm"]:
-                continue                
+                continue
             checkvalue = b"%s" % i["bytes"]
             addr = i['offset']
             # for some reason, this time around capstone chokes
@@ -559,13 +559,13 @@ class LongWriteDescriptor():
                (1 in ck.groups) and \
                (self.table.ia.has_condition_suffix(ck)):  # its a conditional branch!
                 self.resumeaddr = checkaddr + len(ck.bytes)
-                break                    
+                break
             else:
                 checkaddr = checkaddr + len(ck.bytes)
         if self.resumeaddr:
             self.valid = True
         self.table.writestable.flush()
-        
+
 
     def populate_row(self, r):
         if not self.valid:
@@ -715,7 +715,7 @@ class SkipDescriptorGenerator():
                 r2.get(elf, "s 0x%x" % startaddr)
                 thumb = False
                 if self.table.thumbranges.overlaps_point(startaddr):
-                    thumb = True 
+                    thumb = True
                 if thumb:
                     r2.get(self.stage.elf, "e asm.bits=16")
                     r2.gets(self.stage.elf, "ahb 16")
@@ -723,15 +723,15 @@ class SkipDescriptorGenerator():
                     r2.get(self.stage.elf, "e asm.bits=32")
                     r2.gets(self.stage.elf, "ahb 32")
 
-                disasm = r2.get(elf, "pd 2")        
+                disasm = r2.get(elf, "pd 2")
                 disasm = r2.get(elf, "pdj 2")
-                    
+
                 if disasm[0]["disasm"].startswith("push"):
                     firstins = disasm[1]
                 else:
                     firstins = disasm[0]
                 startaddr = firstins["offset"]
-                #print "start %s,%x" % (startaddr, endaddr) 
+                #print "start %s,%x" % (startaddr, endaddr)
             elif l.value == "NEXT":
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
@@ -748,21 +748,21 @@ class SkipDescriptorGenerator():
                 thumb = True
 
             if thumb:
-                r2.gets(self.stage.elf, "ahb 16")                
+                r2.gets(self.stage.elf, "ahb 16")
                 r2.get(self.stage.elf, "e asm.bits=16" )
             else:
                 r2.gets(self.stage.elf, "ahb 32")
                 r2.get(self.stage.elf, "e asm.bits=32" )
-            disasm = r2.get(elf, "pd 2")            
+            disasm = r2.get(elf, "pd 2")
             disasm = r2.get(elf, "pdj 2")
             if "disasm" in disasm[0]:
                 if (disasm[0][u"disasm"].startswith("push")):
-                    # don't include push instruction                
+                    # don't include push instruction
                     startins = disasm[1]
                 else:
                     startins = disasm[0]
                 startaddr = startins["offset"]
-                
+
         s = startaddr + self.adjuststart
         e = endaddr + self.adjustend
         if e < s:
@@ -818,7 +818,7 @@ class WriteSearch():
     def __init__(self, createdb, stage, verbose=False, readonly=False):
         self.verbose = verbose
         outfile = Main.get_static_analysis_config("db", stage)
-        
+
         self.stage = stage
         self.ia = InstructionAnalyzer()
         self.relocstable = None
@@ -831,7 +831,7 @@ class WriteSearch():
         self.skipstable = None
         self.verbose = verbose
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
-        
+
         if createdb:
             m = "w"
             self.h5file = tables.open_file(outfile, mode=m,
@@ -895,7 +895,7 @@ class WriteSearch():
             self.smcstable = self.group.smcs
             self.srcstable = self.group.srcs
         except tables.exceptions.NoSuchNodeError:
-            self.create_writes_table()        
+            self.create_writes_table()
         try:
             self.longwritestable = self.group.longwrites
         except tables.exceptions.NoSuchNodeError:
@@ -909,7 +909,7 @@ class WriteSearch():
     def _setthumbranges(self):
         (self._thumbranges, self._armranges, self._dataranges) = Main.get_runtime_config("thumb_ranges", self.stage)()
 
-                                                                                         
+
 
     @property
     def thumbranges(self):
@@ -969,7 +969,7 @@ class WriteSearch():
             r.append()
         self.skipstable.flush()
         self.h5file.flush()
-            
+
         #print "SKIPS------"
         #for l in skiplines:
         #    print l.__dict__
@@ -1085,7 +1085,7 @@ class WriteSearch():
                                                       r.interval,
                                                       r.inplace,
                                                       self))
-                
+
         for s in skips:
             r = self.longwritestable.row
             sdesc = s.generate_descriptor()
@@ -1112,7 +1112,7 @@ class WriteSearch():
         self.h5file.flush()
         #for s in skips:
         #    print s.__dict__
-    
+
 
         # skips = [
         #     LongWriteDescriptorGenerator("memset", [], ["r2"], "",
@@ -1180,7 +1180,7 @@ class WriteSearch():
         for r in stage.reloc_descrs:
             path = getattr(r, "path")
             path = Main.populate_from_config(path)
-            
+
             generator = getattr(r, "generator")
             sys.path.append(os.path.dirname(path))
             name = re.sub(".py", "", os.path.basename(path))
@@ -1362,7 +1362,7 @@ class WriteSearch():
         o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc, elf))
         o = o.split()
         return o[1] == "ARM"
-        
+
 
     def create_writes_table(self, start=0, stop=0):
         self.writestable = self.h5file.create_table(self.group, 'writes',
@@ -1386,12 +1386,12 @@ class WriteSearch():
                     continue
                 allranges.add(intervaltree.Interval(s['address'], s['address'] + s['size']))
         allranges.merge_overlaps()
-                              
-        
+
+
         r = self.writestable.row
         smcr = self.smcstable.row
         allranges = self.thumbranges | self.armranges
-        
+
         # loop through all instructions as according to debug symbols
         for (ra, thumb) in [(self.thumbranges, True), (self.armranges, False)]:
             for ir in ra:
@@ -1405,12 +1405,13 @@ class WriteSearch():
                 #    step = 2
                 #else:
                 #    step = 4
-                #r2.gets(self.stage.elf, 'e asm.arch=arm')                
+                #r2.gets(self.stage.elf, 'e asm.arch=arm')
                 pc_next = ir.begin
-                #print "\nanal (%x,%x), %s" % (ir.begin, ir.end, thumb)
+                print "\nanal (%x,%x), %s" % (ir.begin, ir.end, thumb)
 
-                while pc_next < ir.end:                    
-                    pc = pc_next                    
+                while pc_next < ir.end:
+                    sys.stdout.write("%x, " % pc_next)
+                    pc = pc_next
                     r2.gets(self.stage.elf, "s 0x%x" % pc)
                     if thumb: # force r2 to use the correct instruction size. sigh.
                         r2.gets(self.stage.elf, "ahb 16")
@@ -1419,16 +1420,16 @@ class WriteSearch():
                         r2.gets(self.stage.elf, "ahb 32")
                         r2.gets(self.stage.elf, "e asm.bits=32")
                     r2.get(self.stage.elf, "pd 1")
-                    ins_info = r2.get(self.stage.elf, "pdj 1")[0]                                        
+                    ins_info = r2.get(self.stage.elf, "pdj 1")[0]
                     insadded = False
                     if not "disasm" in ins_info or u"invalid" == ins_info["type"] or u"invalid" == ins_info["disasm"]:
                         print "invalid instruction according to r2: pc: %x, is thumb? %s. Using capstone to disassemble" % (pc, thumb)
                         if 'bytes' in ins_info: # get results of capstone disassembly
                             inscheck = self.ia.disasm(b"%s" % ins_info['bytes'].decode("hex"), thumb, pc)
-                            ins_info['disasm'] = inscheck.mnemonic + " " + inscheck.op_str                            
+                            ins_info['disasm'] = inscheck.mnemonic + " " + inscheck.op_str
                         else:
                             print ins_info
-                            raise Exception()                            
+                            raise Exception()
                     pc = ins_info['offset']
                     dis = ins_info['disasm']
                     val = ins_info['bytes']
@@ -1438,7 +1439,7 @@ class WriteSearch():
                     #... just in case radare2 doesn't properly report invalid instructions
                     try:
                         inscheck = self.ia.disasm(ins, thumb, pc)
-                    except StopIteration:                
+                    except StopIteration:
                         print "Radare2 disassembled invalid instruction 0x%x (%s) as %s" % (pc, val, ins_info)
                         continue
                     if mne != inscheck.mnemonic:
@@ -1447,28 +1448,28 @@ class WriteSearch():
                             r2.gets(self.stage.elf, "ahb 16")
                         else:
                             r2.gets(self.stage.elf, "ahb 32")
-                            r2.gets(self.stage.elf, "e asm.bits=32")                        
-                        print "R2 and capstone disagree at %x %s" % (pc, thumb)                        
+                            r2.gets(self.stage.elf, "e asm.bits=32")
+                        print "R2 and capstone disagree at %x %s" % (pc, thumb)
                         print "CAPSTONE --->"
                         print "addr: %x" % inscheck.address
                         print "op: %s" % inscheck.op_str
                         print "mne: %s" % inscheck.mnemonic
                         print "byres: %s" % ["%x" %b for b in inscheck.bytes]
-                        print "size: %s" % inscheck.size                    
-                        print "r2 ------------------------>"                        
-                        print r2.gets(self.stage.elf, "e asm.bits")                        
+                        print "size: %s" % inscheck.size
+                        print "r2 ------------------------>"
+                        print r2.gets(self.stage.elf, "e asm.bits")
                         for (k,v) in ins_info.iteritems():
                             print "%s: %s" % (k, v)
                         r2.get(self.stage.elf, "s 0x%x" % pc)
                         print r2.gets(self.stage.elf, "pd 1")
                         if self.ia.is_mne_memstore(mne) or self.ia.is_mne_memstore(inscheck.mnemonic):
-                            raise Exception                        
+                            raise Exception
                         print "... But I guess it doesn't matter because neither instruction modifies memory."
                     if mne and self.ia.is_mne_memstore(mne):
                         if self.dataranges.overlaps_point(pc):
-                            continue  
+                            continue
                         # sys.stdout.write("0x%x, " % pc)
-                        r['thumb'] = thumb                    
+                        r['thumb'] = thumb
                         r['pc'] = pc
                         r['halt'] = True
                         regs = self.ia.needed_regs(inscheck)
@@ -1497,7 +1498,7 @@ class WriteSearch():
                         try:
                             s = next(s)
                             # is in table, do nothing
-                        except StopIteration:                        
+                        except StopIteration:
                             srcr = self.srcstable.row
                             srcr['addr'] = pc
                             srcr['line'] = utils.addr2line(pc, self.stage)
@@ -1519,8 +1520,8 @@ class WriteSearch():
         self.srcstable.cols.addr.create_index(kind='full')
         self.srcstable.cols.line.create_index(kind='full')
         self.srcstable.flush()
-        
-    
+
+
         self.smcstable.flush()
         self.h5file.flush()
 
@@ -1528,7 +1529,7 @@ class WriteSearch():
         # symbol information (lenfth) does not always agree with objdump, but that's ok
         # (example: u-boot, get_tbclk)
         self.funcstable = self.h5file.create_table(self.group, 'funcs',
-                                                    FuncEntry, "function info")        
+                                                    FuncEntry, "function info")
         cmd = "%snm -S -n --special-syms %s 2>/dev/null" % (Main.cc, self.stage.elf)
         output = subprocess.check_output(cmd, shell=True).split('\n')
         r = self.funcstable.row
@@ -1557,13 +1558,13 @@ class WriteSearch():
         #         last_addr = None
         #         last_name = None
         #         last_size = None
-        #         last_typ = None           
+        #         last_typ = None
         #     elif len(cols) == 4:
         #         (addr, size, typ, name) = cols
         #         size = int(size, 16)
         #         addr = int(addr, 16)
         #         typ = typ.lower()
-        #         if last_name is not None: # then last ends were next begins                
+        #         if last_name is not None: # then last ends were next begins
         #             r['fname'] = last_name
         #             r['startaddr'] = last_addr
         #             r['endaddr'] = addr
@@ -1577,4 +1578,3 @@ class WriteSearch():
         #     r['startaddr'] = last_addr
         #     r['endaddr'] = last_addr + last_size
         #     r.append()
-        
