@@ -50,7 +50,7 @@ class TaskManager():
     tasks = {}
 
     def __init__(self, command, instance, trace, host=None,
-                 trace_list=[], stages=[], 
+                 trace_list=[], stages=[],
                  policies={}, post_trace_processes=[],
                  rm_dir=True, quick=False, args=None, verbose=False):
         self.verbose = verbose
@@ -107,7 +107,7 @@ class TaskManager():
             elif command in [cmds.list_policies, cmds.import_policy, cmds.do_trace, cmds.print_trace_commands,
                              cmds.postprocess_trace, cmds.hook]:
                 create_trace = False
-            # lookup existing trace  
+            # lookup existing trace
             trace_id = instrumentation_results_manager.TraceTaskPrepLoader.get_trace_name(instance_id,
                                                                                           trace,
                                                                                           create=create_trace)
@@ -116,7 +116,7 @@ class TaskManager():
                 run_trace = True
             if not policies:
                 policies = instrumentation_results_manager.PolicyTaskLoader.default_policies(instance_id, stages)
-                                                                                          
+
         self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.target_task,
                                                                             instance_id,
                                                                             self,
@@ -135,7 +135,7 @@ class TaskManager():
                                                                        policies)
             if cmds.import_policy:
                self.loaders.append(instrumentation_results_manager.task_manager(verbose))
-               return 
+               return
             print "-- Avilable policies for instance '%s' --" % instance_id
             for s in Main.stages:
                 print "Stage %s:" % s.stagename
@@ -145,9 +145,8 @@ class TaskManager():
                         t = os.stat(f).st_ctime
                         timestr = datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
                         print "%s\t%s" % (timestr, os.path.basename(f))
-            return        
+            return
 
-        print trace_list
         self.tp = instrumentation_results_manager.TraceTaskPrepLoader(trace_id,
                                                                       create_trace,
                                                                       run_trace,
@@ -204,7 +203,7 @@ class TaskManager():
         return ("%s.%s.%s.%s.%s" % (hwclass, targetsoftware, defconfig, gitid, ccinfo),
                 gitinfo)
 
-    def build(self, targets, do_build=True):        
+    def build(self, targets, do_build=True):
         if do_build:
             makes = [external_source_manager.CodeTask.get_task_name(b, "build") for b in targets]
             self.run(makes)
@@ -242,14 +241,14 @@ class TaskManager():
         return ret
 
     def run_trace(self):
-        tp = self.tp.get_build_name()        
+        tp = self.tp.get_build_name()
         nm = self.rt.get_build_name()
-        ip = self.pt.get_build_name()        
+        ip = self.pt.get_build_name()
         print "about to run %s" % nm
         ret = self.run([tp, ip, nm])
         return ret
 
-    
+
     def postprocess_trace(self):
         nm = self.ppt.get_build_name()
         print "about to run %s" % nm

@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 from unicorn import *
-from unicorn.arm_const import *        
+from unicorn.arm_const import *
 
 import logging
 import re
@@ -144,7 +144,7 @@ class WriteDstTable():
     def uboot_mux_init(self):
         self._mux_name = "set_muxconf_regs"
         (self._mux_start, self._mux_end) = utils.get_symbol_location_start_end(self._mux_name,
-                                                                               self.stage)        
+                                                                               self.stage)
         self._mux_start += 2
         self._mux_end -= 2
         if self.thumbranges.overlaps_point(self._mux_start):
@@ -166,15 +166,15 @@ class WriteDstTable():
         alignedstart = self._mux_start & 0xFFFFF0000
         size = 2*1024*1024
         fileoffset = alignedstart
-        elf = stage.elf        
+        elf = stage.elf
         code = open(elf, "rb").read()[self._mux_start-fileoffset:self._mux_end-fileoffset]
         hw = Main.get_hardwareclass_config()
         for i in hw.addr_range:
             self.emu.mem_map(begin, (i.end+1)-begin)
-            
+
         self.emu.mem_write(self._mux_start, code)
         self.emu.reg_write(self.stage.elf.entrypoint, ARM_REG_SP)
-        
+
     def uboot_mux(self, dstinfo):
         # hack
         path = dstinfo.path
@@ -207,7 +207,7 @@ class WriteDstTable():
                 if hasattr(self.stage, "write_dest_hook"):
                     hook = getattr(self, getattr(self.stge, "write_dest_hook"))
                     hook(dstinfo)
-                    
+
             if dstinfo.pc == 0:
                 print "cannot resove just one write instruction from %s" % dstinfo.__dict__
                 continue
@@ -260,10 +260,10 @@ class WriteDstResult():
                 path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
             elif path.startswith(Main.test_suite_path):  # not sure why this happens
                 path = os.path.relpath(path, Main.test_suite_path)
-                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)                
+                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
             elif path.startswith("/tmp/tmp"):
                 path = "/".join(path.split("/")[3:])
-                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)                
+                path = os.path.join(Main.raw.runtime.temp_target_src_dir, path)
             lineno = int(res.group(5))
             callstack = res.group(6)
             # somewhat of a hack for muxconf
@@ -783,5 +783,3 @@ class TraceTable():
                 r['lr'] = lr - offset
                 break
         r.append()
-
-        

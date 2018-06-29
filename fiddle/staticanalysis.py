@@ -1407,10 +1407,10 @@ class WriteSearch():
                 #    step = 4
                 #r2.gets(self.stage.elf, 'e asm.arch=arm')
                 pc_next = ir.begin
-                print "\nanal (%x,%x), %s" % (ir.begin, ir.end, thumb)
+                # print "\nanal (%x,%x), %s" % (ir.begin, ir.end, thumb)
 
                 while pc_next < ir.end:
-                    sys.stdout.write("%x, " % pc_next)
+                    # sys.stdout.write("%x, " % pc_next)
                     pc = pc_next
                     r2.gets(self.stage.elf, "s 0x%x" % pc)
                     if thumb: # force r2 to use the correct instruction size. sigh.

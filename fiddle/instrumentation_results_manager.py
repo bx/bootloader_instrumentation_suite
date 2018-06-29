@@ -734,7 +734,6 @@ class TraceTaskLoader(ResultsLoader):
         targets = []
         traceroot = self._test_path()
 
-
         for tracename in self.tracenames:
             trace_dstdir = os.path.join(traceroot, tracename)
             tasks.append(self._mkdir(trace_dstdir))
