@@ -32,36 +32,36 @@ import json
 def addr2functionname(addr, stage, debug=False):
     elf = stage.elf
     old = r2.gets(elf, "s")
-    r2.get(elf, "s 0x%x" % addr)    
+    r2.get(elf, "s 0x%x" % addr)
     s = r2.get(elf, "afi")
-    r2.get(elf, "s %s" % old)    
+    r2.get(elf, "s %s" % old)
     def getname(i):
         name = i["name"]
         if i.name.startswith("sym."):
             name = name[4:]
-    #print "addr2fn %x " % (addr)            
+    #print "addr2fn %x " % (addr)
     for i in s:
         if len(i) > 1:
             print s
             print "%x addr func" % addr
             raise Exception
         name = getname(i)
-        
+
         return name
     return ""
 
 def get_symbol_location(name, stage, debug=False):
     elf = stage.elf
-    return pure_utils.get_symbol_location(elf, name, debug)    
+    return pure_utils.get_symbol_location(elf, name, debug)
 
 def addr2line(addr, stage, debug=False):
     fn = db_info.get(stage).addr2functionname(addr)
     addr = get_symbol_location(fn, stage)
     elf = stage.elf
-    old = r2.gets(elf, "s")                
-    r2.get(elf, "s 0x%x" % addr)    
+    old = r2.gets(elf, "s")
+    r2.get(elf, "s 0x%x" % addr)
     s = r2.gets(elf, "CL")
-    r2.get(elf, "s %s" % old)    
+    r2.get(elf, "s %s" % old)
     res = s.split()
     d = r2.gets(elf, "pwd")
     if debug and res:
@@ -72,7 +72,12 @@ def addr2line(addr, stage, debug=False):
         return ""
 
 def line2addrs(line, stage):
-    output = infoline(line, stage)
+    srcdir = Main.raw.runtime.temp_target_src_dir
+    cmd = "%sgdb -ex 'dir %s' -ex 'file %s' -ex 'info line %s'  --batch --nh --nx  %s 2>/dev/null" % (Main.cc,
+                                                                                                     srcdir,
+                                                                                                     stage.elf,
+                                                                                                     line, stage.elf)
+    output = Main.shell.run_multiline_cmd(cmd)
     startat = output[0]
     assembly = False
     isataddr = None
@@ -123,12 +128,12 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
         r2.gets(stage.elf, "e asm.bits=32")
     r2.get(stage.elf, "pd 1")
     i = r2.get(stage.elf, "pdj 1")[0]
-    
+
     if "disasm" in i or u"invalid" == i["type"] or u"invalid" == i["disasm"]:
-        r2.get(stage.elf, "s %s" % old)        
+        r2.get(stage.elf, "s %s" % old)
         return (None, None, None)
     fn = db_info.get(stage).addr2functionname(addr)
-    r2.get(stage.elf, "s %s" % old)    
+    r2.get(stage.elf, "s %s" % old)
     return (i['bytes'], i['disasm'], fn)
 
 
@@ -144,8 +149,8 @@ def get_c_function_names(stage):
         cols = l.split()
         if len(cols) > 7:
             addr = cols[1]
-            name = cols[7]     
-            results.append((name, int(addr, 16)))        
+            name = cols[7]
+            results.append((name, int(addr, 16)))
 
     return results
 
@@ -162,12 +167,12 @@ def get_section_location(name, stage):
 
 def get_symbol_location_start_end(name, stage, debug=False):
     elf = stage.elf
-    s = r2.get(elf, "isj")    
+    s = r2.get(elf, "isj")
     for i in s:
         if i["name"] == name:
             addr = i["vaddr"]
             if debug:
-                print i            
+                print i
             return (addr, addr + i["size"])
     return (-1, -1)
 

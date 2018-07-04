@@ -37,6 +37,7 @@ import numpy
 import importlib
 import db_info
 import r2_keeper as r2
+
 def int_repr(self):
     return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
@@ -163,12 +164,14 @@ class InstructionAnalyzer():
 
         return (sum(regs) + disp) % (0xFFFFFFFF)
 
-    def has_condition_suffix(self, ins):
+    @classmethod
+    def has_condition_suffix(cls, ins):
         # strip off '.w' designator if it is there, it just means
         # its a 32-bit Thumb instruction
         return ins.cc not in [ARM_CC_AL, ARM_CC_INVALID]
 
-    def calculate_store_size(self, ins):
+    @classmethod
+    def calculate_store_size(cls, ins):
         mne = ins.mnemonic.encode("ascii")
         if mne.startswith('push') or mne.startswith('stl'):
             (read, write) = ins.regs_access()
@@ -189,7 +192,7 @@ class InstructionAnalyzer():
                     mne = mne[:-1]
 
             # strip of any condition suffixes
-            if self.has_condition_suffix(ins):
+            if cls.has_condition_suffix(ins):
                 # remove last 2 chars
                 mne = mne[:-2]
 
@@ -216,8 +219,8 @@ class InstructionAnalyzer():
             print "Do not know how to handle instruction mnemonic %s at %x (%x)" \
                 % (ins.mnemonic, ins.address, 0)
             return -1
-
-    def needed_regs(self, ins):
+    @classmethod
+    def needed_regs(cls, ins):
         regs = []
         if ins.id == 0:
             print "NO DATA!"
@@ -241,7 +244,7 @@ class InstructionAnalyzer():
                     if i.mem.index != 0:
                         readops.append(ins.reg_name(i.mem.index).encode('ascii'))
             regs = readops
-        if self.has_condition_suffix(ins):
+        if cls.has_condition_suffix(ins):
             regs.append('cpsr')
         return regs
 
@@ -251,6 +254,111 @@ class InstructionAnalyzer():
 
     def is_mne_memstore(self, mne):
         return self._is_mne_memstore(mne)
+
+
+class LongWriteInfo():
+    def __init__(self, elf, start, end, thumb):
+        self.valid = True
+        self.start_ins = None
+        self.start_ins_addr = None
+        self.write_ins = None
+        self.write_ins_addr = None
+        self.finish_ins = None
+        self.finish_ins_addr = None
+        self.start = start
+        self.end = end
+        self.elf = elf
+        self.thumb = thumb
+        self.valid = False
+        self.branch_ins_addr = None
+        self.branch_ins = None
+        # grab basic blocks surrounding this region
+        r2.gets(elf, "s 0x%x" % self.start)
+        if self.thumb:  # force r2 to use the correct instruction size. sigh.
+            r2.gets(elf, "ahb 16")
+            r2.gets(elf, "e asm.bits=16")
+        else:
+            r2.gets(elf, "ahb 32")
+            r2.gets(elf, "e asm.bits=32")
+        self.bbs = r2.get(elf, "pdbj")
+        next = self.bbs[-1]["offset"] + self.bbs[-1]["size"]
+        while next < end:
+            r2.get(elf, "s 0x%x" % next)
+            self.bbs.extend(r2.get(elf, "pdbj"))
+            next = self.bbs[-1]["offset"] + self.bbs[-1]["size"]
+        # grab one more basic block
+        r2.get(elf, "s 0x%x" % next)
+        self.bbs.extend(r2.get(elf, "pdbj"))
+
+    def calculate_info(self):
+        # lookup write instruction
+        nwrites = 0
+        elf = self.elf
+        for i in self.bbs:
+            mne = i["opcode"].split()[0]
+            if InstructionAnalyzer._is_mne_memstore(mne):
+                nwrites += 1
+                if (self.start <= i["offset"]) and (i["offset"] <= self.end):
+                    if self.write_ins is not None:
+                        # if there are two write instruction in basic block, don't know what to do
+                        self.valid = False
+                        break
+                    else:
+                        self.write_ins = i
+                        self.valid = True
+                        self.write_ins_addr = self.write_ins["offset"]
+        if nwrites > 1:
+            print "Warning: %s write ins in these blocks" % nwrites
+
+        if not self.valid:
+            return
+
+        # look for branch after write to find loop
+        branch = None
+        unconditional = False
+        for b in self.bbs:
+            if b["offset"] < self.write_ins_addr:
+                continue
+            if b["type"] == u"cjmp" or b["type"] == u"jmp":
+                if b["type"] == "jmp":
+                    dst = b["jump"]
+                    r2.gets(elf, "s 0x%x" % dst)
+                    for next in r2.get(elf, "pdbj"):
+                        if next["type"] == u"cjmp" or next["type"] == "jmp":
+                            if next["type"] == "cjmp":
+                                jump = next["jump"]
+                                if jump not in [ii["offset"] for ii in self.bbs]:
+                                    self.finish_ins_addr = jump
+                                else:
+                                    self.finish_ins_addr = next["offset"] + next["size"]
+                            else:
+                                # don't handle this case yet
+                                self.valid = False
+                            break
+                    break
+                    #branch = r2.get(elf, "pdj 1")[0]
+                    #self.finish_ins_addr = branch["offset"] + branch["size"]
+                else:
+                    branch = b
+                    jump = branch["jump"]
+                    if jump not in [ii["offset"] for ii in self.bbs]:
+                        self.finish_ins_addr = jump
+                    else:
+                        self.finish_ins_addr = branch["offset"] + branch["size"]
+
+        r2.gets(elf, "s 0x%x" % self.finish_ins_addr)
+        self.finish_ins = r2.get(elf, "pdj 1")[0]
+        self.start_ins_addr = self.write_ins_addr
+        self.start_ins = self.write_ins
+
+    def __repr__(self):
+        if not self.valid:
+            return "<invalid longwrite @ 0x%x>" % self.start_ins_addr
+        else:
+            return "<longwrite [start=0x%x,write=0x%x,done=0x%x]>" % (self.start_ins_addr, self.write_ins_addr, self.finish_ins_addr)
+
+
+
 
 
 class WriteEntry(tables.IsDescription):
@@ -414,6 +522,16 @@ class LongWrites(tables.IsDescription):
     inplace = tables.BoolCol()
     rangetype = tables.EnumCol(tables.Enum(LongWriteRangeType.enum()), 'count', base='uint8')
 
+class LongWrites2(tables.IsDescription):
+    breakaddr = tables.UInt32Col()  # where write loop starts
+    writeaddr = tables.UInt32Col()  # where write loop starts
+    contaddr = tables.UInt32Col()  # pc after loop
+    thumb = tables.BoolCol()  # if write is at thumb address
+    inplace = tables.BoolCol()
+    writesize = tables.UInt32Col()
+    start = tables.UInt32Col()
+    end = tables.UInt32Col()
+
 
 class SkipEntry(tables.IsDescription):
     pc = tables.UInt32Col()
@@ -423,41 +541,29 @@ class SkipEntry(tables.IsDescription):
     isfunction = tables.BoolCol()
 
 
-class LongWriteDescriptorGenerator():
-    def __init__(self, name, dregs, calcregs, subreg, writetype, interval, inplace, table):
+class LongWrite2DescriptorGenerator():
+    def __init__(self, name, inplace, table):
         self.table = table
         self.stage = table.stage
-        self.subreg = subreg
         self.name = name
-        self.dregs = dregs
-        self.calcregs = calcregs
-        self.writetype = writetype
-        self.interval = interval
         self.inplace = inplace
 
     def generate_descriptor(self):
         labels = WriteSearch.find_labels(labeltool.LongwriteLabel, "",
                                          self.stage, self.name)
-
         if len(labels) == 0:
             return None
-        breakpoint = ""
         write = ""
-        resume = ""
         for l in labels:
             if l.value == "BREAK":
                 lineno = self.table._get_real_lineno(l, False)
-                breakpoint = "%s:%d" % (l.filename, lineno)
-            elif l.value == "WRITE":
-                lineno = self.table._get_real_lineno(l, False)
                 write = "%s:%d" % (l.filename, lineno)
-            elif l.value == "CONT":
-                lineno = self.table._get_real_lineno(l, False)
-                resume = "%s:%d" % (l.filename, lineno)
-
-        return LongWriteDescriptor(breakpoint, write, resume, self.dregs,
-                                   self.calcregs, self.subreg, self.writetype,
-                                   self.interval, self.inplace, self.table)
+            break
+        if not write:
+            return {}
+        (writestart, writeend) = utils.line2addrs(write, self.stage)
+        return LongWrite2Descriptor(writestart, writeend,
+                                    self.inplace, self.table)
 
 
 class LongWriteDescriptor():
@@ -612,6 +718,79 @@ class LongWriteDescriptor():
                self.subreg, self.disasm, self.value.encode('hex'))
 
 
+class LongWrite2Descriptor():
+    def __init__(self, start, end,
+                 inplace, table):
+        self.stage = table.stage
+        self.table = table
+        self.inplace = inplace
+        self.valid = False
+        self.start = start
+        self.end = end
+        self.thumb = self.table.thumbranges.overlaps_point(self.start)
+        self.info = LongWriteInfo(self.stage.elf, self.start, self.end, self.thumb)
+        self.info.calculate_info()
+        print self.table.ia
+        print self.info
+        print self.info.write_ins
+        ins = self.table.ia.disasm(b"%s" % self.info.write_ins["bytes"].decode("hex"),
+                                   self.thumb,
+                                   self.info.write_ins["offset"])
+        self.write_size = self.table.ia.calculate_store_size(ins)
+        print self.info
+        self.breakaddr = self.info.start_ins_addr
+        self.writeaddr = self.info.write_ins_addr
+        self.contaddr = self.info.finish_ins_addr
+        writes = self.table.writestable.where("0x%x == pc" % (self.writeaddr))
+        try:
+            write = next(writes)
+        except Exception as e:
+            print e
+            print "Longwrite not found at %x (%s)" % (self.writeaddr, self.__dict__)
+            return
+        self.valid = True
+        self.writesize = write['writesize']
+        r2.get(self.stage.elf, "s 0x%x" % self.writeaddr)
+        if self.thumb:
+            r2.get(self.stage.elf, "e asm.bits=16" )
+            r2.gets(self.stage.elf, "ahb 16")
+        else:
+            r2.get(self.stage.elf, "e asm.bits=32" )
+            r2.gets(self.stage.elf, "ahb 32")
+
+        r2.get(self.stage.elf, "pd 1")
+        i = r2.get(self.stage.elf, "pdj 1")[0]
+        self.value = b"%s" % i["bytes"]
+        self.disasm = i["disasm"]
+
+        write['halt'] = False
+        write.update()
+        self.funname = db_info.get(self.stage).addr2functionname(self.writeaddr)
+        self.instr = self.table.ia.disasm(self.value, self.thumb, self.writeaddr)
+        self.table.writestable.flush()
+
+    def populate_row(self, r):
+        if not self.valid:
+            return
+        r['breakaddr'] = self.breakaddr
+        r['contaddr'] = self.contaddr
+        r['inplace'] = self.inplace
+        r['writeaddr'] = self.writeaddr
+        r['thumb'] = self.thumb
+        r['writesize'] = self.writesize
+        r['start'] = self.start
+        r['end'] = self.end
+
+    def get_info(self):
+        if not self.valid:
+            return "Invalid write descriptor at %x *%s)" % (self.breakaddr,
+                                                            self.breakline)
+        return "in function %s: break at %x, write at %x, resume at %x." \
+            "value %s." \
+            % (self.funname, self.breakaddr, self.writeaddr,
+               self.resumeaddr, self.value.encode('hex'))
+
+
 class RelocDescriptor():
     def __init__(self, name, relocbegin,
                  relocrdy, cpystart, cpyend, reldst, stage, delorig, symname="", mod=0xffffffff):
@@ -644,7 +823,6 @@ class RelocDescriptor():
 
     def _calculate_addresses(self):
         # DST, CPYSTART, CPYEND, BEGIN, READY
-        # startaddr = utils.get_symbol_location("go_to_speed", stage, cc, uboot, elf)
         for value in ["begin", "ready", "cpystart", "cpyend", "dst"]:
             item = getattr(self, value)
             if item is None:  # then lookup label
@@ -835,7 +1013,7 @@ class WriteSearch():
         if createdb:
             m = "w"
             self.h5file = tables.open_file(outfile, mode=m,
-                                           title="uboot %s target static analysis"
+                                           title="%s target static analysis"
                                            % stage.stagename)
             self.group = self.h5file.create_group("/", 'staticanalysis',
                                                   "%s target static analysis"
@@ -843,7 +1021,7 @@ class WriteSearch():
         else:
             mo = "a"
             self.h5file = tables.open_file(outfile, mode=mo,
-                                           title="uboot %s target static analysis"
+                                           title="%s target static analysis"
                                            % stage.stagename)
             self.group = self.h5file.get_node("/staticanalysis")
         r2.cd(self.stage.elf, Main.get_runtime_config("temp_target_src_dir"))
@@ -1071,21 +1249,15 @@ class WriteSearch():
 
     def create_longwrites_table(self):
         self.longwritestable = self.h5file.create_table(self.group, 'longwrites',
-                                                        LongWrites, "long writes to precompute")
+                                                        LongWrites2, "long writes to precompute")
         skips = []
         #print "LONGWRITES--"
         if not self.is_arm():
             return
         for r in self.stage.longwrites:
-            skips.append(LongWriteDescriptorGenerator(r.name,
-                                                      r.dregs,
-                                                      r.calcregs,
-                                                      r.subreg,
-                                                      r.writetype,
-                                                      r.interval,
+            skips.append(LongWrite2DescriptorGenerator(r.name,
                                                       r.inplace,
                                                       self))
-
         for s in skips:
             r = self.longwritestable.row
             sdesc = s.generate_descriptor()
@@ -1412,6 +1584,9 @@ class WriteSearch():
                 while pc_next < ir.end:
                     # sys.stdout.write("%x, " % pc_next)
                     pc = pc_next
+                    p = False
+                    #if pc_next == 0x40208b50:
+                    #    p = True
                     r2.gets(self.stage.elf, "s 0x%x" % pc)
                     if thumb: # force r2 to use the correct instruction size. sigh.
                         r2.gets(self.stage.elf, "ahb 16")
@@ -1421,6 +1596,10 @@ class WriteSearch():
                         r2.gets(self.stage.elf, "e asm.bits=32")
                     r2.get(self.stage.elf, "pd 1")
                     ins_info = r2.get(self.stage.elf, "pdj 1")[0]
+                    if p:
+                        for k,v in ins_info.iteritems():
+                            print "%s: %s" % (k, v)
+                        print "offset %x" % ins_info["offset"]
                     insadded = False
                     if not "disasm" in ins_info or u"invalid" == ins_info["type"] or u"invalid" == ins_info["disasm"]:
                         print "invalid instruction according to r2: pc: %x, is thumb? %s. Using capstone to disassemble" % (pc, thumb)
@@ -1468,7 +1647,6 @@ class WriteSearch():
                     if mne and self.ia.is_mne_memstore(mne):
                         if self.dataranges.overlaps_point(pc):
                             continue
-                        # sys.stdout.write("0x%x, " % pc)
                         r['thumb'] = thumb
                         r['pc'] = pc
                         r['halt'] = True

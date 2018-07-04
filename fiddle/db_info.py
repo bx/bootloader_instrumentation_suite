@@ -154,13 +154,13 @@ class StaticDB(DBObj):
         self._db.open_all_tables()
         if self._db.writestable:
             print "staticdb nwrite %s" % (self._db.writestable.nrows)
-        
+
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
         self._db.setup_missing_tables()
 
     def _close(self):
-        if self._db.writestable:        
+        if self._db.writestable:
             print "staticdb nwrite %s" % (self._db.writestable.nrows)
         self._db.closedb(False)
 
@@ -176,7 +176,7 @@ class TraceDB(DBObj):
         print "nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
 
     def _create(self):
-        dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)        
+        dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
@@ -245,14 +245,12 @@ class DBInfo():
 
     def longwrites_info(self):
         fields = self._sdb.db.longwritestable.colnames
-
         def longwrites_dict(r):
             d = {}
             reg_row = re.compile("^[es]reg[0-9]+$")
             for f in fields:
                 if not reg_row.match(f):
                     d[f] = r[f]
-            (d['sregs'], d['eregs']) = staticanalysis.LongWriteRangeType.get_reg_lists(r)
             return d
         return [longwrites_dict(r)
                 for r in self._sdb.db.longwritestable.iterrows()]
@@ -349,7 +347,7 @@ class DBInfo():
     def print_range_dsts_info(self):
         self._tdb.db.writerangetable.print_dsts_info()
 
-    def update_trace_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):        
+    def update_trace_writes(self, line, pc, lo, hi, stage, origpc=None, substage=None):
         self._tdb.db.update_writes(line, pc, lo, hi, stage, origpc, substage)
 
     def get_substage_writes(self, substage):
@@ -423,15 +421,12 @@ class DBInfo():
     def addr2functionname(self, addr):
         rs = pytable_utils.get_rows(self._sdb.db.funcstable,
                                    ("(startaddr <= 0x%x) & (0x%x < endaddr)" % (addr, addr)))
-        #print r
-        #print "0x%x" % addr
-        # get_tbclk        
         if rs:
             return rs[0]['fname']
         else:
             return ''
 
-        
+
     def disasm_and_src_from_pc(self, pc):
         r = pytable_utils.query(self._sdb.db.srcstable, "addr == 0x%x" % pc)
         r = next(r)

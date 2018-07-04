@@ -151,7 +151,7 @@ def task_manager(instance_id=None, verbose=False):
 
             else:
                 for inst in self.tasks[subgroup]:
-                    # print "file dep %s <- %s" % (inst.targets, inst.file_dep)
+                    #print "file dep %s <- %s" % (inst.targets, inst.file_dep)
                     r = {
                         'actions': inst.actions,
                         'targets': inst.targets,
@@ -167,9 +167,9 @@ def task_manager(instance_id=None, verbose=False):
                         del r['file_dep']
                         del r['task_dep']
                     else:
-                        #print "enable :--:%s %s -> %s" % (self.task_name(inst,
-                        #                                                   subgroup),
-                        #                                  r['file_dep'], r['targets'])
+                        print "enable :--:%s %s -> %s" % (self.task_name(inst,
+                                                                           subgroup),
+                                                          r['file_dep'], r['targets'])
                         yield r
 
         def task_name(self, task, subgroup):
@@ -648,7 +648,6 @@ class PostTraceLoader(ResultsLoader):
 
             def __call__(self):
                 db_info.create(self.s, "policydb", trace=self.tracename)
-
                 db_info.get(self.s).consolidate_trace_write_table()
                 db_info.get(self.s).generate_write_range_file(self.o, self.o2)
                 os.system("touch %s" % self.done)
@@ -889,6 +888,7 @@ class TraceTaskPrepLoader(ResultsLoader):
         self._update_runtime_config("trace.hw", self.hw)
         active_stages = [Main.stage_from_name(s) for s in self.stagenames]
         self._update_runtime_config("enabled_stages", active_stages)
+
         self._update_runtime_config("enabled_stagenames", " ".join(self.stagenames))
         active_traces = [t for t in Main.traces if t.name in self.tracenames]
         self._update_runtime_config("enabled_traces", active_traces)

@@ -29,6 +29,9 @@ import signal
 import re
 import importlib
 
+#import capstone
+#from capstone.arm import *
+
 
 breakpoint_classes = {}
 now = False
@@ -69,11 +72,16 @@ class TargetStageData(gdb.Command):
         self.stage = Main.stage_from_name(self.stage.stagename)
         if not self.stage.post_build_setup_done:
             self.stage.post_build_setup(Main.raw.instance_image_cache)
-            
-        if enable_policy and hasattr(Main.raw, "policies") and hasattr(Main.raw.policies, "substages_file"):
+
+        if enable_policy and hasattr(Main.raw, "policies") and hasattr(Main.raw.policies, "substages_file") and hasattr(Main.raw.policies.substages_file, self.stage.stagename):
             self.policy_file = getattr(Main.raw.policies.substages_file, self.stage.stagename)
-            self.regions_file = getattr(Main.raw.policies.regions_file, self.stage.stagename) 
+            self.regions_file = getattr(Main.raw.policies.regions_file, self.stage.stagename)
             self.substages_entrypoints = substage.SubstagesInfo.substage_names_from_file(self.policy_file)
+        else:
+            enable_policy = False
+            self.policy_file = None
+            self.regions_file = None
+            self.substages_entrypoints = []
         self._entrypoint = self.stage.entrypoint
         self._exitpoint = self.stage.exitpc
         if self._startpoint is None:
@@ -169,7 +177,7 @@ class GDBTargetController(object):
         self.add_subcommand_parser('flushlog')
         p = self.add_subcommand_parser('go')
         p.add_argument('-p', "--prepare_only", action='store_true', default=False)
-        p.add_argument('-r', "--run_not_cont", action='store_true', default=False)        
+        p.add_argument('-r', "--run_not_cont", action='store_true', default=False)
         p = self.add_subcommand_parser("startat")
         p.add_argument('-s', "--stage", action='store', default='')
         p.add_argument("pc", nargs='?')
@@ -325,10 +333,11 @@ class GDBTargetController(object):
             self.gdb_print("Inserting beakpoint for substage '%s' (%s)\n" % (substages[i], i))
             SubstageEntryBreak(substages[i], i, self, stage)
     def insert_longwrites_breakpoints(self, stage):
-        if any(map(lambda x: x == "LongwriteBreak", self.disabled_breakpoints)):
+        if any(map(lambda x: x == "Longwrite2Break", self.disabled_breakpoints)):
             return
+
         for r in db_info.get(stage).longwrites_info():
-            LongwriteBreak(self, r, stage)
+            Longwrite2Break(self, r, stage)
 
     def insert_reloc_breakpoints(self, stage):
         if any(map(lambda x: x == "RelocBreak", self.disabled_breakpoints)):
@@ -339,12 +348,12 @@ class GDBTargetController(object):
     def enable_write_breaks(self, stage, enable=True):
         for bp in self.breakpoints:
             b = bp.companion
-            if isinstance(b, WriteBreak) or isinstance(b, LongwriteBreak):
+            if isinstance(b, WriteBreak) or isinstance(b, Longwrite2Break):
                 self.disable_breakpoint(b, disable=not enable, delete=False)
 
     def insert_write_breakpoints(self, stage):
         if any(map(lambda x: x == "WriteBreak", list(self.disabled_breakpoints))):
-            return        
+            return
         i = 0
         n = db_info.get(stage).num_writes()
         self.gdb_print("%d write breakpoints\n" % n)
@@ -583,8 +592,20 @@ class GDBTargetController(object):
             global pure_utils
             global db_info
             global utils
+            global unicorn_utils
+            global unicorn
+            global uniarm
+            global capstone
+            global caparm
+            global r2
+            import unicorn
+            import unicorn.arm_const as uniarm
+            import capstone
+            import capstone.arm as caparm
+            import r2_keeper as r2
             import substage, staticanalysis, pure_utils, doit_manager, db_info
             import testsuite_utils as utils
+            import unicorn_utils
             self.cc = Main.cc
             self.ia = staticanalysis.InstructionAnalyzer()
             self.stage_order = [Main.stages[0]]  # default is first stage only
@@ -594,7 +615,7 @@ class GDBTargetController(object):
     def update_path(self, args):
         self._do_import()
 
-    def go(self, args):        
+    def go(self, args):
         if self.gone:
             return
         self.gone = True
@@ -649,7 +670,7 @@ class TargetBreak(object):
         else:
             if (spec.startswith("*") or spec.startswith("0x")) \
                and not spec.startswith("*"):
-                spec = "*(%s)" % spec                
+                spec = "*(%s)" % spec
         self.addr = controller.spec_to_addr(spec)
         self.breakpoint = CompanionBreakpoint(spec, self)
         if any(map(lambda x: self.name == x, controller.disabled_breakpoints)):
@@ -833,7 +854,7 @@ class StageStartBreak(TargetBreak):
         cont.current_substage = 0
         cont.insert_breakpoints(self.stage)
         cont.gdb_print("Done setting breakpoints\n")
-        
+
         for s in self.controller.stage_hooks:
             s(self, self.stage)
 
@@ -883,6 +904,21 @@ class EndLongwriteBreak(TargetBreak):
         return False
 
 
+class EndLongwrite2Break(TargetBreak):
+    def __init__(self, lwbreak, stage):
+        self.stage = stage
+        controller = lwbreak.controller
+        self.addr = lwbreak.contaddr
+        spec = "*(0x%x)" % self.addr if not isinstance(self.addr, str) else self.addr
+        TargetBreak.__init__(self, spec, controller, False, stage, lwbreak=lwbreak)
+        controller.disable_breakpoint(lwbreak, delete=False)
+
+    def _stop(self, bp, ret):
+        self.controller.disable_breakpoint(self.lwbreak, disable=False)
+        self.controller.disable_breakpoint(self, delete=False)
+        return False
+
+
 class LongwriteBreak(TargetBreak):
     def __init__(self, controller, r, stage):
         self.regs = {}
@@ -898,7 +934,6 @@ class LongwriteBreak(TargetBreak):
         TargetBreak.__init__(self, spec, controller, True, stage, r=r)
 
     def _stop(self, bp, ret):
-        #print "longwrite break at %s" % self.spec
         if self.controller.calculate_write_dst:
             self.writeinfo = self.emptywrite
             regs = {}
@@ -931,6 +966,89 @@ class LongwriteBreak(TargetBreak):
                  str2)
             self.writeinfo['pc'] = self.writeaddr
             EndLongwriteBreak(self, self.stage)
+        return False
+
+    def _move(self, offset, mod, d):
+        self.breakaddr = (self.breakaddr + offset) % mod
+        self.writeaddr = (self.writeaddr + offset) % mod
+        self.contaddr = (self.contaddr + offset) % mod
+
+
+class Longwrite2Break(TargetBreak):
+    def __init__(self, controller, r, stage):
+        self.emptywrite = {'start': None,
+                           'end': None,
+                           'pc': None}
+        self.writeinfo = self.emptywrite
+        self.breakaddr = r['breakaddr']
+        self.contaddr = r['contaddr']
+        self.writeaddr = r['writeaddr']
+        self.thumb = r['thumb']
+        r2.gets(stage.elf, "s 0x%x" % self.writeaddr)
+        if self.thumb:
+            self.emu = unicorn.Uc(unicorn.UC_ARCH_ARM, unicorn.UC_MODE_THUMB)
+            r2.gets(stage.elf, "ahb 16")
+            r2.gets(stage.elf, "e asm.bits=16")
+            self.cs = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_THUMB)
+        else:
+            self.emu = unicorn.Uc(unicorn.UC_ARCH_ARM, unicorn.UC_MODE_ARM)
+            r2.gets(stage.elf, "ahb 32")
+            r2.gets(stage.elf, "e asm.bits=32")
+            self.cs = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM)
+        r2.get(stage.elf, "pdj 1")
+
+        self.cs.detail = True
+        self.info = staticanalysis.LongWriteInfo(stage.elf, r['start'],
+                                                 r['end'], self.thumb)
+        self.inss = []
+        self.regs = set()
+        self.bytes = b""
+        self.dst_addrs = []
+        self.write_size = r['writesize']
+        for i in self.info.bbs:
+            self.inss.append(i)
+            bs = i["bytes"].decode("hex")
+            self.bytes += b"%s" % bs
+            ci = next(self.cs.disasm(bs, i["offset"], 1))
+            if i["offset"] == self.writeaddr:
+                self.write_ins = ci
+            (read, write) = ci.regs_access()
+            for rs in (read, write):
+                self.regs.update([ci.reg_name(rn).encode('ascii') for rn in rs])
+        self.emu.mem_map(0, 0xFFFFFFFF + 1, unicorn.UC_PROT_ALL)
+        self.emu.mem_write(self.inss[0]["offset"], self.bytes)
+        self.emu.hook_add(unicorn.UC_HOOK_MEM_WRITE, self.write_hook)
+        self.spec = "*(0x%x)" % r['breakaddr']
+        TargetBreak.__init__(self, self.spec, controller, True, stage, r=r)
+
+    def write_hook(self, emu, access, addr, size, value, data):
+        self.dst_addrs.append(long(addr))
+        return True
+
+    def _stop(self, bp, ret):
+        if self.controller.calculate_write_dst:
+            self.writeinfo = self.emptywrite
+            if self.controller.isbaremetal:
+                gdb.execute("mon gdb_sync")
+            for r in self.regs:
+                v = self.controller.get_reg_value(r, True)
+                reg_num = unicorn_utils.reg_val(r)
+                self.emu.reg_write(reg_num, v)
+            print "break, cont %x %x" % (self.breakaddr,
+                                         self.contaddr)
+            start = self.breakaddr
+            self.dst_addrs = []
+            if self.thumb:
+                start = start | 1
+            self.emu.emu_start(start, self.contaddr)
+            self.writeinfo['start'] = self.dst_addrs[0]
+            self.writeinfo['end'] = self.dst_addrs[0] + len(self.dst_addrs) * self.write_size
+            self.writeinfo['pc'] = self.writeaddr
+            print "wrote %x,%x (%d)" % (self.writeinfo['start'],
+                                        self.writeinfo['end'],
+                                        self.writeinfo['end'] - self.writeinfo['start'])
+            # reset dest addrs
+            EndLongwrite2Break(self, self.stage)
         return False
 
     def _move(self, offset, mod, d):

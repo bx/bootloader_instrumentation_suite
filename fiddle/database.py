@@ -170,7 +170,11 @@ class WriteDstTable():
         code = open(elf, "rb").read()[self._mux_start-fileoffset:self._mux_end-fileoffset]
         hw = Main.get_hardwareclass_config()
         for i in hw.addr_range:
-            self.emu.mem_map(begin, (i.end+1)-begin)
+            if i.begin == 0:
+                size = i.end
+            else:
+                size = i.begin - i.end
+            self.emu.mem_map(i.begin, size, UC_PROT_ALL)
 
         self.emu.mem_write(self._mux_start, code)
         self.emu.reg_write(self.stage.elf.entrypoint, ARM_REG_SP)

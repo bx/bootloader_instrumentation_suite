@@ -147,10 +147,18 @@ class SubstagesInfo():
         self.substage_reloc_info_table = None
         self.substage_info_table = None
         self.substage_region_policy_table = None
+        self.valid = True
+        self.substage_file_path = None
+        self.mmap_file = None
+        self.process_trace = False
         if not hasattr(Main.raw.policies, "substages_file"):
-            raise Exception("No substage or region definitions are available for processing")
+            self.valid = False
+            return
+        if not hasattr(Main.raw.policies.substages_file, self.stage.stagename):
+            self.valid = False
+            return
         self.substage_file_path = Main.get_policy_config("substages_file", self.stage)
-        self.mmap_file = Main.get_policy_config("regions_file", self.stage)        
+        self.mmap_file = Main.get_policy_config("regions_file", self.stage)
         self.process_trace = False
 
     def _var_tablename(self):
@@ -167,26 +175,24 @@ class SubstagesInfo():
         self.open_dbs(trace)
         # if create_policy and not self.mmap_created:
         self.mmap_created = trace
-        self.h5mmap.flush()
-        self._create_var_table()
-        self.populate_substage_policy_tables()
-        self.h5mmap.flush()
+        if self.valid:
+            self._create_var_table()
+            self.populate_substage_policy_tables()
         if self.process_trace:
             self.write_substages_file()
             self.populate_contents_table()
             self.populate_write_interval_table()
-            self.h5mmap.flush()
+        if self.valid:
+            print "-----------imported following policy ---------"
+            try:
+                self.print_substage_tables()
+            except IndexError:
+                # a problem with pytables I cannot figure out
+                # give up
+                pass
 
-        print "-----------imported following policy ---------"
-        try:
-            self.print_substage_tables()
-        except IndexError:
-            # a problem with pytables I cannot figure out
-            # give up
-            pass
-            
-        print "-------------------------------------------"
-            
+            print "-------------------------------------------"
+
 
     def _create_var_table(self, substage=-1):
         fields = ["startaddr", "size", "kind", "name"]
@@ -353,11 +359,11 @@ class SubstagesInfo():
         name = self._substage_names()
         substageresultsdir = getattr(Main.raw.postprocess.consolidate_writes.files.fn_lists, stage.stagename)
         tracename = self.process_trace
-        calltrace_path = getattr(Main.raw.runtime.trace.calltrace.files.org, stage.stagename)   
+        calltrace_path = getattr(Main.raw.runtime.trace.calltrace.files.org, stage.stagename)
         if calltrace_path and os.path.exists(calltrace_path) and substageresultsdir:
             pp = Main.raw.postprocess.consolidate_writes.files
             if not noprepare:
-                el_path = getattr(pp.el_file, stage.stagename)  
+                el_path = getattr(pp.el_file, stage.stagename)
                 if os.path.exists(substageresultsdir):
                     return {}
                 try:
@@ -382,13 +388,15 @@ class SubstagesInfo():
         substages = self._substage_numbers()
         substagesnamename = self._substage_names()
         tracename = self.process_trace
+        if not self.valid:
+            return
         if self.contents_table.nrows > 0:
             return
-        if 'framac' == tracename:            
+        if 'framac' == tracename:
             tracefile = etattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
             if os.path.exists(tracefile):
                 results = self.parse_frama_c_call_trace_stages(tracefile, self.substage_file_path)
-                row = self.contents_table.row                
+                row = self.contents_table.row
                 for s in substages:
                     for f in results[s]:
                         row["substagenum"] = s
@@ -399,7 +407,7 @@ class SubstagesInfo():
             row = self.contents_table.row
             for (num, f) in raws.iteritems():
                 fopen = open(f, "r")
-                contents = fopen.read()                
+                contents = fopen.read()
                 for n in contents.split():
                     row["substagenum"] = num
                     row["functionname"] = n
@@ -475,12 +483,14 @@ class SubstagesInfo():
                                                       self.trace_intervals_table)
 
     def populate_substage_policy_tables(self):
+        if not self.valid:
+            return
         mmap_info = substages_parser.MmapFileParser(self.mmap_file)
         substage_info = substages_parser.SubstagesFileParser(self.stage,
                                                              self.substage_file_path,
                                                              mmap_info)
         self.populate_mmap_tables(mmap_info)
-        self.populate_substage_reloc_info_table(substage_info)                                                
+        self.populate_substage_reloc_info_table(substage_info)
         self.populate_substage_info_table(substage_info)
         self.populate_policy_table(substage_info, mmap_info)
 
@@ -628,7 +638,7 @@ class SubstagesInfo():
                         policy_row.append()
                         #policy_row.update()
                         #policy_row._flushModRows()
-                        
+
                         found = True
                         break
                 if not found:
@@ -657,7 +667,7 @@ class SubstagesInfo():
         nums = sorted(ss_info.substages.iterkeys())
         if reloc_table.nrows > 0:
             return
-        r = reloc_table.row        
+        r = reloc_table.row
         for n in nums:
             s = ss_info.substages[n]
             for relname in s.applied_relocs:
@@ -682,7 +692,7 @@ class SubstagesInfo():
         self.substage_info_table.cols.substagenum.reindex()
         self.substage_info_table.cols.functionname.reindex()
         self.substage_info_table.flush()
-        self.h5mmap.flush()   
+        self.h5mmap.flush()
 
 
     def populate_mmap_tables(self, mmap_info):
@@ -691,7 +701,7 @@ class SubstagesInfo():
         if addr_table.nrows > 0 or info_table.nrows > 0:
             return
         info_row = info_table.row
-        addr_row = addr_table.row        
+        addr_row = addr_table.row
         for (short_name, region) in mmap_info.regions.iteritems():
             info_row['short_name'] = short_name
             info_row['parent_name'] = region.parent.short_name if region.parent else ''
@@ -734,7 +744,7 @@ class SubstagesInfo():
                     break
                 num += 1
             print '---------------------------'
-    
+
     def open_dbs(self, trace):
         self.process_trace = trace
         if trace:
@@ -769,6 +779,8 @@ class SubstagesInfo():
                     self.h5group, 'writeintervals', SubstageWriteIntervals, "")
             else:
                 self.trace_intervals_table = self.h5group.writeintervals
+        if not self.valid:
+            return
         mmap_db_path = Main.get_policy_config("db", self.stage)
         self.h5mmap = tables.open_file(mmap_db_path, mode="a",
                                        title="%s substage mmap info"
@@ -867,12 +879,12 @@ class SubstagesInfo():
         return self.substage_names(self.stage)
 
     @classmethod
-    def substage_names_from_file(cls, f): 
+    def substage_names_from_file(cls, f):
         return substages_parser.SubstagesFileParser.get_substage_fns(f)
-    
+
     @classmethod
     def substage_names(cls, stage):
-        if not (("policies" in Main.raw.keys()) and ("substages_file" in Main.raw.policies.keys())):
+        if not (("policies" in Main.raw.keys()) and ("substages_file" in Main.raw.policies.keys()) and hasattr(Main.raw.policies.substages_file, stage.stagename)):
             return []
         policy = Main.get_policy_config('substages_file', stage)
         return substages_parser.SubstagesFileParser.get_substage_fns(policy)
@@ -885,7 +897,7 @@ class SubstagesInfo():
         violation = False
         snums = self._substage_numbers()
         print "---- CHECKING TRACE FOR WRITE VIOLATIONS -----"
-        for n in snums:            
+        for n in snums:
             allowed_writes = self.allowed_writes(n)
             for r in db_info.get(self.stage).get_substage_writes(n):
                 size = r['reportedsize']
@@ -912,5 +924,5 @@ class SubstagesInfo():
             print "-------------------------------------------"
             return True
         else:
-            print "-------------------------------------------"            
+            print "-------------------------------------------"
             return False

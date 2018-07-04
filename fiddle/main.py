@@ -47,7 +47,7 @@ def go():
             name = Main.get_hardwareclass_config().name
             path = Main.get_hardwareclass_config().hw_info_path
             defaultdir = os.path.join(Main.get_hardwareclass_config().hw_info_path, name)
-                                      
+
             self.sdefaults = {}
             kwargs['default'] = self.sdefaults
             super(SubstageFileAction, self).__init__(option_strings, dest, **kwargs)
@@ -69,7 +69,7 @@ def go():
 
     class SubstageNameAction(argparse.Action):
         def __init__(self, option_strings, dest, **kwargs):
-            stages = Main.stages            
+            stages = Main.stages
             self.stagenames = [s.stagename for s in stages]
             self.nargs = 2
             defaults = {}
@@ -134,12 +134,12 @@ def go():
                         help="Select existing instance's trace by name")
     parser.add_argument("-T", "--trace_methods",  action="append",
                         choices=[m.name for m in Main.object_config_lookup("TraceMethod")])
-    parser.add_argument('-s', '--stages', action='append', default=[s.stagename for s in Main.default_stages])
+    parser.add_argument('-s', '--stages', action='append', default=[])
     parser.add_argument('-n', '--select_policy', action=SubstageNameAction, nargs=2)
     parser.add_argument('-H', '--host', action="store", default=host.name,
                         choices=[m.name for m in Main.object_config_lookup("HostConfig")])
-    parser.add_argument('-v', '--verbose', action="store_true") 
-    parser.add_argument('-k', '--keep_temp_files', action="store_true")    
+    parser.add_argument('-v', '--verbose', action="store_true")
+    parser.add_argument('-k', '--keep_temp_files', action="store_true")
     parser.add_argument('-q', '--quick',
                         help='Try to skip some steps to be faster',
                         action='store_true', default=False)
@@ -157,6 +157,8 @@ def go():
             break
     if "all" in args.stages:
         args.stages = Main.stages
+    elif not args.stages:
+        args.stages = [s.stagename for s in Main.default_stages]
     if args.print_build_commands or args.build_software:
         other = args.print_build_commands + args.build_software
     if args.import_policy:
