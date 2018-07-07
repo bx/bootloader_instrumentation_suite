@@ -836,6 +836,7 @@ class TraceTaskLoader(ResultsLoader):
                         cs = self.sub_stage(c)
                         cs = [Main.populate_from_config(i) for i in cs]
                         gdb_cmds.extend(cs)
+            # print Main.raw.runtime.keys()
 
             for v in trace._GDB_configs:
                 for c in v.commands:

@@ -359,7 +359,8 @@ class SubstagesInfo():
         name = self._substage_names()
         substageresultsdir = getattr(Main.raw.postprocess.consolidate_writes.files.fn_lists, stage.stagename)
         tracename = self.process_trace
-        calltrace_path = getattr(Main.raw.runtime.trace.calltrace.files.org, stage.stagename)
+        #calltrace_path = getattr(Main.raw.runtime.trace.calltrace.files.org, stage.stagename)
+        calltrace_path = getattr(Main.raw.TraceMethod.calltrace.Files.org, stage.stagename)
         if calltrace_path and os.path.exists(calltrace_path) and substageresultsdir:
             pp = Main.raw.postprocess.consolidate_writes.files
             if not noprepare:
