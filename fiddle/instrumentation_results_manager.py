@@ -68,7 +68,6 @@ from doit import exceptions
 
 
 class DelTargetAction(PythonInteractiveAction):
-
     def execute(self, out, err):
         ret = super(DelTargetAction, self).execute(sys.stdout, err)
         if isinstance(ret, exceptions.CatchedException) or isinstance(ret, Exception):
@@ -102,10 +101,12 @@ def task_manager(instance_id=None, verbose=False):
         def add_tasks(self, task_list, subgroup):
             l = self.tasks.get(subgroup, [])
             l.extend(task_list)
+            # print subgroup
             for t in task_list:
+                # print t.__dict__
                 if not self.verbose:
-                    #print dir(t)
                     t.verbosity = 0
+            # print "---"
             self.tasks[subgroup] = l
 
         def list_tasks(self):
@@ -134,7 +135,6 @@ def task_manager(instance_id=None, verbose=False):
                     subfiles = []
                     if subgroup in self.enabled:
                         for t in tasks:
-                            #print "%s enable %s------%s--" % (subgroup, t.name, t.file_dep)
                             subfiles.extend(t.file_dep)
                             alldeps.append(self.build_name(subgroup))
                             allfiles.extend(t.file_dep)
@@ -151,7 +151,6 @@ def task_manager(instance_id=None, verbose=False):
 
             else:
                 for inst in self.tasks[subgroup]:
-                    #print "file dep %s <- %s" % (inst.targets, inst.file_dep)
                     r = {
                         'actions': inst.actions,
                         'targets': inst.targets,
@@ -167,9 +166,9 @@ def task_manager(instance_id=None, verbose=False):
                         del r['file_dep']
                         del r['task_dep']
                     else:
-                        print "enable :--:%s %s -> %s" % (self.task_name(inst,
-                                                                           subgroup),
-                                                          r['file_dep'], r['targets'])
+                        #print "enable :--:%s %s -> %s" % (self.task_name(inst,
+                        #                                                   subgroup),
+                        #                                  r['file_dep'], r['targets'])
                         yield r
 
         def task_name(self, task, subgroup):
@@ -237,7 +236,7 @@ class CopyFileTask(TestTask):
         else:
             target = self.dst
         self.targets = [target]
-        self.file_dep =[self.src]
+        self.file_dep = [self.src]
         if self.exists(target):
             raise Exception("Duplicate file copy target %s" % target)
         self.dsts.add(target)
@@ -363,7 +362,7 @@ class ResultsLoader(object):
         return []
 
     def import_files(self, obj, rawobj, dstdir, mmap=False,
-                     output_files=False):
+                     output_files=False, set_cfg=""):
         tasks = [] if MkdirTask.exists(dstdir) else [self._mkdir(dstdir)]
 
         if not hasattr(rawobj, "Files"):
@@ -372,8 +371,12 @@ class ResultsLoader(object):
 
         for (f, v) in obj._files.iteritems():
             file_raw = getattr(raw_files, f)
-            process_file = file_raw.type == "mmap" if mmap else file_raw.type in ["config",
-                                                                                  "target"]
+            if mmap:
+                process_file = file_raw.type == "mmap"
+            elif output_files:
+                process_file = file_raw.type in ["log", "target", "output"]
+            else:
+                process_file = file_raw.type == "config"
             if process_file and not v.imported:
                 v.imported = True
                 if not file_raw.generate:
@@ -405,7 +408,7 @@ class ResultsLoader(object):
                     else:
                         deps = []
                     target = [target_location]
-                    v._update_raw("path", target_location)
+                    #v._update_raw("path", target_location)
 
 
                     if file_raw.type == "image":
@@ -433,14 +436,65 @@ class ResultsLoader(object):
                                 p = self.sub_stage(rel, s)[0]
                                 p = Main.populate_from_config(p)
                                 base = os.path.basename(p)
-                                dst = os.path.join(dstdir, base)
-                                setattr(file_raw, "spl", dst)
+                                dst = os.path.join(dstdir, s.stagename, base)
+                                setattr(file_raw, s.stagename, dst)
+                                if set_cfg:
+                                    self._update_runtime_config("%s.%s.files.%s.%s" % (set_cfg,
+                                                                               obj.name,
+                                                                               s.stagename,
+                                                                               f),
+                                                        dst)
+                                if hasattr(file_raw, "global_name"):
+                                    n = file_raw.global_name
+                                    if "{runtime.stage}" in n:
+                                        n = self.sub_stage(n, s)[0]
+                                        n = Main.populate_from_config(n)
+                                        self._update_config("%s" % n,
+                                                            dst)
+                                    else:
+                                        n = Main.populate_from_config(n)
+                                        self._update_config("%s.%s" % (n, s.stagename),
+                                                            dst)
+
                         else:
                             # just setup path name
                             p = Main.populate_from_config(rel)
                             base = os.path.basename(p)
-                            dst = os.path.join(dstdir, base)
-                            file_raw.path = dst
+                            if not output_files:
+                                dst = os.path.join(dstdir, base)
+                                file_raw.path = dst
+                            else:
+                                for s in Main.stages:
+                                    dst = os.path.join(dstdir, base, s.stagename)
+                                    setattr(file_raw.path, s.stagename, dst)
+                    stage_dep = self.stage_dependent(file_raw)
+                    if set_cfg and not stage_dep:
+                        if not output_files:
+                            self._update_runtime_config("%s.%s.files.%s" % (set_cfg,
+                                                                            obj.name,
+                                                                            f),
+                                                        dst)
+                        else:
+                            for s in Main.stages:
+                                self._update_runtime_config("%s.%s.files.%s.%s" % (set_cfg,
+                                                                                   obj.name,
+                                                                                   s.stagename,
+                                                                                   f),
+                                                            dst)
+
+                    if hasattr(file_raw, "global_name") and not stage_dep:
+                        n = file_raw.global_name
+                        n = self.sub_host(rawf.global_name)
+                        if not output_files:
+                            n = Main.populate_from_config(n)
+                            self._update_config(n, dst)
+                        else:
+                            for s in Main.stages:
+                                n = self.sub_stage(n, s)[0]
+                                n = Main.populate_from_config(n)
+                                self._update_config("%s.%s" % (n, s.stagename),
+                                                    dst)
+
 
         #del Main.raw.runtime.current_stage
         #del Main.raw.runtime.current_host
@@ -558,24 +612,36 @@ class PostTraceLoader(ResultsLoader):
         task_name = task.name
         dstdir = self._process_path(task_name)
         for (name, f) in task._files.iteritems():
-            f.path = {}
-
+            if not hasattr(f, "path"):
+                f.path = {}
+            else:
+                p = f.path
+                p = self.sub_host(p)
+                f.path = {}
+                for s in Main.stages:
+                    p = self.sub_stage(p, s)[0]
+                    p = Main.populate_from_config(p)
+                    f.path[s.stagename] = p
         stagedir = os.path.join(dstdir, stage.stagename)
         tasks.append(self._mkdir(stagedir))
         for (name, f) in task._files.iteritems():
-            rel_path = Main.populate_from_config(f.relative_path)
-            path = os.path.join(stagedir, rel_path)
-            self._update_config("postprocess.%s.files.%s.%s" %
-                                (task_name, name, stage.stagename),
-                                path)
-            f.path[stage.stagename] = path
-            if f.type in ["target", "log"]:
-                targets.append(path)
+            if hasattr(f, "relative_path"):
+                rel_path = Main.populate_from_config(f.relative_path)
+                path = os.path.join(stagedir, rel_path)
+                self._update_config("postprocess.%s.files.%s.%s" %
+                                    (task_name, name, stage.stagename),
+                path)
+                f.path[stage.stagename] = path
+            if f.type in ["target", "log", "output"]:
+                path = f.path
+                if not isinstance(path, str):
+                    targets.append(path[stage.stagename])
+                else:
+                    targets.append(path)
         done_file = os.path.join(stagedir, "postprocess-done")
         self._update_config("postprocess.%s.files.done.%s" % (task_name, stage.stagename),
                             done_file)
         targets.append(done_file)
-
 
         if hasattr(task, "function"):
             proc = getattr(self, task.function)
@@ -587,14 +653,18 @@ class PostTraceLoader(ResultsLoader):
                                         (task.name, stage.stagename)))
         return tasks
 
-    def _watchpoints(self, name, enabled):
+    def _watchpoints(self, name, enabled, stage):
         if "watchpoint" not in self.tracenames:
             return []
         watch_import_done = {}
 
         import qemu_raw_trace
         tasks = []
-        raw_output = Main.get_config("trace_events_output")
+        d = Main.raw.PostProcess.process_watchpoints.Files.db.path
+        d = self.sub_stage(d, stage)[0]
+        d = os.path.dirname(Main.populate_from_config(d))
+        tasks.append(CmdAction("mkdir -p %s" %d))
+        raw_output = getattr(Main.raw.TraceMethod.watchpoint.Files.trace_output, stage.stagename)
         target = []
 
         class Do():
@@ -607,17 +677,8 @@ class PostTraceLoader(ResultsLoader):
                 qemu_raw_trace.process_and_import(self.events,
                                                   self.raw,
                                                   self.stage)
-        events = Main.get_config("all_qemu_evnts")
-        for s in self.stages:
-            n = s.stagename
-            watch_import_done[n] = "watchpoint-import.done"
-            tasks.append(ActionListTask([PythonInteractiveAction(Do(s, events, raw_output)),
-                                         "touch %s" % watch_import_done[n]],
-                                        [raw_output, events, Main.get_config("trace_db", n),
-                                         Main.get_config("trace_db_done", n)],
-                                        [watch_import_done[n]],
-                                        "import_watchpoints_to_tracedb"))
-        Main.set_config("watch_import_done", lambda s: watch_import_done[s.stagename])
+        events = Main.raw.TraceMethod.watchpoint.Files.trace_events.path
+        tasks.append(PythonInteractiveAction(Do(stage, events, raw_output)))
         return tasks
 
     def _browse_db(self, name, enabled):
@@ -638,6 +699,7 @@ class PostTraceLoader(ResultsLoader):
     def _histogram(self, name, enabled, stage):
         tasks = []
         deps = []
+
         class Do():
             def __init__(self, s, o, o2, done, tracename):
                 self.s = s
@@ -653,18 +715,16 @@ class PostTraceLoader(ResultsLoader):
                 os.system("touch %s" % self.done)
         tasks = []
         for t in self.tracenames:
-            if t not in Main.object_config_lookup("PostProcess", name).supported_traces:
-                continue
+            #if t not in Main.object_config_lookup("PostProcess", name).supported_traces:
+            #    continue
             o = getattr(getattr(Main.raw.postprocess, name).files.range_txt, stage.stagename)
             o2 = getattr(getattr(Main.raw.postprocess, name).files.range_csv, stage.stagename)
             done = getattr(getattr(Main.raw.postprocess, name).files.done, stage.stagename)
             tasks.append(PythonInteractiveAction(Do(stage, o, o2, done, t)))
         return tasks
 
-
     def _noop(self, name, enabled):
         return []
-
 
     def _policy_check(self, name, enabled, stage):
         tasks = []
@@ -687,9 +747,6 @@ class PostTraceLoader(ResultsLoader):
         return tasks
 
 
-
-
-
 class TraceTaskLoader(ResultsLoader):
     def __init__(self,
                  create,
@@ -708,7 +765,6 @@ class TraceTaskLoader(ResultsLoader):
         self.quit = True
         self.trace_id = Main.raw.runtime.trace.id
         self.tracenames = [t.name for t in Main.raw.runtime.enabled_traces]
-
 
         self.hw = Main.raw.runtime.trace.host
         self.hwname = self.hw.name
@@ -733,9 +789,16 @@ class TraceTaskLoader(ResultsLoader):
         targets = []
         traceroot = self._test_path()
 
+        for tm in Main.object_config_lookup("TraceMethod"):
+            raw = getattr(Main.raw.TraceMethod, tm.name)
+            cache = os.path.join(traceroot, tm.name)
+            tasks.extend(self.import_files(tm, raw,
+                                           cache,
+                                           output_files=True))
+
         for tracename in self.tracenames:
             trace_dstdir = os.path.join(traceroot, tracename)
-            tasks.append(self._mkdir(trace_dstdir))
+            #tasks.append(self._mkdir(trace_dstdir))
             self._update_runtime_config("trace.%s.dir" % (tracename), trace_dstdir)
             for s in Main.raw.runtime.enabled_stages:
                 tasks.append(self._mkdir(os.path.join(trace_dstdir, s.stagename)))
@@ -743,57 +806,12 @@ class TraceTaskLoader(ResultsLoader):
             trace = Main.object_config_lookup("TraceMethod", tracename)
             rawtrace = getattr(Main.raw.TraceMethod, tracename)
 
-            Main.raw.runtime.current_host = Main.raw.runtime.trace.host_name
-            Main.raw.runtime.current_stage = ""
             if "Files" not in rawtrace.keys():
                 continue
-            for (name, rawf) in rawtrace.Files.iteritems():
-                if rawf.type in ["target", "log"]:
-                    p = rawf.relative_path
-                    p = self.sub_host(p)
-                    if self.stage_dependent(rawf):
-                        for stage in Main.raw.runtime.enabled_stages:
-                            p = self.sub_stage(p, stage)[0]
-                            p = Main.populate_from_config(p)
-                            p = os.path.join(trace_dstdir, stage.stagename, p)
-                            targets.append(p)
-                            self._update_runtime_config("trace.%s.files.%s.%s" %
-                                                        (trace.name,
-                                                         name,
-                                                         stage.stagename), p)
-                            if hasattr(rawf, "global_name"):
-                                n = self.sub_host(rawf.global_name)
-                                n = self.sub_stage(n, stage)[0]
-                                n = Main.populate_from_config(n)
-                                self._update_config(n, p)
 
-                    else:
-                        p = Main.populate_from_config(p)
-                        p = os.path.join(trace_dstdir, p)
-                        targets.append(p)
-                        self._update_runtime_config("trace.%s.files.%s" % (trace.name,
-                                                                           name), p)
-                        if hasattr(rawf, "global_name"):
-                            n = self.sub_host(rawf.global_name)
-                            n = Main.populate_from_config(n)
-                            self._update_config(n, p)
+            tasks.extend(self.import_files(trace, rawtrace, trace_dstdir,
+                                           output_files=True, set_cfg="trace"))
 
-                elif rawf.type == "config":
-                    p = rawf.path
-                    p = self.sub_host(p)
-                    if self.stage_dependent(rawf):
-                        for stage in Main.raw.runtime.enabled_stages:
-                            p = self.sub_stage(p, stage)[0]
-                            p = Main.populate_from_config(p)
-                            file_deps.append(p)
-                            self._update_runtime_config("trace.%s.files.%s.%s" % (trace.name,
-                                                                            name,
-                                                                            stage.stagename), p)
-                    else:
-                        p = Main.populate_from_config(p)
-                        file_deps.append(p)
-                        self._update_runtime_config("trace.%s.files.%s" % (trace.name,
-                                                                           name), p)
             for s in trace.software:
                 if isinstance(s, str):
                     s = Main.object_config_lookup("Software", s)
@@ -830,16 +848,18 @@ class TraceTaskLoader(ResultsLoader):
                                                          gdb_cmds))
         done_file = os.path.join(trace_dstdir,"trace-done")
         self._update_runtime_config("trace.done", done_file)
-        run_trace = Main.populate_from_config(trace.run)
+        r = self.sub_host(trace.run)
+        r = self.sub_stage(r)[0]
+
+        run_trace = Main.populate_from_config(r)
         self._update_config("runtime.trace.command", run_trace)
         self.toprint.append(run_trace)
         targets.append(done_file)
         done = "touch %s" % done_file
-        #self._update_config("runtime.trace.done_file", done_file)
-        # print "file depts %s" % file_deps
         c = CmdTask([LongRunning(run_trace + "; " + done)],
                     file_deps, targets, "trace_%s" % trace.name)
         tasks.append(c)
+
         return tasks
 
     def do_print_cmds(self):
@@ -1261,6 +1281,7 @@ sha1: {}
 """
                 filecontents = contents.format(local, sha)
                 fconfig.write(filecontents)
+
         a = ActionListTask([(write, [self.config_path, self.local, self.sha])],
                            [], [self.config_path], "instance_config_file")
         tasks.append(a)
@@ -1274,8 +1295,15 @@ sha1: {}
             print "removing temporary copy of target source code at %s" % tmpdir
             os.system("rm -rf %s" % tmpdir)
 
+        def close_dbs():
+            print "closing databases"
+            for s in Main.stages:
+                db_info.get(s)._closeall()
+
+
         if self.rm_tmp:
             atexit.register(rm_src_dir)
+        atexit.register(close_dbs)
         olddir = os.getcwd()
         os.chdir(self.local)
         if Main.target_software.git:
@@ -1394,7 +1422,7 @@ sha1: {}
             self._update_config("runtime.software.%s.cache" % soft.name, cache)
             tasks.extend(self.import_files(soft, raw, cache))
 
-            #for s in Main.stages:
+
         for tm in Main.object_config_lookup("TraceMethod"):
             raw = getattr(Main.raw.TraceMethod, tm.name)
             cache = os.path.join(trace_cache, tm.name)

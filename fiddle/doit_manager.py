@@ -241,11 +241,12 @@ class TaskManager():
         return ret
 
     def run_trace(self):
+        ti = self.ti.get_build_name()
         tp = self.tp.get_build_name()
         nm = self.rt.get_build_name()
         ip = self.pt.get_build_name()
         print "about to run %s" % nm
-        ret = self.run([tp, ip, nm])
+        ret = self.run([ti, tp, ip, nm])
         return ret
 
 

@@ -171,7 +171,6 @@ class GDBTargetController(object):
         self._import_done = False
         for k in breakpoint_classes.iterkeys():
             self.bp_hooks[k] = []
-
         p = self.add_subcommand_parser('log')
         p.add_argument('logfile', default='', nargs='?')
         self.add_subcommand_parser('flushlog')
@@ -333,11 +332,11 @@ class GDBTargetController(object):
             self.gdb_print("Inserting beakpoint for substage '%s' (%s)\n" % (substages[i], i))
             SubstageEntryBreak(substages[i], i, self, stage)
     def insert_longwrites_breakpoints(self, stage):
-        if any(map(lambda x: x == "Longwrite2Break", self.disabled_breakpoints)):
+        if any(map(lambda x: x == "LongwriteBreak", self.disabled_breakpoints)):
             return
 
         for r in db_info.get(stage).longwrites_info():
-            Longwrite2Break(self, r, stage)
+            LongwriteBreak(self, r, stage)
 
     def insert_reloc_breakpoints(self, stage):
         if any(map(lambda x: x == "RelocBreak", self.disabled_breakpoints)):
@@ -348,7 +347,7 @@ class GDBTargetController(object):
     def enable_write_breaks(self, stage, enable=True):
         for bp in self.breakpoints:
             b = bp.companion
-            if isinstance(b, WriteBreak) or isinstance(b, Longwrite2Break):
+            if isinstance(b, WriteBreak) or isinstance(b, LongwriteBreak):
                 self.disable_breakpoint(b, disable=not enable, delete=False)
 
     def insert_write_breakpoints(self, stage):
@@ -615,6 +614,7 @@ class GDBTargetController(object):
     def update_path(self, args):
         self._do_import()
 
+
     def go(self, args):
         if self.gone:
             return
@@ -880,7 +880,6 @@ class StageEndBreak(TargetBreak):
         now = time.time()
         self.msg("This took %f minutes to run\n" % ((now-self.starttime)/60))
         stage_index = cont.stage_order.index(self.stage)
-
         if stage_index >= len(cont.stage_order) - 1:
             ret = True
         else:
@@ -904,77 +903,7 @@ class EndLongwriteBreak(TargetBreak):
         return False
 
 
-class EndLongwrite2Break(TargetBreak):
-    def __init__(self, lwbreak, stage):
-        self.stage = stage
-        controller = lwbreak.controller
-        self.addr = lwbreak.contaddr
-        spec = "*(0x%x)" % self.addr if not isinstance(self.addr, str) else self.addr
-        TargetBreak.__init__(self, spec, controller, False, stage, lwbreak=lwbreak)
-        controller.disable_breakpoint(lwbreak, delete=False)
-
-    def _stop(self, bp, ret):
-        self.controller.disable_breakpoint(self.lwbreak, disable=False)
-        self.controller.disable_breakpoint(self, delete=False)
-        return False
-
-
 class LongwriteBreak(TargetBreak):
-    def __init__(self, controller, r, stage):
-        self.regs = {}
-        self.sregs = r['sregs']
-        self.eeregs = r['eregs']
-
-        self.emptywrite = {'start': None,
-                           'end': None,
-                           'pc': None}
-        self.writeinfo = self.emptywrite
-
-        spec = "*(0x%x)" % r['breakaddr']
-        TargetBreak.__init__(self, spec, controller, True, stage, r=r)
-
-    def _stop(self, bp, ret):
-        if self.controller.calculate_write_dst:
-            self.writeinfo = self.emptywrite
-            regs = {}
-            eregs = []
-            for r in self.sregs:
-                v = self.controller.get_reg_value(r, True)
-                regs.update({r: v})
-            for r in self.eeregs:
-                regs.update({r: self.controller.get_reg_value(r, True)})
-                eregs.append(v)
-            if not self.destsubtract == "":
-                regs.update({self.destsubtract: self.controller.get_reg_value(self.destsubtract, True)})
-
-            needs_string = db_info.get(self.stage).is_longwrite_string(self.rangetype)
-            str2 = None
-            if needs_string:
-                self.msg("getting string at 0x%x\n" % sum(eregs))
-                if self.isbaremetal:
-                    gdb.execute("mon gdb_sync")
-                str2 = gdb.execute("print/s (char *) $%s" % eregs[0], to_string=True)
-                str2 = str2.split("\"")[1]
-                self.msg("string %s\n" % str2)
-            (self.writeinfo['start'],
-             self.writeinfo['end']) = db_info.get(self.stage).longwrites_calculate_dest_addrs(
-                 self.r,
-                 self.rangetype,
-                 regs,
-                 self.sregs,
-                 self.eeregs,
-                 str2)
-            self.writeinfo['pc'] = self.writeaddr
-            EndLongwriteBreak(self, self.stage)
-        return False
-
-    def _move(self, offset, mod, d):
-        self.breakaddr = (self.breakaddr + offset) % mod
-        self.writeaddr = (self.writeaddr + offset) % mod
-        self.contaddr = (self.contaddr + offset) % mod
-
-
-class Longwrite2Break(TargetBreak):
     def __init__(self, controller, r, stage):
         self.emptywrite = {'start': None,
                            'end': None,
@@ -1034,8 +963,6 @@ class Longwrite2Break(TargetBreak):
                 v = self.controller.get_reg_value(r, True)
                 reg_num = unicorn_utils.reg_val(r)
                 self.emu.reg_write(reg_num, v)
-            print "break, cont %x %x" % (self.breakaddr,
-                                         self.contaddr)
             start = self.breakaddr
             self.dst_addrs = []
             if self.thumb:
@@ -1044,11 +971,8 @@ class Longwrite2Break(TargetBreak):
             self.writeinfo['start'] = self.dst_addrs[0]
             self.writeinfo['end'] = self.dst_addrs[0] + len(self.dst_addrs) * self.write_size
             self.writeinfo['pc'] = self.writeaddr
-            print "wrote %x,%x (%d)" % (self.writeinfo['start'],
-                                        self.writeinfo['end'],
-                                        self.writeinfo['end'] - self.writeinfo['start'])
             # reset dest addrs
-            EndLongwrite2Break(self, self.stage)
+            EndLongwriteBreak(self, self.stage)
         return False
 
     def _move(self, offset, mod, d):

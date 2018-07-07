@@ -748,7 +748,7 @@ class SubstagesInfo():
     def open_dbs(self, trace):
         self.process_trace = trace
         if trace:
-            trace_db = getattr(getattr(Main.raw.runtime.trace, trace).files.db, self.stage.stagename)
+            trace_db = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
             trace_db_done = Main.raw.runtime.trace.done
             if not (os.path.exists(trace_db_done) and os.path.exists(trace_db)):
                 trace_db = None

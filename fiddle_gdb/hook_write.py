@@ -60,8 +60,6 @@ class FlushDatabase():
         global db_written
         if db_written:
             return
-        db_info.get(self.stage).flush_tracedb()
-
         global start
         db_info.get(self.stage).flush_tracedb()
         stop = time.time()

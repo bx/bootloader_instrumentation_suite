@@ -161,7 +161,7 @@ class SpecialConfig(object):
 
 class ConfigFile(SpecialConfig):
     special_fields = ["path", "command", "cached_path", "file_deps"]
-    supported_types = ["default", "log", "config", "target", "mmap", "file_dep", "image"]
+    supported_types = ["default", "log", "config", "target", "mmap", "file_dep", "image", "output"]
     def __init__(self, name, info, software):
         SpecialConfig.__init__(self, name, info, software, "Files")
         self.setfield("type", "default")
@@ -298,7 +298,7 @@ class ConfigObject(object):
             return item
         do_again = False
         final = item
-        # print "--formatting %s, %s, %s" % (item, recurse, recurse < 0)
+        #print "--formatting %s, %s, %s" % (item, recurse, recurse < 0)
 
         def eval_format(s):
             try:

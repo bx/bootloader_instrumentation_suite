@@ -30,6 +30,7 @@ import substage
 import database
 import re
 import intervaltree
+import traceback
 
 _singletons = {}
 _mmapdb = None
@@ -153,7 +154,7 @@ class StaticDB(DBObj):
         self._db = staticanalysis.WriteSearch(False, self.stage, False, not append)
         self._db.open_all_tables()
         if self._db.writestable:
-            print "staticdb nwrite %s" % (self._db.writestable.nrows)
+            print "opening staticdb nwrite %s" % (self._db.writestable.nrows)
 
     def _create(self):
         self._db = staticanalysis.WriteSearch(True, self.stage, False)
@@ -161,7 +162,7 @@ class StaticDB(DBObj):
 
     def _close(self):
         if self._db.writestable:
-            print "staticdb nwrite %s" % (self._db.writestable.nrows)
+            print "closing staticdb nwrite %s" % (self._db.writestable.nrows)
         self._db.closedb(False)
 
     def flush(self):
@@ -173,14 +174,14 @@ class TraceDB(DBObj):
     def _open(self, append=False):
         dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
         self._db = database.TraceTable(dbpath, self.stage, False, True)
-        print "nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
+        print "open tracedb nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
 
     def _create(self):
         dbpath = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
         self._db = database.TraceTable(dbpath, self.stage, True, True)
 
     def _close(self):
-        print "nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
+        print "close tracedb nwrite %s (%s)" % (self._db.writestable.nrows, self.stage.stagename)
         self._db.close()
 
     def flush(self):

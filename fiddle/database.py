@@ -396,9 +396,7 @@ class TraceTable():
             self.writestable.cols.dest.create_index(kind='full')
 
             self.writestable.flush()
-
         self.init_writerangetable()
-
         self._mdthumb = None
         self._mdarm = None
 
