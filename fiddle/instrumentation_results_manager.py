@@ -788,28 +788,6 @@ class TraceTaskLoader(ResultsLoader):
         file_deps = []
         targets = []
         traceroot = self._test_path()
-        s = Main.object_config_lookup("Software", self.hw.host_software)
-        processed_software.append(s.name)
-        if s.build:
-            s.binary = Main.populate_from_config(s.binary)
-            file_deps.append(s.binary)
-        for c in s._configs:
-            cmd = c.command
-            if cmd:
-                cmd = "%s %s" % (s.binary, cmd)
-                cmd = Main.populate_from_config(cmd)
-                self._update_config("Software.%s.ExecConfig.command" % s.name,
-                                    cmd)
-                commands[s.name] = cmd
-
-        for v in s._GDB_configs:
-            for c in v.commands:
-                c = self.sub_host(c)
-                cs = self.sub_stage(c)
-                cs = [Main.populate_from_config(i) for i in cs]
-                gdb_cmds.extend(cs)
-
-
 
         for tm in Main.object_config_lookup("TraceMethod"):
             raw = getattr(Main.raw.TraceMethod, tm.name)
@@ -835,16 +813,10 @@ class TraceTaskLoader(ResultsLoader):
             tasks.extend(self.import_files(trace, rawtrace, trace_dstdir,
                                            output_files=True, set_cfg="trace"))
 
-            for v in trace._GDB_configs:
-                for c in v.commands:
-                    c = self.sub_host(c)
-                    cs = self.sub_stage(c)
-                    cs = [Main.populate_from_config(i) for i in cs]
-                    gdb_cmds.extend(cs)
-
             for s in trace.software:
                 if isinstance(s, str):
                     s = Main.object_config_lookup("Software", s)
+                print s.name
                 if s.name in processed_software:
                     continue
                 processed_software.append(s.name)
@@ -866,9 +838,32 @@ class TraceTaskLoader(ResultsLoader):
                         cs = self.sub_stage(c)
                         cs = [Main.populate_from_config(i) for i in cs]
                         gdb_cmds.extend(cs)
+
             # print Main.raw.runtime.keys()
 
             for v in trace._GDB_configs:
+                for c in v.commands:
+                    c = self.sub_host(c)
+                    cs = self.sub_stage(c)
+                    cs = [Main.populate_from_config(i) for i in cs]
+                    gdb_cmds.extend(cs)
+
+        s = Main.object_config_lookup("Software", self.hw.host_software)
+        if s.name not in processed_software:
+            processed_software.append(s.name)
+            if s.build:
+                s.binary = Main.populate_from_config(s.binary)
+                file_deps.append(s.binary)
+            for c in s._configs:
+                cmd = c.command
+                if cmd:
+                    cmd = "%s %s" % (s.binary, cmd)
+                    cmd = Main.populate_from_config(cmd)
+                    self._update_config("Software.%s.ExecConfig.command" % s.name,
+                                        cmd)
+                    commands[s.name] = cmd
+
+            for v in s._GDB_configs:
                 for c in v.commands:
                     c = self.sub_host(c)
                     cs = self.sub_stage(c)
