@@ -298,7 +298,7 @@ class ConfigObject(object):
             return item
         do_again = False
         final = item
-#        print "--formatting %s, %s, %s" % (item, recurse, recurse < 0)
+        # print "--formatting %s, %s, %s" % (item, recurse, recurse < 0)
 
         def eval_format(s):
             try:

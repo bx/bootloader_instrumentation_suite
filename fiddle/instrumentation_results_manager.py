@@ -816,7 +816,7 @@ class TraceTaskLoader(ResultsLoader):
             for s in trace.software:
                 if isinstance(s, str):
                     s = Main.object_config_lookup("Software", s)
-                print s.name
+
                 if s.name in processed_software:
                     continue
                 processed_software.append(s.name)
@@ -847,9 +847,11 @@ class TraceTaskLoader(ResultsLoader):
                     cs = self.sub_stage(c)
                     cs = [Main.populate_from_config(i) for i in cs]
                     gdb_cmds.extend(cs)
-
-        s = Main.object_config_lookup("Software", self.hw.host_software)
-        if s.name not in processed_software:
+        if hasattr(self.hw, "host_sotware"):
+            s = Main.object_config_lookup("Software", self.hw.host_software)
+        else:
+            s = None
+        if s and s.name not in processed_software:
             processed_software.append(s.name)
             if s.build:
                 s.binary = Main.populate_from_config(s.binary)
