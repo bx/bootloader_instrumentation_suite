@@ -796,7 +796,6 @@ class TraceTaskLoader(ResultsLoader):
                                            cache,
                                            output_files=True))
 
-
         for tracename in self.tracenames:
             trace_dstdir = os.path.join(traceroot, tracename)
             #tasks.append(self._mkdir(trace_dstdir))
@@ -807,12 +806,8 @@ class TraceTaskLoader(ResultsLoader):
             trace = Main.object_config_lookup("TraceMethod", tracename)
             rawtrace = getattr(Main.raw.TraceMethod, tracename)
 
-            if "Files" not in rawtrace.keys():
-                continue
-
             tasks.extend(self.import_files(trace, rawtrace, trace_dstdir,
                                            output_files=True, set_cfg="trace"))
-
             for s in trace.software:
                 if isinstance(s, str):
                     s = Main.object_config_lookup("Software", s)
@@ -838,8 +833,6 @@ class TraceTaskLoader(ResultsLoader):
                         cs = self.sub_stage(c)
                         cs = [Main.populate_from_config(i) for i in cs]
                         gdb_cmds.extend(cs)
-
-            # print Main.raw.runtime.keys()
 
             for v in trace._GDB_configs:
                 for c in v.commands:
@@ -885,8 +878,9 @@ class TraceTaskLoader(ResultsLoader):
         self.toprint.append(run_trace)
         targets.append(done_file)
         done = "touch %s" % done_file
+
         c = CmdTask([LongRunning(run_trace + "; " + done)],
-                    file_deps, targets, "trace_%s" % trace.name)
+                    file_deps, targets, "trace_%s" % ".".join(self.tracenames))
         tasks.append(c)
 
         return tasks
@@ -911,7 +905,6 @@ class TraceTaskPrepLoader(ResultsLoader):
         self.trace_id = trace_name
         self._update_config("runtime.trace.id", self.trace_id)
         self.config_path = self._test_path("config.yml")
-
         if self.create:
             self.stagenames = [s.stagename for s in stages]
             self.hwname = Main.hardwareclass

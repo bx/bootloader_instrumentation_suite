@@ -1,5 +1,7 @@
 # from https://gist.github.com/moyix/669344f534c83e0704e0
 from unicorn.arm_const import *
+from unicorn.arm64_const import *
+from unicorn.x86_const import *
 
 
 class UnicornCPU(object):
@@ -17,6 +19,10 @@ class UnicornCPU(object):
         return reg_name_val
 
 c = UnicornCPU("ARM")
+
+def reg_val_of(cpu, name):
+    c = UnicornCPU(cpu)
+    return c.get_reg_name_val(name)
 
 def reg_val(name):
     global c

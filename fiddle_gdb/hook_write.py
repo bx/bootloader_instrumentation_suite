@@ -61,6 +61,7 @@ class FlushDatabase():
         if db_written:
             return
         global start
+        gdb.flush()
         db_info.get(self.stage).flush_tracedb()
         stop = time.time()
         gdb.write(".. finished in %f minutes\n" % ((stop-start)/60), gdb.STDOUT)
@@ -74,7 +75,7 @@ class FlushDatabase():
 
 class WriteDatabase():
     def __init__(self, time, pid, size, dest, pc, lr, cpsr, step,
-                 origpc, stage, substage, substage_name):
+                 origpc, stage, substage, substage_name,doit=False):
         self.time = time
         self.pid = pid
         self.size = size
@@ -88,7 +89,7 @@ class WriteDatabase():
         self.substage_name = substage_name
         self.stage = stage
         global now
-        if now:
+        if now or doit:
             self.do()
 
     def do(self):

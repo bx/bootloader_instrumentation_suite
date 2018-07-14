@@ -128,6 +128,7 @@ class WriteDstTable():
             self.h5file.flush()
 
     def flush_table(self):
+        nrows = 0
         for t in self.tables.itervalues():
             try:
                 t.reindex_dirty()
@@ -139,7 +140,6 @@ class WriteDstTable():
     def _addr_inter_is_not_ram(self, i):
         hw = Main.get_hardwareclass_config()
         return i in hw.non_ram_ranges
-
 
     def uboot_mux_init(self):
         self._mux_name = "set_muxconf_regs"
@@ -457,6 +457,8 @@ class TraceTable():
 
     def close(self, flush_only=False):
         db_info.get(self.stage).flush_staticdb()
+
+        print "captured %s writes" % self.writestable.nrows
         self.h5file.flush()
         if not flush_only:
             self.h5file.close()
