@@ -377,6 +377,7 @@ class ResultsLoader(object):
                 process_file = file_raw.type in ["log", "target", "output"]
             else:
                 process_file = file_raw.type == "config"
+            # print "%s, %s, %s" % (f, process_file, v.imported)
             if process_file and not v.imported:
                 v.imported = True
                 if not file_raw.generate:
@@ -408,7 +409,7 @@ class ResultsLoader(object):
                     else:
                         deps = []
                     target = [target_location]
-                    #v._update_raw("path", target_location)
+                    v._update_raw("path", target_location)
 
 
                     if file_raw.type == "image":
@@ -707,12 +708,17 @@ class PostTraceLoader(ResultsLoader):
                 self.o2 = o2
                 self.done = done
                 self.tracename = tracename
+                self.finished = False
 
             def __call__(self):
+                if self.finished:
+                    return
+
                 db_info.create(self.s, "policydb", trace=self.tracename)
                 db_info.get(self.s).consolidate_trace_write_table()
                 db_info.get(self.s).generate_write_range_file(self.o, self.o2)
                 os.system("touch %s" % self.done)
+                self.finished = True
         tasks = []
         for t in self.tracenames:
             #if t not in Main.object_config_lookup("PostProcess", name).supported_traces:
@@ -870,6 +876,8 @@ class TraceTaskLoader(ResultsLoader):
                                                          gdb_cmds))
         done_file = os.path.join(trace_dstdir,"trace-done")
         self._update_runtime_config("trace.done", done_file)
+        # print Main.raw.Software.reg_parser.keys()
+        # print "_______________________________"
         r = self.sub_host(trace.run)
         r = self.sub_stage(r)[0]
 
@@ -1167,6 +1175,9 @@ class InstrumentationTaskLoader(ResultsLoader):
         tasks.append(self._mkdir(dstdir))
         self._update_config("static_analysis.mmap.dir", dstdir)
         tasks.extend(self.import_files(hwclass, config_data, Main.raw.hw_cache, True))
+        # print Main.raw.HardwareClass.bbxm.Files.reference.path
+        # print Main.raw.HardwareClass.bbxm.Files.keys()
+        # print Main.raw.HardwareClass.bbxm.Files.mmap.path
         mmapdb_path = os.path.join(dstdir, "mmap.h5")
         self._update_config("static_analysis.mmap.db", mmapdb_path)
         self._update_config("static_analysis.mmap.db_done", mmapdb_path+"-completed")
@@ -1223,7 +1234,8 @@ class InstrumentationTaskLoader(ResultsLoader):
                     self.stage = stage
 
                 def __call__(self):
-                    v = staticanalysis.ThumbRanges.find_thumb_ranges(self.stage)
+                    v = staticanalysis.ThumbRanges.find_thumb_ranges(self.stage,
+                                                                     not staticanalysis.WriteSearch._is_arm(self.stage.elf))
                     Main.set_runtime_config("thumb_ranges.%s" % self.stage.stagename, v)
                     return v
             self._update_config("runtime.thumb_ranges.%s" % n, get_thumb_ranges(s))
@@ -1440,10 +1452,18 @@ sha1: {}
             tasks.extend(self.import_files(h, raw, cache))
 
         for soft in Main.object_config_lookup("Software"):
+            # print "++++++++++++%s" % soft.name
             cache = os.path.join(soft_cache, soft.name)
             raw = getattr(Main.raw.Software, soft.name)
             self._update_config("runtime.software.%s.cache" % soft.name, cache)
             tasks.extend(self.import_files(soft, raw, cache))
+            tasks.extend(self.import_files(soft, raw,
+                                           cache,
+                                           output_files=True))
+
+
+        # print Main.raw.Software.reg_parser.binary
+        # print Main.raw.Software.reg_parser.root
 
 
         for tm in Main.object_config_lookup("TraceMethod"):

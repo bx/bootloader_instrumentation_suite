@@ -115,14 +115,14 @@ class CallExitBreak(gdb_tools.TargetFinishBreakpoint):
         # don't print exit if it occurred out-of-order with repect
         # to other function exits
         #print "%s C.depth %s, %s" % (self.name, c.depth, self.depth)
-        
+
         #if c.depth == self.depth:
         gdb.post_event(WriteResults(self.depth,
                                     self.name, "exit", c.pc(),
                                     "",
                                     c._minimal))
         c.depth = self.depth - 1
-        
+
         if self.entry.no_rec:
             self.controller.disable_breakpoint(self.entry, disable=False)
         return False
@@ -139,8 +139,8 @@ class CallEntryBreak(gdb_tools.TargetBreak):
             #c.gdb_print("%s cannot set breakpoint for %s\n" % (e,
              #                                                           name), "calltrace")
             return False
-        return True            
-    
+        return True
+
     def __init__(self, name, controller, stage, no_rec):
         self.name = name
         self.no_rec = no_rec
@@ -155,7 +155,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
                                  self.plugin.name)
             return
         i = re.sub(':', '', i)
-        self.fnloc = int(i, 0)
+        self.fnloc = long(i, 0)
         spec = "*(0x%x)" % self.fnloc
         self.line = re.sub(":",
                            "::",
@@ -167,7 +167,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
         c = self.plugin
         c.depth += 1
         self.depth = c.depth
-        #print ">  %s, %s" % (self.name, self.depth)        
+        #print ">  %s, %s" % (self.name, self.depth)
         e = CallExitBreak(self.name, self.controller, self.stage, self, self.depth)
         if not e.valid:
             self.controller.gdb_print("could not set exit breakpoint for %s\n" % self.name,
@@ -176,7 +176,7 @@ class CallEntryBreak(gdb_tools.TargetBreak):
         gdb.post_event(WriteResults(self.depth,
                                     self.name, "entry", self.fnloc,
                                     self.line,
-                                    c._minimal))        
+                                    c._minimal))
         if self.no_rec and self.breakpoint:
             self.controller.disable_breakpoint(self, delete=False)
         return False
@@ -197,7 +197,7 @@ class CallTrace(gdb_tools.GDBPlugin):
             gdb_tools.GDBPluginParser("stage_log",
                                       [gdb_tools.GDBPluginParserArg("log_args",
                                                                     nargs="*", default=[])]),
-                                       
+
             gdb_tools.GDBPluginParser("blacklist",
                                       [gdb_tools.GDBPluginParserArg("stage_args",
                                                                     nargs="*", default=[])]),
@@ -223,7 +223,7 @@ class CallTrace(gdb_tools.GDBPlugin):
                                      #                       "SubstageEntryBreak"],
                                           ],
                                      parser_args=parser_options)
-        
+
 
     def no_recursion(self, args):
         self.no_rec_funs.extend(args.recfns)

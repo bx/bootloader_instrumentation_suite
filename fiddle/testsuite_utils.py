@@ -94,13 +94,13 @@ def line2addrs(line, stage):
 
     if isataddr:
         if assembly:
-            startaddr = int((isataddr.search(startat)).group(1), 0)
+            startaddr = long((isataddr.search(startat)).group(1), 0)
             return (startaddr, startaddr+4)
         else:
             return (-1, -1)
     else:
-        startaddr = int((restart.search(startat)).group(1), 0)
-        endaddr = int((reend.search(startat)).group(1), 0)
+        startaddr = long((restart.search(startat)).group(1), 0)
+        endaddr = long((reend.search(startat)).group(1), 0)
         return (startaddr, endaddr)
 
 
@@ -150,7 +150,7 @@ def get_c_function_names(stage):
         if len(cols) > 7:
             addr = cols[1]
             name = cols[7]
-            results.append((name, int(addr, 16)))
+            results.append((name, long(addr, 16)))
 
     return results
 
@@ -206,7 +206,7 @@ def get_line_addr(line, start, stage, debug=False, srcdir=None):
     addrg = readdr.search(output)
     if not addrg:
         return -1
-    res = int(addrg.group(1), 0)
+    res = long(addrg.group(1), 0)
     if assembly and (not start):
         res += 1   # give something larger for end endress for non-includive range
     return res
@@ -230,3 +230,11 @@ def symbol_relocation_file(name, offset, stage, path=None, debug=False):
     if debug:
         print output
     return path
+
+
+def addr_lo(addr):
+    return addr & 0xFFFFFFFF
+
+
+def addr_hi(addr):
+    return (addr & 0xFFFFFFFF00000000) >> 32

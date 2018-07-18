@@ -358,23 +358,24 @@ class LongWriteInfo():
             return "<longwrite [start=0x%x,write=0x%x,done=0x%x]>" % (self.start_ins_addr, self.write_ins_addr, self.finish_ins_addr)
 
 
-
-
-
 class WriteEntry(tables.IsDescription):
-    pc = tables.UInt32Col()
+    pc = tables.UInt64Col()
+    pclo = tables.UInt32Col()
+    pchi = tables.UInt32Col()
     thumb = tables.BoolCol()
     reg0 = tables.StringCol(4)
     reg1 = tables.StringCol(4)
     reg2 = tables.StringCol(4)
     reg3 = tables.StringCol(4)
     reg4 = tables.StringCol(4)
-    writesize = tables.Int32Col()
+    writesize = tables.Int64Col()
     halt = tables.BoolCol()  # whether to insert a breakpoint here
 
 
 class SrcEntry(tables.IsDescription):
-    addr = tables.UInt32Col()
+    addr = tables.UInt64Col()
+    addrlo = tables.UInt32Col()
+    addrhi = tables.UInt32Col()
     line = tables.StringCol(512)  # file/lineno
     src = tables.StringCol(512)  # contents of source code at this location
     ivalue = tables.StringCol(12)
@@ -385,51 +386,75 @@ class SrcEntry(tables.IsDescription):
 
 
 class RelocInfo(tables.IsDescription):
-    startaddr = tables.UInt32Col()  # first address in relocation block
-    size = tables.UInt32Col()  # number of relocated bytes
-    relocpc = tables.UInt32Col()  # what the pc is once it is relocated
+    startaddr = tables.UInt64Col()  # first address in relocation block
+    startaddrlo = tables.UInt32Col()  # first address in relocation block
+    startaddrhi = tables.UInt32Col()  # first address in relocation block
+    size = tables.UInt64Col()  # number of relocated bytes
+    relocpc = tables.UInt64Col()  # what the pc is once it is relocated
+    relocpclo = tables.UInt32Col()  # what the pc is once it is relocated
+    relocpchi = tables.UInt32Col()  # what the pc is once it is relocated
     reldelorig = tables.BoolCol()  # whether to delete the original once relocated
     reloffset = tables.Int64Col()  # (orig addr + offset) % relmod  = new address
-    relmod = tables.UInt32Col()
-    relbegin = tables.UInt32Col()  # address of where relocation starts happening
+    relmod = tables.UInt64Col()
+    relbegin = tables.UInt64Col()  # address of where relocation starts happening
     name = tables.StringCol(255)
     symname = tables.StringCol(128)
     cardinal = tables.UInt8Col()
 
 
 class StageExitInfo(tables.IsDescription):
-    addr = tables.UInt32Col()  # non-relocated addr
+    addr = tables.UInt64Col()  # non-relocated addr
+    addrlo = tables.UInt32Col()  # non-relocated addr
+    addrhi = tables.UInt32Col()  # non-relocated addr
     success = tables.BoolCol()
     line = tables.StringCol(512)  # file/lineno
 
 
 class SmcEntry(tables.IsDescription):
-    pc = tables.UInt32Col()
+    pc = tables.UInt64Col()
+    pclo = tables.UInt32Col()
+    pchi = tables.UInt32Col()
     thumb = tables.BoolCol()
 
 
 class FuncEntry(tables.IsDescription):
     fname = tables.StringCol(40)  # name of function pc is located
-    startaddr = tables.UInt32Col()  # first address in relocation block
-    endaddr = tables.UInt32Col()  # first address in relocation block
+    startaddr = tables.UInt64Col()  # first address in relocation block
+    startaddrlo = tables.UInt32Col()  # first address in relocation block
+    startaddrhi = tables.UInt32Col()  # first address in relocation block
+    endaddr = tables.UInt64Col()  # first address in relocation block
+    endaddrlo = tables.UInt32Col()  # first address in relocation block
+    endaddrhi = tables.UInt32Col()  # first address in relocation block
 
 
 class LongWrites(tables.IsDescription):
-    breakaddr = tables.UInt32Col()  # where write loop starts
-    writeaddr = tables.UInt32Col()  # where write loop starts
-    contaddr = tables.UInt32Col()  # pc after loop
+    breakaddr = tables.UInt64Col()  # where write loop starts
+    breakaddrlo = tables.UInt32Col()  # where write loop starts
+    breakaddrhi = tables.UInt32Col()  # where write loop starts
+    writeaddr = tables.UInt64Col()  # where write loop starts
+    writeaddrlo = tables.UInt32Col()  # where write loop starts
+    writeaddrhi = tables.UInt32Col()  # where write loop starts
+    contaddr = tables.UInt64Col()  # pc after loop
     thumb = tables.BoolCol()  # if write is at thumb address
     inplace = tables.BoolCol()
-    writesize = tables.UInt32Col()
-    start = tables.UInt32Col()
-    end = tables.UInt32Col()
+    writesize = tables.UInt64Col()
+    start = tables.UInt64Col()
+    startlo = tables.UInt32Col()
+    starthi = tables.UInt32Col()
+    end = tables.UInt64Col()
+    endlo = tables.UInt32Col()
+    endhi = tables.UInt32Col()
 
 
 class SkipEntry(tables.IsDescription):
-    pc = tables.UInt32Col()
+    pc = tables.UInt64Col()
+    pclo = tables.UInt32Col()
+    pchi = tables.UInt32Col()
     disasm = tables.StringCol(256)
     thumb = tables.BoolCol()
-    resumepc = tables.UInt32Col()
+    resumepc = tables.UInt64Col()
+    resumepclo = tables.UInt32Col()
+    resumepchi = tables.UInt32Col()
     isfunction = tables.BoolCol()
 
 
@@ -479,7 +504,8 @@ class LongWriteDescriptor():
         self.breakaddr = self.info.start_ins_addr
         self.writeaddr = self.info.write_ins_addr
         self.contaddr = self.info.finish_ins_addr
-        writes = self.table.writestable.where("0x%x == pc" % (self.writeaddr))
+        writes = self.table.writestable.where("(0x%x == pclo) & (0x%x == pchi)" % (utils.addr_lo(self.writeaddr),
+                                                                                    utils.addr_hi(self.writeaddr)))
         try:
             write = next(writes)
         except Exception as e:
@@ -511,13 +537,21 @@ class LongWriteDescriptor():
         if not self.valid:
             return
         r['breakaddr'] = self.breakaddr
+        r['breakaddrlo'] = utils.addr_lo(self.breakaddr)
+        r['breakaddrhi'] = utils.addr_hi(self.breakaddr)
         r['contaddr'] = self.contaddr
         r['inplace'] = self.inplace
         r['writeaddr'] = self.writeaddr
+        r['writeaddrlo'] = utils.addr_lo(self.writeaddr)
+        r['writeaddrhi'] = utils.addr_hi(self.writeaddr)
         r['thumb'] = self.thumb
         r['writesize'] = self.writesize
         r['start'] = self.start
+        r['startlo'] = utils.addr_lo(self.start)
+        r['starthi'] = utils.addr_hi(self.start)
         r['end'] = self.end
+        r['endlo'] = utils.addr_lo(self.end)
+        r['endhi'] = utils.addr_hi(self.end)
 
     def get_info(self):
         if not self.valid:
@@ -581,8 +615,12 @@ class RelocDescriptor():
         # DST, CPYSTART, CPYEND, BEGIN, READY
         info = {
             'relocpc': self.readyaddr,
+            'relocpclo': utils.addr_lo(self.readyaddr),
+            'relocpchi': utils.addr_hi(self.readyaddr),
             'relmod': self.relmod,
             'startaddr': self.cpystartaddr,
+            'startaddrlo': utils.addr_lo(self.cpystartaddr),
+            'startaddrhi': utils.addr_hi(self.cpystartaddr),
             'relbegin': self.beginaddr,
             'size': self.cpyendaddr - self.cpystartaddr,
             'reloffset': self.reloffset,
@@ -626,7 +664,12 @@ class SkipDescriptorGenerator():
                 lineno = self.table._get_real_lineno(l, False)
                 start = "%s:%d" % (l.filename, lineno)
                 startaddr = self.table._get_line_addr(start, True)
-                f = pytable_utils.get_unique_result(self.table.funcstable, ("(startaddr <= 0x%x) & (0x%x < endaddr)" % (startaddr, startaddr)))
+                f = pytable_utils.get_unique_result(self.table.funcstable, ("(startaddrlo <= 0x%x) & (0x%x < endaddrlo) & (startaddrhi <= 0x%x) & (0x%x <= endaddrhi)" %
+                                                                            (utils.addr_lo(startaddr),
+                                                                             utils.addr_lo(startaddr),
+                                                                             utils.addr_hi(startaddr),
+                                                                             utils.addr_hi(startaddr))))
+
                 (startaddr, endaddr) = (f['startaddr'], f['endaddr'])
                 r2.get(elf, "s 0x%x" % startaddr)
                 thumb = False
@@ -679,14 +722,18 @@ class SkipDescriptorGenerator():
                     startins = disasm[0]
                 startaddr = startins["offset"]
 
-        s = startaddr + self.adjuststart
-        e = endaddr + self.adjustend
+        s = long(startaddr + self.adjuststart)
+        e = long(endaddr + self.adjustend)
         if e < s:
             t = s
             s = e
             e = t
         row['pc'] = s
+        row['pclo'] = utils.addr_lo(s)
+        row['pchi'] = utils.addr_hi(s)
         row['resumepc'] = e
+        row['resumepclo'] = utils.addr_lo(e)
+        row['resumepchi'] = utils.addr_hi(e)
         row['isfunction'] = isfunc
         row['thumb'] = self.table.thumbranges.overlaps_point(row['pc'])
         return row
@@ -694,12 +741,14 @@ class SkipDescriptorGenerator():
 
 class ThumbRanges():
     @staticmethod
-    def find_thumb_ranges(stage):
+    def find_thumb_ranges(stage, noop=False):
         cc = Main.cc
         elf = stage.elf
         thumb = intervaltree.IntervalTree()
         arm = intervaltree.IntervalTree()
         data = intervaltree.IntervalTree()
+        if noop:
+            return (thumb, arm, data)
         cmd = "%snm -S -n --special-syms %s 2>/dev/null" % (cc, elf)
         output = subprocess.check_output(cmd, shell=True).split('\n')
         prev = None
@@ -708,7 +757,7 @@ class ThumbRanges():
         for o in output:
             o = o.strip()
             if dta.search(o):
-                hi = int(o[:8], 16)
+                hi = long(o[:8], 16)
                 if (prev is not None) and (not lo == hi):
                     i = intervaltree.Interval(lo, hi)
                     if prev == 't':
@@ -852,7 +901,11 @@ class WriteSearch():
         if (startlineaddr < 0) or (endlineaddr < 0):
             return 0
 
-        query = "(0x%x <= pc) & (pc < 0x%x)" % (startlineaddr, endlineaddr)
+        query = "(0x%x <= pclo) & (0x%x <= pchi) & (pclo < 0x%x) & (pchi <= 0x%x)" % \
+            (utils.addr_lo(startlineaddr),
+             utils.addr_hi(startlineaddr),
+             utils.addr_lo(endlineaddr),
+             utils.addr_hi(endlineaddr))
         write = pytable_utils.get_rows(self.writestable, query)
         if len(write) == 1:
             return write[0]['pc']
@@ -886,68 +939,6 @@ class WriteSearch():
         self.skipstable.flush()
         self.h5file.flush()
 
-        #print "SKIPS------"
-        #for l in skiplines:
-        #    print l.__dict__
-        # skiplines = [
-        #     SkipDescriptorGenerator("do_sdrc_init0", self),
-        #     SkipDescriptorGenerator("do_sdrc_init1", self),
-        #     SkipDescriptorGenerator("do_sdrc_init2", self),
-        #     SkipDescriptorGenerator("write_sdrc_timings0", self),
-        #     SkipDescriptorGenerator("write_sdrc_timings1", self),
-        #     SkipDescriptorGenerator("per_clocks_enable0", self),
-        #     SkipDescriptorGenerator("per_clocks_enable2", self, 0, 0),
-        #     SkipDescriptorGenerator("per_clocks_enable3", self),
-        #     SkipDescriptorGenerator("write_sdrc_timings", self),
-        #     # SkipDescriptorGenerator("mmc_init_stream", self),
-        #     SkipDescriptorGenerator("mmc_init_stream0", self),
-        #     SkipDescriptorGenerator("mmc_init_stream1", self),
-        #     SkipDescriptorGenerator("mmc_init_setup1", self),
-        #     SkipDescriptorGenerator("mmc_reset_controller_fsm", self),
-        #     SkipDescriptorGenerator("mmc_write_data0", self),
-        #     SkipDescriptorGenerator("mmc_write_data1", self),
-        #     SkipDescriptorGenerator("mmc_read_data0", self),
-        #     SkipDescriptorGenerator("mmc_complete_op", self),
-        #     SkipDescriptorGenerator("mmc_write_data0", self),
-        #     SkipDescriptorGenerator("omap_hsmmc_set_ios", self),
-        #     SkipDescriptorGenerator("omap_hsmmc_send_cmd", self),
-        #     SkipDescriptorGenerator("omap_hsmmc_send_cmd1", self),
-        # ]
-
-        # skipfuns = [
-        #     SkipDescriptorGenerator("sdelay", self),
-        #     SkipDescriptorGenerator("wait_on_value", self),
-        #     SkipDescriptorGenerator("udelay", self),
-        #     SkipDescriptorGenerator("__udelay", self),
-        #     SkipDescriptorGenerator("_set_gpio_direction", self),
-        #     SkipDescriptorGenerator("_get_gpio_direction", self),
-        #     SkipDescriptorGenerator("omap3_invalidate_l2_cache_secure", self),
-        #     SkipDescriptorGenerator("_get_gpio_value", self),
-        #     SkipDescriptorGenerator("get_sdr_cs_size", self),
-        #     SkipDescriptorGenerator("get_sdr_cs_offset", self),
-        #     SkipDescriptorGenerator("make_cs1_contiguous", self),
-        #     SkipDescriptorGenerator("get_cpu_id", self),
-        #     SkipDescriptorGenerator("set_muxconf_regs", self),
-        #     SkipDescriptorGenerator("get_osc_clk_speed", self),
-        #     SkipDescriptorGenerator("per_clocks_enable", self),
-        #     SkipDescriptorGenerator("timer_init", self),
-        #     SkipDescriptorGenerator("go_to_speed", self),
-        # ]
-
-        # if self.stage.stagename == 'spl':  # we may need to add more ranges in the main target
-        #     skiplines.extend([  # identify_nand_chip
-        #         SkipDescriptorGenerator("identify_nand_chip0", self),
-        #         SkipDescriptorGenerator("identify_nand_chip1", self),
-        #     ]
-        #     )
-        #     skipfuns.extend([
-        #         SkipDescriptorGenerator("nand_command", self)
-        #     ])
-        # else:
-        #     skiplines = skiplines
-        #     skipfuns = skipfuns
-
-        #skiplabels = skipfuns + skiplines
 
     @classmethod
     def get_real_lineno(cls, l, prev, stage):
@@ -989,7 +980,6 @@ class WriteSearch():
         self.longwritestable = self.h5file.create_table(self.group, 'longwrites',
                                                         LongWrites, "long writes to precompute")
         skips = []
-        #print "LONGWRITES--"
         if not self.is_arm():
             return
         for r in self.stage.longwrites:
@@ -1003,7 +993,8 @@ class WriteSearch():
                 print "We didn't find any longwrite labels for %s" % s.name
                 continue
             # to prevent duplicate entries
-            query = "breakaddr == 0x%x" % sdesc.breakaddr
+            query = "(breakaddrlo == 0x%x) & (breakaddrhi == 0x%x)" % \
+                (utils.addr_lo(sdesc.breakaddr), utils.addr_hi(sdesc.breakaddr))
             descs = pytable_utils.get_rows(self.longwritestable, query)
             if len(descs) > 0:
                 print "found duplicate longwrite at breakpoint 0x%x" % sdesc.breakaddr
@@ -1016,7 +1007,8 @@ class WriteSearch():
                 print sdesc.get_info()
             r.append()
             self.longwritestable.flush()
-        self.longwritestable.cols.breakaddr.create_index(kind='full')
+        self.longwritestable.cols.breakaddrlo.create_index(kind='full')
+        self.longwritestable.cols.breakaddrhi.create_index(kind='full')
         self.longwritestable.flush()
         self.writestable.flush()
         self.h5file.flush()
@@ -1027,7 +1019,7 @@ class WriteSearch():
         res = cls.find_labels(lclass, value, stage, name)
         if not (len(res) == 1):
             raise Exception("Found 0 or +1 labels of class=%s, value=%s, stage=%s, name=%s"
-                            % (lclass.__name__, value, stage.stagename, name))
+                            % (cls.__name__, value, stage.stagename, name))
         return res[0]
 
     @classmethod
@@ -1077,6 +1069,8 @@ class WriteSearch():
                                        srcdir=Main.get_runtime_config("temp_target_src_dir"))
             success = True if l.name == "success" else False
             r['addr'] = addr
+            r['addrlo'] = utils.addr_lo(addr)
+            r['addrhi'] = utils.addr_hi(addr)
             r['line'] = loc
             r['success'] = success
             r.append()
@@ -1100,8 +1094,11 @@ class WriteSearch():
                 print self.reloc_row_info(r)
             r.append()
         self.relocstable.flush()
-        self.relocstable.cols.startaddr.create_index(kind='full')
-        self.relocstable.cols.relocpc.create_index(kind='full')
+        self.relocstable.cols.startaddrlo.create_index(kind='full')
+        self.relocstable.cols.startaddrhi.create_index(kind='full')
+        self.relocstable.cols.relocpclo.create_index(kind='full')
+        self.relocstable.cols.relocpchi.create_index(kind='full')
+
         self.relocstable.cols.cardinal.create_index(kind='full')
         self.relocstable.flush()
         self.h5file.flush()
@@ -1170,12 +1167,58 @@ class WriteSearch():
             r['pc'], r['resumepc'], r['thumb'], r['disasm']
         )
 
-    def is_arm(self):
-        elf = self.stage.elf
+    @classmethod
+    def _is_arm(self, elf):
         o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc, elf))
         o = o.split()
         return o[1] == "ARM"
 
+    def is_arm(self):
+        elf = self.stage.elf
+        return self._is_arm(elf)
+
+
+    def update_from_trace(self, tracewrites):
+        for w in tracewrites:
+            pc = long(w["pc"])
+            thumb = self.thumbranges.overlaps_point(pc)
+            s = self.srcstable.where("(addrlo == 0x%x) & (addrhi == 0x%x)" %
+                                     (utils.addr_lo(pc),
+                                      utils.addr_hi(pc)))
+            try:
+                s = next(s)
+                # is in table, do nothing
+            except StopIteration:
+                r2.gets(self.stage.elf, "s 0x%x" % pc)
+                i = r2.get(self.stage.elf, "pdj 1")[0]
+                ins = b"%s" % i["bytes"]
+                dis = i["disasm"]
+                mne = dis.split()[0]
+                srcr = self.srcstable.row
+                srcr['addr'] = pc
+                srcr['addrlo'] = utils.addr_lo(pc)
+                srcr['addrhi'] = utils.addr_hi(pc)
+                srcr['line'] = utils.addr2line(pc, self.stage)
+                srcr['src'] = utils.line2src(srcr['line'])
+                srcr['ivalue'] = ins
+                srcr['ilength'] = len(ins)
+                srcr['thumb'] = thumb
+                srcr['disasm'] = dis
+                srcr['mne'] = mne
+                srcr.append()
+                ws = self.writestable.row
+                r['thumb'] = thumb
+                r['pc'] = pc
+                r['pclo'] = utils.addr_lo(pc)
+                r['pchi'] = utils.addr_hi(pc)
+                r['writesize'] = w['reportedsize']
+                r['halt'] = False
+                ws.append
+        self.srcstable.flush()
+        self.srcstable.reindex()
+        self.writestable.flush()
+        self.writestable.reindex()
+        self.h5file.flush()
 
     def create_writes_table(self, start=0, stop=0):
         self.writestable = self.h5file.create_table(self.group, 'writes',
@@ -1197,9 +1240,9 @@ class WriteSearch():
             if s['flags'].endswith('x'):
                 if s['size'] == 0:
                     continue
-                allranges.add(intervaltree.Interval(s['address'], s['address'] + s['size']))
+                allranges.add(intervaltree.Interval(long(s['address']),
+                                                    long(s['address'] + s['size'])))
         allranges.merge_overlaps()
-
 
         r = self.writestable.row
         smcr = self.smcstable.row
@@ -1208,26 +1251,10 @@ class WriteSearch():
         # loop through all instructions as according to debug symbols
         for (ra, thumb) in [(self.thumbranges, True), (self.armranges, False)]:
             for ir in ra:
-                #r2.get(self.stage.elf, "s 0x%x" % ir.begin)
-                #pc = ir.begin
-                #if thumb:
-                #    r2.gets(self.stage.elf, "e asm.bits=16")
-                #else:
-                #    r2.gets(self.stage.elf, "e asm.bits=32")
-                #if thumb:
-                #    step = 2
-                #else:
-                #    step = 4
-                #r2.gets(self.stage.elf, 'e asm.arch=arm')
                 pc_next = ir.begin
-                # print "\nanal (%x,%x), %s" % (ir.begin, ir.end, thumb)
-
                 while pc_next < ir.end:
-                    # sys.stdout.write("%x, " % pc_next)
                     pc = pc_next
                     p = False
-                    #if pc_next == 0x40208b50:
-                    #    p = True
                     r2.gets(self.stage.elf, "s 0x%x" % pc)
                     if thumb: # force r2 to use the correct instruction size. sigh.
                         r2.gets(self.stage.elf, "ahb 16")
@@ -1290,6 +1317,8 @@ class WriteSearch():
                             continue
                         r['thumb'] = thumb
                         r['pc'] = pc
+                        r['pclo'] = utils.addr_lo(pc)
+                        r['pchi'] = utils.addr_hi(pc)
                         r['halt'] = True
                         regs = self.ia.needed_regs(inscheck)
                         if len(regs) > 4:
@@ -1303,6 +1332,8 @@ class WriteSearch():
                         r.append()
                     elif mne == 'smc':  # add to smcs table
                         smcr['pc'] = pc
+                        smcr['pclo'] = utils.addr_lo(pc)
+                        smcr['pchi'] = utils.addr_hi(pc)
                         mne = 'smc'
                         thumb = False
                         if self.thumbranges.overlaps_point(pc):
@@ -1312,14 +1343,18 @@ class WriteSearch():
                         smcr.append()
                         if self.verbose:
                             print "smc at 0x%x" % pc
-                    if insadded: # also cache source code information related to instruction
-                        s = self.srcstable.where("addr == 0x%x" % (pc))
+                    if insadded:  # also cache source code information related to instruction
+                        s = self.srcstable.where("(addrlo == 0x%x) & (addrhi == 0x%x)" %
+                                                 (utils.addr_lo(pc),
+                                                  utils.addr_hi(pc)))
                         try:
                             s = next(s)
                             # is in table, do nothing
                         except StopIteration:
                             srcr = self.srcstable.row
                             srcr['addr'] = pc
+                            srcr['addrlo'] = utils.addr_lo(pc)
+                            srcr['addrhi'] = utils.addr_hi(pc)
                             srcr['line'] = utils.addr2line(pc, self.stage)
                             srcr['src'] = utils.line2src(srcr['line'])
                             srcr['ivalue'] = ins
@@ -1331,16 +1366,15 @@ class WriteSearch():
                             self.srcstable.flush()
                         insadded = False
         self.writestable.flush()
-        self.writestable.cols.pc.create_index(kind='full')
-        self.writestable.flush()
+        self.writestable.cols.pclo.create_index(kind='full')
+        self.writestable.cols.pchi.create_index(kind='full')
         self.smcstable.flush()
-        self.smcstable.cols.pc.create_index(kind='full')
-        self.smcstable.flush()
-        self.srcstable.cols.addr.create_index(kind='full')
-        self.srcstable.cols.line.create_index(kind='full')
+        self.smcstable.cols.pclo.create_index(kind='full')
+        self.smcstable.cols.pchi.create_index(kind='full')
         self.srcstable.flush()
-
-
+        self.srcstable.cols.addrlo.create_index(kind='full')
+        self.srcstable.cols.addrhi.create_index(kind='full')
+        self.srcstable.cols.line.create_index(kind='full')
         self.smcstable.flush()
         self.h5file.flush()
 
@@ -1356,44 +1390,20 @@ class WriteSearch():
             cols = o.split()
             if len(cols) == 4:
                 (addr, size, typ, name) = cols
-                addr = int(addr, 16)
-                size = int(size, 16)
+                addr = long(addr, 16)
+                size = long(size, 16)
                 r['fname'] = name
                 r['startaddr'] = addr
+                r['startaddrlo'] = utils.addr_lo(addr)
+                r['startaddrhi'] = utils.addr_hi(addr)
                 r['endaddr'] = addr + size
+                r['endaddrlo'] = utils.addr_lo(addr + size)
+                r['endaddrhi'] = utils.addr_hi(addr + size)
                 r.append()
-        self.funcstable.cols.startaddr.create_index(kind='full')
-        self.funcstable.cols.endaddr.create_index(kind='full')
+        self.funcstable.cols.startaddrlo.create_index(kind='full')
+        self.funcstable.cols.endaddrlo.create_index(kind='full')
+        self.funcstable.cols.startaddrhi.create_index(kind='full')
+        self.funcstable.cols.endaddrhi.create_index(kind='full')
+
         self.funcstable.flush()
         self.h5file.flush()
-
-
-        #     if len(cols) == 3 and dta.search(o):
-        #         if last_name is not None:
-        #             r['fname'] = last_name
-        #             r['startaddr'] = last_addr
-        #             r['endaddr'] = last_addr + last_size
-        #             r.append()
-        #         last_addr = None
-        #         last_name = None
-        #         last_size = None
-        #         last_typ = None
-        #     elif len(cols) == 4:
-        #         (addr, size, typ, name) = cols
-        #         size = int(size, 16)
-        #         addr = int(addr, 16)
-        #         typ = typ.lower()
-        #         if last_name is not None: # then last ends were next begins
-        #             r['fname'] = last_name
-        #             r['startaddr'] = last_addr
-        #             r['endaddr'] = addr
-        #             r.append()
-        #         last_name = name
-        #         last_addr = addr
-        #         last_size = size
-        #         last_typ = typ
-        # if last_name is not None:
-        #     r['fname'] = last_name
-        #     r['startaddr'] = last_addr
-        #     r['endaddr'] = last_addr + last_size
-        #     r.append()

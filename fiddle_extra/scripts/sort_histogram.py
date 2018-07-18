@@ -39,8 +39,8 @@ if __name__ == "__main__":
             self.dest_lo = r.group(1)
             self.dest_hi = r.group(2)
 
-            self.numbytes = int(line[5][1:-1])
-            self.repeat = int(line[6])
+            self.numbytes = long(line[5][1:-1])
+            self.repeat = long(line[6])
             rest = (" ".join(line[8:])).split("--")
             self.asm = rest[1].strip()
             self.source = rest[2].strip()

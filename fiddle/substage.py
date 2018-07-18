@@ -71,8 +71,12 @@ class MemoryRegionInfo(tables.IsDescription):
 
 class MemoryRegionAddrs(tables.IsDescription):
     short_name = tables.StringCol(255)
-    startaddr = tables.UInt32Col()
-    endaddr = tables.UInt32Col()
+    startaddr = tables.UInt64Col()
+    startaddrlo = tables.UInt32Col()
+    startaddrhi = tables.UInt32Col()
+    endaddr = tables.UInt64Col()
+    endaddrlo = tables.UInt32Col()
+    endaddrhi = tables.UInt32Col()
 
 
 class SubstageRelocInfo(tables.IsDescription):
@@ -114,8 +118,12 @@ class SubstageEntry(tables.IsDescription):
 
 class SubstageWriteIntervals(tables.IsDescription):
     substagenum = tables.UInt8Col()
-    minaddr = tables.UInt32Col()
-    maxaddr = tables.UInt32Col()
+    minaddr = tables.UInt64Col()
+    minaddrlo = tables.UInt32Col()
+    minaddrhi = tables.UInt32Col()
+    maxaddr = tables.UInt64Col()
+    maxaddrlo = tables.UInt32Col()
+    maxaddrhi = tables.UInt32Col()
 
 
 class SubstagesInfo():
@@ -172,9 +180,9 @@ class SubstagesInfo():
 
     def create_dbs(self,  trace):
         self.process_trace = trace
+        self.use_old = False
         self.open_dbs(trace)
         # if create_policy and not self.mmap_created:
-        self.mmap_created = trace
         if self.valid:
             self._create_var_table()
             self.populate_substage_policy_tables()
@@ -182,7 +190,7 @@ class SubstagesInfo():
             self.write_substages_file()
             self.populate_contents_table()
             self.populate_write_interval_table()
-        if self.valid:
+        if self.valid and not self.use_old:
             print "-----------imported following policy ---------"
             try:
                 self.print_substage_tables()
@@ -192,7 +200,6 @@ class SubstagesInfo():
                 pass
 
             print "-------------------------------------------"
-
 
     def _create_var_table(self, substage=-1):
         fields = ["startaddr", "size", "kind", "name"]
@@ -211,8 +218,12 @@ class SubstagesInfo():
         for r in reader:
             if r['name'] is not None:
                 row['name'] = r['name'].strip()
-                row['startaddr'] = int(r['startaddr'].strip(), 16)
-                row['endaddr'] = row['startaddr'] + int(r['size'].strip(), 16)
+                row['startaddr'] = long(r['startaddr'].strip(), 16)
+                row['startaddrlo'] = utils.addr_lo(long(row['startaddr']))
+                row['startaddrhi'] = utils.addr_hi(long(row['startaddr']))
+                row['endaddr'] = row['startaddr'] + long(r['size'].strip(), 16)
+                row['endaddrlo'] = utils.addr_lo(long(row['endaddr']))
+                row['endaddrhi'] = utils.addr_hi(long(row['endaddr']))
                 row['rawkind'] = r['kind'].strip()
                 k = row['rawkind'].lower()
                 if ('t' == k) or ('w' == k):
@@ -235,7 +246,6 @@ class SubstagesInfo():
                                                                           r['rawkind'],
                                                                           r['substage'])
 
-
     def get_intervals_for_substage(self, substage, intervals):
         stage_intervals = intervals[substage]
         other_intervals = intervaltree.IntervalTree()
@@ -249,10 +259,10 @@ class SubstagesInfo():
         divided_intervals = {i: intervaltree.IntervalTree() for i in stages}
         for r in table.iterrows():
             n = r["substagenum"]
-            divided_intervals[n].add(intervaltree.Interval(r["minaddr"], r["maxaddr"]))
+            divided_intervals[n].add(intervaltree.Interval(long(r["minaddr"]), long(r["maxaddr"])))
             if self.interval_type == self.CUMULATIVE:
                 for i in range(n + 1, len(stages)):
-                    divided_intervals[i].add(intervaltree.Interval(r["minaddr"], r["maxaddr"]))
+                    divided_intervals[i].add(intervaltree.Interval(long(r["minaddr"]), long(r["maxaddr"])))
         for i in divided_intervals.itervalues():
             i.merge_overlaps()
         return divided_intervals
@@ -272,14 +282,14 @@ class SubstagesInfo():
     def lookup_symbol_interval(self, name, num):
         (startaddr, endaddr) = db_info.get(self.stage).mmap_var_loc(name)
         reloc_names = db_info.get(self.stage).reloc_names_in_substage(num)
-        varloc = intervaltree.Interval(startaddr, endaddr)
+        varloc = intervaltree.Interval(long(startaddr), long(endaddr))
         for (rname, rbegin,
              rsize, roffset) in db_info.get(self.stage).reloc_info_by_cardinal(reloc_names):
-            relrange = intervaltree.Interval(rbegin, rbegin + rsize)
+            relrange = intervaltree.Interval(long(rbegin), long(rbegin + rsize))
             if relrange.contains_interval(varloc):
                 offset = roffset
-                varloc = intervaltree.Interval(varloc.begin + offset,
-                                               varloc.end + offset)
+                varloc = intervaltree.Interval(long(varloc.begin + offset),
+                                               long(varloc.end + offset))
         return varloc
 
     @classmethod
@@ -346,12 +356,12 @@ class SubstagesInfo():
     def get_function_lineno(cls, fn, path, last=False):
         if last:
             out = run_cmd.Cmd().run_cmd("wc -l %s | awk '{print ($1);}'" % (path))
-            return int(out)
+            return long(out)
         out = run_cmd.Cmd().run_cmd("egrep -no ' > %s( |$)' %s" % (fn, path))
         if len(out) == 0:
             return None
         else:
-            return int(out.split(":")[0])
+            return long(out.split(":")[0])
 
     def get_raw_files(self, noprepare):
         stage = self.stage
@@ -442,11 +452,7 @@ class SubstagesInfo():
         return intervals
 
     def fun_info(self, fun):
-        #res = db_info.get(self.stage).function_locations(fun)
-        #if len(res) == 0:
         return utils.get_symbol_location_start_end(fun, self.stage)
-        #else:
-        #    return res[0]
 
     def calculate_framac_intervals(self, substages):
 
@@ -458,8 +464,8 @@ class SubstagesInfo():
                 f = r['functionname']
                 (lopc, hipc) = self.fun_info(f)
                 res = db_info.get(self.stage).write_interval_info(tracename, lopc, hipc)
-                intervals[num] += intervaltree.IntervalTree([intervaltree.Interval(r[0],
-                                                                                   r[1])
+                intervals[num] += intervaltree.IntervalTree([intervaltree.Interval(long(r[0]),
+                                                                                   long(r[1]))
                                                              for r in res])
 
         return intervals
@@ -495,17 +501,19 @@ class SubstagesInfo():
         self.populate_substage_info_table(substage_info)
         self.populate_policy_table(substage_info, mmap_info)
 
-    def print_regions(self, info, addr):
+    def print_regions(self):
         lines = []
-        for i in info.iterrows():
+        info = self.substage_mmap_info_table
+        addr = self.substage_mmap_addr_table
+        for i in info.read_sorted('short_name'):
             if not i['do_print']:
                 continue
             name = i['short_name']
             longname = i['name']
             longname = ' (%s)' % longname if longname else ''
             addrs = []
-            numaddrs = - 0
-            for a in [r for r in addr.read_sorted('startaddr') if r['short_name'] == name]:
+            numaddrs = 0
+            for a in [r for r in addr.read_sorted('startaddrlo') if r['short_name'] == name]:
                 if numaddrs > 7:
                     addrs.append('...')
                     break
@@ -522,8 +530,8 @@ class SubstagesInfo():
     def print_substage_tables(self):
         self.h5mmap.flush()
         print '----------regions----------'
-        self.print_regions(self.substage_mmap_info_table,
-                           self.substage_mmap_addr_table)
+        self.print_regions()
+
         print '----------substages----------'
         substages = self._substage_numbers()
         self.substage_info_table.flush_rows_to_index()
@@ -645,7 +653,6 @@ class SubstagesInfo():
                 if not found:
                     raise Exception("could not find symbol named %s" % v)
         policy_table.flush()
-
         policy_table.cols.substagenum.reindex()
         policy_table.cols.short_name.reindex()
         policy_table.flush()
@@ -675,6 +682,7 @@ class SubstagesInfo():
                 r['substagenum'] = n
                 r['reloc_name'] = relname
                 r.append()
+        reloc_table.flush()
         reloc_table.cols.reloc_name.reindex()
         reloc_table.cols.substagenum.reindex()
         reloc_table.flush()
@@ -690,11 +698,10 @@ class SubstagesInfo():
             info_row['functionname'] = s.fn
             info_row['substage_type'] = getattr(substage_types, s.substage_type)
             info_row.append()
+        self.substage_info_table.flush()
         self.substage_info_table.cols.substagenum.reindex()
         self.substage_info_table.cols.functionname.reindex()
-        self.substage_info_table.flush()
         self.h5mmap.flush()
-
 
     def populate_mmap_tables(self, mmap_info):
         info_table = self.substage_mmap_info_table
@@ -702,7 +709,6 @@ class SubstagesInfo():
         if addr_table.nrows > 0 or info_table.nrows > 0:
             return
         info_row = info_table.row
-        addr_row = addr_table.row
         for (short_name, region) in mmap_info.regions.iteritems():
             info_row['short_name'] = short_name
             info_row['parent_name'] = region.parent.short_name if region.parent else ''
@@ -714,18 +720,27 @@ class SubstagesInfo():
                 info_row['do_print'] = False
             info_row['reclassifiable'] = region.reclassifiable
             info_row.append()
+        info_table.flush()
+        info_table.cols.short_name.reindex()
+        info_table.cols.parent_name.reindex()
+
+        addr_row = addr_table.row
+        for (short_name, region) in mmap_info.regions.iteritems():
             for a in region.addresses:
                 addr_row['short_name'] = short_name
                 addr_row['startaddr'] = a.begin
+                addr_row['startaddrlo'] = utils.addr_lo(a.begin)
+                addr_row['startaddrhi'] = utils.addr_hi(a.begin)
                 addr_row['endaddr'] = a.end
+                addr_row['endaddrlo'] = utils.addr_lo(a.end)
+                addr_row['endaddrhi'] = utils.addr_hi(a.end)
                 addr_row.append()
-        info_table.cols.short_name.reindex()
-        info_table.cols.parent_name.reindex()
-        info_table.flush()
-        addr_table.cols.short_name.reindex()
-        addr_table.cols.startaddr.reindex()
-        addr_table.cols.endaddr.reindex()
         addr_table.flush()
+        addr_table.cols.short_name.reindex()
+        addr_table.cols.startaddrlo.reindex()
+        addr_table.cols.startaddrhi.reindex()
+        addr_table.cols.endaddrlo.reindex()
+        addr_table.cols.endaddrhi.reindex()
         self.h5mmap.flush()
 
     def print_intervals(self):
@@ -738,7 +753,7 @@ class SubstagesInfo():
             name = names[num]
             print "%s intervals for substage %d" % (name, num)
             num = 0
-            for a in [r for r in table.read_sorted('minaddr') if r['substagenum'] == num]:
+            for a in [r for r in table.read_sorted('minaddrlo') if r['substagenum'] == num]:
                 print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
                 if num > 10:
                     print "..."
@@ -788,10 +803,9 @@ class SubstagesInfo():
                                        % self.stage.stagename)
         try:
             self.h5mmapgroup = self.h5mmap.create_group("/",  self.mmapgroupname(), "")
-            self.mmap_created = True
         except tables.exceptions.NodeError as e:
             self.h5mmapgroup = self.h5mmap.get_node('/%s' % self.mmapgroupname())
-            self.mmap_created = False
+            self.use_old = True
 
         if not hasattr(self.h5mmapgroup, self.mmap_info_table_name):
             self.substage_mmap_info_table = self.h5mmap.create_table(
@@ -807,8 +821,10 @@ class SubstagesInfo():
                 "/" + self.mmapgroupname(), self.mmap_addr_table_name,
                 MemoryRegionAddrs, "")
             self.substage_mmap_addr_table.cols.short_name.create_index(kind="full")
-            self.substage_mmap_addr_table.cols.startaddr.create_index(kind="full")
-            self.substage_mmap_addr_table.cols.endaddr.create_index(kind="full")
+            self.substage_mmap_addr_table.cols.startaddrhi.create_index(kind="full")
+            self.substage_mmap_addr_table.cols.startaddrlo.create_index(kind="full")
+            self.substage_mmap_addr_table.cols.endaddrlo.create_index(kind="full")
+            self.substage_mmap_addr_table.cols.endaddrhi.create_index(kind="full")
         else:
             self.substage_mmap_addr_table = getattr(self.h5mmapgroup, self.mmap_addr_table_name)
 
@@ -851,8 +867,10 @@ class SubstagesInfo():
                                                       self._var_tablename(),
                                                       addr_space.VarEntry, "")
             vtab = self.var_table
-            vtab.cols.startaddr.create_index(kind='full')
-            vtab.cols.endaddr.create_index(kind='full')
+            vtab.cols.startaddrlo.create_index(kind='full')
+            vtab.cols.startaddrhi.create_index(kind='full')
+            vtab.cols.endaddrlo.create_index(kind='full')
+            vtab.cols.endaddrhi.create_index(kind='full')
             vtab.cols.substage.create_index(kind='full')
 
     def allowed_writes(self, substage):
@@ -867,8 +885,8 @@ class SubstagesInfo():
             else:
                 query = 'short_name == "%s"' % region['short_name']
                 for r in self.substage_mmap_addr_table.where(query):
-                    iis.add(intervaltree.Interval(r['startaddr'],
-                                                  r['endaddr']))
+                    iis.add(intervaltree.Interval(long(r['startaddr']),
+                                                  long(r['endaddr'])))
         iis.merge_overlaps()
         iis.merge_equals()
         return iis
@@ -901,25 +919,24 @@ class SubstagesInfo():
         for n in snums:
             allowed_writes = self.allowed_writes(n)
             for r in db_info.get(self.stage).get_substage_writes(n):
-                size = r['reportedsize']
+                size = long(r['reportedsize'])
                 if size < 0:
-                    end = r['dest']
+                    end = long(r['dest'])
                     start = end + size  # + 1
                 else:
-                    start = r['dest']
+                    start = long(r['dest'])
                     end = start + size  # - 1
                 if start == end:
                     res = allowed_writes.search(start)
                 else:
                     res = allowed_writes.search(start, end)
                 if not len(res) == 1:
-                    write = r['relocatedpc']
+                    write = long(r['relocatedpc'])
                     print "Substage %d: invalid write by pc 0x%x to addr (%x,%x)" % (n,
                                                                                      write,
                                                                                      start,
                                                                                      end)
                     violation = True
-                    #exit(0)
         if not violation:
             print "Policy was not violated :)"
             print "-------------------------------------------"

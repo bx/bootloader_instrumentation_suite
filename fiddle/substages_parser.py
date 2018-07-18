@@ -279,7 +279,7 @@ class MmapRegion():
         self._raw_reclassifiable = get_value(d, 'reclassifiable', parent_reclassifiable)
         self._csv = get_value(d, 'csv')
         if self._csv:
-            self._csv = Main.populate_from_config(self._csv)            
+            self._csv = Main.populate_from_config(self._csv)
         if parent and parent._csv:
             # if parent had csv, don't propigate csv definition
             self._csv = None
@@ -391,11 +391,11 @@ class MmapRegion():
                 return False
 
     def _add_addr_range(self, start, end):
-        if type(start) == int and type(end) == int:
+        if isinstance(start, (int, long)) and isinstance(end, (int, long)):
             if not end >= start:
                 raise Exception("start addr %x must be smaller than end address %x for %s" %
                                 (start, end, self.short_name))
-            self.addresses.add(intervaltree.Interval(start, end))
+            self.addresses.add(intervaltree.Interval(long(start), long(end)))
         else:
             raise Exception("One of start addr (%s) end addr (%s) is not an int for %s" %
                             (start, end, self.short_name))
@@ -428,7 +428,7 @@ class MmapRegion():
                     end = max(r.addresses).end
                     (offset,
                      mod) = db_info.get(self.stage).reloc_offset_and_mod_from_cardinal(relocindex)
-                    ret = intervaltree.Interval((start + offset) % mod, (end + offset) % mod)
+                    ret = intervaltree.Interval(long((start + offset) % mod), long((end + offset) % mod))
                 return ret
 
             suffixes = {
@@ -460,7 +460,7 @@ class MmapRegion():
             return val
         if config.Main.stage_from_name(split[0]):
             stage = config.Main.stage_from_name(split[0])
-            #if not stage.post_build_setup_done:            
+            #if not stage.post_build_setup_done:
             if len(split) > 1:
                 attr = split[1]
                 val = getattr(stage, attr, val)
@@ -472,16 +472,17 @@ class MmapRegion():
                 (start, val) = utils.get_section_location(re.sub(end, '', s), self.stage)
             elif s.endswith(start):
                 (val, end) = utils.get_section_location(re.sub(start, '', s), self.stage)
-            if type(val) == int and val < 0:
+            if isinstance(val, (int, long)) and val < 0:
                 val = s
             return val
         if not s.startswith('0x'):
             val = utils.get_symbol_location(s, self.stage)
+
             if val < 0:
                 val = s
             return val
         else:
-            val = int(s, 16)
+            val = long(s, 16)
         return val
 
     def _lookup_addr_value(self, s, allregions, values):
@@ -496,9 +497,9 @@ class MmapRegion():
             else:
                 a = s
             newstmt.append(a)
-        if len(newstmt) == 1 and type(newstmt[0]) == int:
+        if len(newstmt) == 1 and isinstance(newstmt[0], (int, long)):
             val = newstmt[0]
-        elif len(newstmt) > 1 and type(newstmt[0]) == int:
+        elif len(newstmt) > 1 and isinstance(newstmt[0], (int, long)):
             rest = newstmt
             results = rest[0]
             rest = rest[1:]
@@ -509,7 +510,7 @@ class MmapRegion():
                     rest = rest[2:]
                 else:
                     rest = []
-                if op in operators.iterkeys() and type(remainder) == int and type(results) == int:
+                if op in operators.iterkeys() and isinstance(remainder, (int, long)) and isinstance(results, (int, long)):
                     results = operators[op](results, remainder)
                 else:
                     results = None
@@ -520,15 +521,15 @@ class MmapRegion():
     def _resolve_addr_region(self, a, allregions, values):
         if type(a) == list:
             (start, end) = a
-            if type(start) == int and type(end) == int:
+            if isinstance(start, (int, long)) and isinstance(end, (int, long)):
                 self._add_addr_range(start, end)
                 return True
             else:
-                if type(start) is not int:
+                if not isinstance(start, (int, long)):
                     sint = self._lookup_addr_value(start, allregions, values)
                 else:
                     sint = start
-                if type(end) is not int:
+                if not isinstance(end, (int, long)):
                     eint = self._lookup_addr_value(end, allregions, values)
                 else:
                     eint = end
@@ -549,15 +550,15 @@ class MmapRegion():
             for p in parsed:
                 addr = p[parse_am37x_register_tables.TITable.ADDRESS]
                 if addr:
-                    addr = int(addr, 0)
+                    addr = long(addr, 0)
                 else:
                     continue
                 wid = p[parse_am37x_register_tables.TITable.WIDTH]
                 name = p[parse_am37x_register_tables.TITable.NAME]
                 # create a unique name without spaces
                 name = re.sub("[\s]", "", name) + (".%x" % addr)
-                size = int(wid) / 8 if wid else 4
-                i = intervaltree.Interval(addr, addr + size)
+                size = long(wid) / 8 if wid else 4
+                i = intervaltree.Interval(long(addr), long(addr + size))
                 addrs.add(i)
                 raw_perms = p[parse_am37x_register_tables.TITable.TYPE].lower()
                 perms = "readonly" if 'w' not in raw_perms else 'global'

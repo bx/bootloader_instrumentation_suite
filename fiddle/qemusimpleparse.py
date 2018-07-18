@@ -29,11 +29,11 @@ class QemuParsedObject():
         if type(time) == str:
             self.time = float(time)
             self.pid = int(pid)
-            self.size = int(size, 16)
-            self.pc = int(pc, 16)
-            self.lr = int(lr, 16)
-            self.dest = int(dest, 16)
-            self.cpsr = int(cpsr, 16)
+            self.size = long(size, 16)
+            self.pc = long(pc, 16)
+            self.lr = long(lr, 16)
+            self.dest = long(dest, 16)
+            self.cpsr = long(cpsr, 16)
         else:
             self.time = time
             self.pid = pid

@@ -133,8 +133,8 @@ class TITable():
         nonbaseaddr = re.sub("(0x)+", "", nonbaseaddr)  # remove any 'x's
         nonbaseoffset = re.sub("(0x)+", "", nonbaseoffset)
 
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16) if baseoffset else ''
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16) if baseoffset else ''
 
         rows = []
         index = 0
@@ -637,8 +637,8 @@ class TIPDF():
 
         variablefield = False
 
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16)
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16)
 
         rows = []
         index = 0
@@ -699,8 +699,8 @@ class TIPDF():
 
         variablefield = False
 
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16)
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16)
 
         rows = []
         index = 0
@@ -761,8 +761,8 @@ class TIPDF():
 
         variablefield = False
 
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16)
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16)
 
         rows = []
         index = 0
@@ -823,8 +823,8 @@ class TIPDF():
 
         variablefield = False
 
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16)
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16)
 
         rows = []
         index = 0
@@ -884,8 +884,8 @@ class TIPDF():
 
         variablefield = False
 
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16)
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16)
 
         rows = []
         index = 0
@@ -961,8 +961,8 @@ class TIPDF():
         offset = results[TITable.OFFSET][i]
         baseoffset = regexps[TITable.OFFSET].match(offset).groupdict()['base']
         baseaddr = regexps[aname].match(addrvalue).groupdict()['base']
-        baseaddr = int(re.sub("\s", "", baseaddr), 16)
-        baseoffset = int(re.sub("\s", "", baseoffset), 16)
+        baseaddr = long(re.sub("\s", "", baseaddr), 16)
+        baseoffset = long(re.sub("\s", "", baseoffset), 16)
         rg = None
         v = None
 
@@ -1605,7 +1605,7 @@ class TIPDF():
             ts = filter(lambda x: len(x) > 0, text.split(".."))
             name = ts[0].strip()
             title = "Table " + name
-            pageno = int(re.sub("[ .]*", "", ts[1].strip())) - 1
+            pageno = long(re.sub("[ .]*", "", ts[1].strip())) - 1
             if tables:
                 matches = filter(lambda t: t in name, tables)
                 if not matches:

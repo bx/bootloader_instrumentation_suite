@@ -52,11 +52,13 @@ class WriteLog():
 class FlushDatabase():
     def __init__(self, stage, for_now=False):
         self.stage = stage
+        self.called = False
         global now
         if now or for_now:
             self.do()
 
     def do(self):
+        self.called = True
         global db_written
         if db_written:
             return
@@ -68,14 +70,13 @@ class FlushDatabase():
         db_written = True
 
     def __call__(self):
-        global now
-        if not now:
+        if not self.called:
             self.do()
 
 
 class WriteDatabase():
     def __init__(self, time, pid, size, dest, pc, lr, cpsr, step,
-                 origpc, stage, substage, substage_name,doit=False):
+                 origpc, stage, substage, substage_name, doit=False):
         self.time = time
         self.pid = pid
         self.size = size
@@ -156,7 +157,7 @@ class HookWrite(gdb_tools.GDBPlugin):
         lr = bp.controller.get_reg_value('lr')
         cpsr = bp.controller.get_reg_value('cpsr')
         pid = 2
-        # gdb.post_event(WriteLog("\n<%x longwrite..." % writepc))
+        # gdb.post_event(WriteLog("\n<%x longwrite...\n" % writepc))
         if bp.relocated > 0:
             pid = 3
         for i in range(start, end, bp.writesize):

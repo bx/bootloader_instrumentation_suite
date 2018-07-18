@@ -297,7 +297,7 @@ class GDBTargetController(object):
                     return int(out.split(":")[1].strip(), 16)
                 except Exception as e:
                     pass
-        return int(gdb.execute("print/x $%s" % reg, to_string=True).split()[2], 16)
+        return long(gdb.execute("print/x $%s" % reg, to_string=True).split()[2], 16)
 
     def get_breaks(self, cls):
         if not isinstance(cls, list):
@@ -366,12 +366,12 @@ class GDBTargetController(object):
 
                 # halt should be false for write entries that match a longwrite writepc,
                 # but check just in case
-                if db_info.get(stage).is_pc_longwrite(pc):
-                    self.gdb_print("write pc 0x%x is part of a longwrite, not adding breakpoint.\n"
-                                   % pc)
-                    continue
-                i = i + 1
-                WriteBreak(pc, self, stage)
+            if db_info.get(stage).is_pc_longwrite(pc):
+                self.gdb_print("write pc 0x%x is part of a longwrite, not adding breakpoint.\n"
+                               % pc)
+                continue
+            i = i + 1
+            WriteBreak(pc, self, stage)
         self.gdb_print("actually inserted %s of %s write breakpoints\n" % (i, n))
 
     def until(self, args):
@@ -486,10 +486,9 @@ class GDBTargetController(object):
     def finalize(self, args):
         if len(self.stage_order) == 0:
             self.stage_order = [Main.stage_from_name(s) for s in self._stages.keys()]
-
-        substage_names = {s.stagename: self._stages[s.stagename].substages
-                          for s in self.stage_order
-                          if self._stages[s.stagename].substages is not None}
+         # substage_names = {s.stagename: self._stages[s.stagename].substages
+         #                  for s in self.stage_order
+         #                  if self._stages[s.stagename].substages is not None}
         stages = [s.stagename for s in self.stage_order]
         doit_manager.TaskManager(doit_manager.cmds.hook,
                                  self.test_instance_name,
@@ -905,6 +904,7 @@ class EndLongwriteBreak(TargetBreak):
 
 class LongwriteBreak(TargetBreak):
     def __init__(self, controller, r, stage):
+        # print "creating longwrite break"
         self.emptywrite = {'start': None,
                            'end': None,
                            'pc': None}

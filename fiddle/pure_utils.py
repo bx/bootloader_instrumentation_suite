@@ -43,7 +43,7 @@ def get_image_size(image):
     output = shell.run_cmd(cmd)
     output = output.split()
     if len(output) == 2:
-        return int(output[0], 0)
+        return long(output[0], 0)
     else:
         return -1
 
@@ -73,7 +73,7 @@ def get_section_headers(elf):
             "address": d["vaddr"],
             "offset": d["paddr"],
             "size": d['vsize'],
-            "filesize": d['size'], 
+            "filesize": d['size'],
             "flags": d['flags']
         }
         headers.append(h)
@@ -95,7 +95,8 @@ def get_section_location(elf, name):
 
 
 def get_symbol_location(elf, name, debug=False):
-    s = r2.get(elf, "isj")    
+    s = r2.get(elf, "isj")
+    name = u"%s" % name # convert to unicode
     for i in s:
         if i["name"] == name:
             if debug:

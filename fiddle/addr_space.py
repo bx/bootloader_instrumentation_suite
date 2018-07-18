@@ -28,6 +28,7 @@ import os
 from config import Main
 import csv
 from fiddle_extra import parse_am37x_register_tables
+import testsuite_utils as utils
 register_map = {}
 
 
@@ -48,8 +49,12 @@ perms = tables.Enum(vlist + ["rwx", "x", "rx"])
 
 class MemMapEntry(tables.IsDescription):
     name = tables.StringCol(512)
-    startaddr = tables.UInt32Col()
-    endaddr = tables.UInt32Col()
+    startaddr = tables.UInt64Col()
+    startaddrlo = tables.UInt32Col()
+    startaddrhi = tables.UInt32Col()
+    endaddr = tables.UInt64Col()
+    endaddrlo = tables.UInt32Col()
+    endaddrhi = tables.UInt32Col()
     perms = tables.EnumCol(perms, '?', base='uint8')
     kind = tables.EnumCol(mmap_type, 'other', base='uint8')
 
@@ -59,8 +64,12 @@ class MemMapEntry(tables.IsDescription):
 
 class VarEntry(tables.IsDescription):
     name = tables.StringCol(512)
-    startaddr = tables.UInt32Col()
-    endaddr = tables.UInt32Col()
+    startaddr = tables.UInt64Col()
+    startaddrlo = tables.UInt32Col()
+    startaddrhi = tables.UInt32Col()
+    endaddr = tables.UInt64Col()
+    endaddrlo = tables.UInt32Col()
+    endaddrhi = tables.UInt32Col()
     substage = tables.Int16Col()
     kind = tables.EnumCol(var_type, 'othervar', base='uint8')
     perms = tables.EnumCol(var_perms, 'rw', base='uint8')
@@ -69,11 +78,15 @@ class VarEntry(tables.IsDescription):
 
 class RegEntry(tables.IsDescription):
     name = tables.StringCol(512)
-    address = tables.UInt32Col()
+    address = tables.UInt64Col()
+    addresslo = tables.UInt32Col()
+    addresshi = tables.UInt32Col()
     width = tables.UInt8Col()
     reset = tables.StringCol(16)
     typ = tables.StringCol(16)
-    offset = tables.UInt32Col()
+    offset = tables.UInt64Col()
+    offsetlo = tables.UInt32Col()
+    offsethi = tables.UInt32Col()
     table = tables.StringCol(256)
 
 
@@ -88,7 +101,7 @@ class AddrSpaceInfo():
                     self.reg_csvs.append(Main.populate_from_config(i.path))
                 else:
                     self.csvs.append(Main.populate_from_config(i.path))
-            
+
         self.mem_tablename = "memmap"
         self.reg_tablename = "regs"
         self.h5group = None
@@ -125,7 +138,9 @@ class AddrSpaceInfo():
                 for entry in reader:
                     for f in fields:
                         if "addr" in f:
-                            entry[f] = int(entry[f], 0)
+                            entry[f] = long(entry[f], 0)
+                            entry[f+"lo"] = utils.addr_lo(long(entry[f]))
+                            entry[f+"hi"] = utils.addr_hi(long(entry[f]))
                         else:
                             entry[f] = entry[f].strip().lower()
                             if f == 'perms':
@@ -135,8 +150,10 @@ class AddrSpaceInfo():
                         r[f] = entry[f]
                     #r['substage'] = substage
                     r.append()
-        self.memmap_table.cols.startaddr.create_index(kind='full')
-        self.memmap_table.cols.endaddr.create_index(kind='full')
+        self.memmap_table.cols.startaddrlo.create_index(kind='full')
+        self.memmap_table.cols.startaddrhi.create_index(kind='full')
+        self.memmap_table.cols.endaddrlo.create_index(kind='full')
+        self.memmap_table.cols.endaddrhi.create_index(kind='full')
         self.memmap_table.flush()
 
     def _create_memmap_table(self):
@@ -162,16 +179,19 @@ class AddrSpaceInfo():
                                                                               r['table'])
 
     def _create_reg_table(self):
-        fields = ["startaddr", "size", "kind", "name"]
         for c in self.reg_csvs:
             (f, reader) = parse_am37x_register_tables.parsecsv(c)
             row = self.reg_table.row
             for r in reader:
-                row['address'] = int(r['address'].strip(), 16) if r['address'] else 0
-                row["offset"] = int(r["offset"].strip(), 16) if r["offset"] else 0
+                row['address'] = long(r['address'].strip(), 16) if r['address'] else 0
+                row['addresslo'] = utils.addr_lo(long(row['address']))
+                row['addresshi'] = utils.addr_hi(long(row['address']))
+                row["offset"] = long(r["offset"].strip(), 16) if r["offset"] else 0
+                row['offsetlo'] = utils.addr_lo(long(row['offset']))
+                row['offsethi'] = utils.addr_hi(long(row['offset']))
                 row["table"] = r["table"] if r["table"] else ""
                 row["typ"] = r["typ"] if r["typ"] else ""
-                row["width"] = int(r["width"]) if r["width"] else 0
+                row["width"] = long(r["width"]) if r["width"] else 0
                 row["reset"] = r["reset"] if r["reset"] else ""
                 row["name"] = r["name"] if r["name"] else ""
                 if row['address'] == 0:
@@ -179,7 +199,8 @@ class AddrSpaceInfo():
 
                 row.append()
             f.close()
-        self.reg_table.cols.address.create_index(kind='full')
+        self.reg_table.cols.addresslo.create_index(kind='full')
+        self.reg_table.cols.addresshi.create_index(kind='full')
         self.reg_table.flush()
 
     def _open_tables(self, loc):

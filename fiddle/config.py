@@ -143,7 +143,6 @@ class SpecialConfig(object):
                     v)
             self._update_raw(n, v)
 
-
     def __init__(self, name, info, software, typ):
         try:
             f = SpecialConfig.special_fields
@@ -158,10 +157,10 @@ class SpecialConfig(object):
             self._update_raw(k, v)
 
 
-
 class ConfigFile(SpecialConfig):
     special_fields = ["path", "command", "cached_path", "file_deps"]
     supported_types = ["default", "log", "config", "target", "mmap", "file_dep", "image", "output"]
+
     def __init__(self, name, info, software):
         SpecialConfig.__init__(self, name, info, software, "Files")
         self.setfield("type", "default")
@@ -179,10 +178,10 @@ class ConfigFile(SpecialConfig):
         if not hasattr(self, "relative_path") and not hasattr(self, "path"):
             self.setfield("relative_path", name)
 
-
         if not self.type in self.supported_types:
             raise ConfigException("File %s (%s) has unknown type '%s', should be one of %s"
                                   % (name, software.name, self.type, self.supported_types))
+
 
 class Reloc(SpecialConfig):
     def __init__(self, name, info, stage):
@@ -202,8 +201,9 @@ class Longwrite(SpecialConfig):
 
 class ExecConfig(SpecialConfig):
     special_fields = ["command", "commands"]
+
     def __init__(self, cfgs, software, kind):
-        if not "commands" in cfgs.keys():
+        if "commands" not in cfgs.keys():
             cfgs["commands"] = []
         SpecialConfig.__init__(self, "", cfgs, software, kind)
         self.kind = kind
@@ -298,7 +298,7 @@ class ConfigObject(object):
             return item
         do_again = False
         final = item
-        # print "--formatting %s, %s, %s" % (item, recurse, recurse < 0)
+#        print "--formatting %s, %s, %s" % (item, recurse, recurse < 0)
 
         def eval_format(s):
             try:
@@ -814,7 +814,7 @@ class TargetStage(ConfigObject):
                 val = getattr(self, i)
                 if type(val) == str:
                     try:
-                        val = int(val)
+                        val = long(val)
                     except ValueError:
                         continue
                     setattr(self, i, val)
@@ -854,7 +854,7 @@ class TargetStage(ConfigObject):
 # override int parser so it also parses hex
 def hexint(s, t):
     r'[-]?(0[xX][0-9a-fA-F]+|\d)([uU]|[lL]|[uU][lL]|[lL][uU])?'
-    t.value = int(t.value, 0)
+    t.value = long(t.value, 0)
     return t
 
 

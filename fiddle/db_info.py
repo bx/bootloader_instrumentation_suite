@@ -31,6 +31,7 @@ import database
 import re
 import intervaltree
 import traceback
+import testsuite_utils as utils
 
 _singletons = {}
 _mmapdb = None
@@ -281,12 +282,15 @@ class DBInfo():
             or (rangetype == (staticanalysis.LongWriteRangeType.enum().sourcestr))
 
     def pc_writes_info(self, pc):
-        fields = ['pc', 'thumb', 'reg0', 'reg1', 'reg2',
+        fields = ['pc', 'pclo', 'pchi', 'thumb', 'reg0', 'reg1', 'reg2',
                   'reg3', 'reg4', 'writesize', 'halt']
 
         return {f: r[f] for f in fields
                 for r in
-                pytable_utils.query(self._sdb.db.writestable, "pc == 0x%x" % pc)}
+                pytable_utils.query(self._sdb.db.writestable,
+                                    "(pclo == 0x%x) & (pchi == 0x%x)" %
+                                    (utils.addr_lo(pc),
+                                     utils.addr_hi(pc)))}
 
     def stage_exits(self):
         return [(r['addr'], r['line'], r['success'])
@@ -296,17 +300,25 @@ class DBInfo():
         return self._sdb.db.writestable.nrows
 
     def skip_pc(self, pc):
-        query = "(pc <= 0x%x) & (0x%x < resumepc)" % (pc, pc)
+        query = "(pclo <= 0x%x) & (pchi <= 0x%x) & " \
+            "(0x%x < resumepclo) & (0x%x <= resumepchi)" \
+            % (utils.addr_lo(pc), utils.addr_hi(pc),
+               utils.addr_lo(pc), utils.addr_hi(pc))
         return pytable_utils.has_results(self._sdb.db.skipstable, query)
 
     def skip_info(self, pc):
-        query = "pc == 0x%x" % (pc)
+        query = "(pclo == 0x%x) & (pchi == 0x%x)" % \
+            (utils.addr_lo(pc),
+             utils.addr_hi(pc))
+
         return [{"resumepc": r["resumepc"],
                  "thumb": r["thumb"]}
                 for r in pytable_utils.query(self._sdb.db.skipstable, query)]
 
     def is_pc_longwrite(self, pc):
-        query = "0x%x == writeaddr" % pc
+        query = "(0x%x == writeaddrlo) & (0x%x == writeaddrhi)" % \
+            (utils.addr_lo(pc),
+             utils.addr_hi(pc))
         return pytable_utils.has_results(self._sdb.db.longwritestable, query)
 
     def write_info(self):
@@ -320,7 +332,10 @@ class DBInfo():
             for f in fields:
                 d[f] = r[f]
             return d
-        query = "pc == 0x%x" % pc
+        query = "(pclo == 0x%x) & (pchi == 0x%x)" % \
+            (utils.addr_lo(pc),
+             utils.addr_hi(pc))
+
         return [writes_dict(r) for r in pytable_utils.query(self._sdb.db.writestable, query)]
 
     def src_write_info(self, pc):
@@ -330,8 +345,10 @@ class DBInfo():
             for f in fields:
                 d[f] = r[f]
             return d
-
-        query = "addr == 0x%x" % pc
+        query = "(addrlo == 0x%x) & (addrhi == 0x%x)" % \
+            (utils.addr_lo(pc),
+             utils.addr_hi(pc))
+        # query = "addr == 0x%x" % pc
         return [srcs_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
 
     def add_trace_write_entry(self, time, pid, size,
@@ -369,12 +386,14 @@ class DBInfo():
     def generate_write_range_file(self, out, out2):
         self._tdb._reopen(append=True)
         self._sdb._reopen(append=True)
-        self._tdb.db.histogram()
+        # self._tdb.db.histogram()
         self._tdb.db.histograminfo(out, out2)
 
     def consolidate_trace_write_table(self):
         self._tdb.db.histogram()
-        self._tdb.db.consolidate_write_table()
+
+    def update_static_entries(self):
+        self._sdb.db.update_from_trace(self._tdb.db.writestable)
 
     def flush_tracedb(self):
         if self._tdb:
@@ -399,13 +418,11 @@ class DBInfo():
     def _get_writerangetable(self):
         return self._tdb.db.writerangetable_consolidated
 
-    # def function_locations(self, name):
-    #     return [(r['startaddr'], r['endaddr'])
-    #             for r in pytable_utils.get_rows(self._sdb.db.funcstable, 'fname == b"%s"' % name)]
-
     def pc_write_size(self, pc):
         res = pytable_utils.query(self._sdb.db.writestable,
-                                  "pc == 0x%x" % pc)
+                                  "(pclo == 0x%x) & (pchi == 0x%x)" %
+                                  (utils.addr_lo(pc),
+                                   utils.addr_hi(pc)))
         try:
             r = next(res)
             return r['writesize']
@@ -413,15 +430,28 @@ class DBInfo():
             return 0
 
     def addr_in_srcs_table(self, pc):
-        return pytable_utils.has_results(self._sdb.db.srcstable, "addr == 0x%x" % pc)
+        return pytable_utils.has_results(self._sdb.db.srcstable,
+                                         "(addrlo == 0x%x) & (addrhi == 0x%x)" %
+                                         (utils.addr_lo(pc), utils.addr_hi(pc)))
 
     def addr_in_funcs_table(self, pc):
         return pytable_utils.has_results(self._sdb.db.funcstable,
-                                         "(startaddr <= 0x%x) & (0x%x < endaddr)" % (pc, pc))
+                                         "(startaddrlo <= 0x%x) & (startaddrhi <= 0x%x) & (0x%x < endaddrlo) & (0x%x <= endaddrhi)"
+                                         % (utils.addr_lo(pc),
+                                            utils.addr_hi(pc),
+                                            utils.addr_lo(pc),
+                                            utils.addr_hi(pc)))
 
     def addr2functionname(self, addr):
+        # print "%x -> %x %x" % (addr, utils.addr_hi(addr), utils.addr_lo(addr))
+        addr = long(addr)
         rs = pytable_utils.get_rows(self._sdb.db.funcstable,
-                                   ("(startaddr <= 0x%x) & (0x%x < endaddr)" % (addr, addr)))
+                                    ("(startaddrlo <= 0x%x) & (startaddrhi <= 0x%x) & (0x%x < endaddrlo) & (0x%x <= endaddrhi)" %
+                                     (utils.addr_lo(addr),
+                                      utils.addr_lo(addr),
+                                      utils.addr_hi(addr),
+                                      utils.addr_hi(addr))))
+
         if rs:
             return rs[0]['fname']
         else:
@@ -429,7 +459,9 @@ class DBInfo():
 
 
     def disasm_and_src_from_pc(self, pc):
-        r = pytable_utils.query(self._sdb.db.srcstable, "addr == 0x%x" % pc)
+        r = pytable_utils.query(self._sdb.db.srcstable, "(addrlo == 0x%x) & (addrhi == 0x%x)" %
+                                (utils.addr_lo(long(pc)), utils.addr_hi(long(pc))))
+
         r = next(r)
         return (r["disasm"], r["src"])
 
@@ -437,6 +469,8 @@ class DBInfo():
         r = self._sdb.db.srcstable.row
         r['thumb'] = thumb
         r['addr'] = addr
+        r['addrlo'] = utils.addr_lo(addr)
+        r['addrhi'] = utils.addr_hi(addr)
         r['ivalue'] = ivalue
         r['ilength'] = len(ivalue)
         r['mne'] = (disasm.split())[0]
@@ -454,7 +488,11 @@ class DBInfo():
         wt = self._get_writestable(hwname)
         if "framac" in hwname:
             return [(r['destlo'], r['desthi']) for r in
-                    pytable_utils.get_rows('(%d <= writepc) & (writepc < %d)' % (pclo, pchi))]
+                    pytable_utils.get_rows('(%d <= writepclo) & (%d <= writepchi) & (writepclo < %d) & (writepchi <= %d)' % \
+                                           (utils.addr_lo(pclo),
+                                            utils.addr_hi(pclo),
+                                            utils.addr_lo(pchi),
+                                            utils.addr_hi(pchi)))]
         else:
             fns = substage_entries
             substages = substage_names
@@ -462,16 +500,17 @@ class DBInfo():
             intervals = {n: intervaltree.IntervalTree() for n in substages}
 
             for r in wt.read_sorted('index'):
-                pc = r['pc']
+                pc = long(r['pc'])
                 if num < len(fns) - 1:
                     # check if we found the entrypoint to the next stage
                     (lopc, hipc) = substage_entries[num + 1]
                     if (lopc <= pc) and (pc < hipc):
                         num += 1
                 if num in substages:
-                    start = r['dest']
-                    end = start + pytable_utils.get_rows(wt, 'pc == %d' %
-                                                         r['pc'])[0]['writesize']
+                    start = long(r['dest'])
+                    end = start + pytable_utils.get_rows(wt, '(pclo == %d) & (pchi == %d)' %
+                                                         utils.addr_lo(long(r['pc'])),
+                                                         utils.addr_hi(long(r['pc']))[0]['writesize'])
                     intervals[num].add(intervaltree.Interval(start, end))
             return intervals
 
@@ -482,10 +521,15 @@ class DBInfo():
                 lo = i.begin
                 hi = i.end
                 r['minaddr'] = lo
+                r['minaddrlo'] = utils.addr_lo(lo)
+                r['minaddrhi'] = utils.addr_hi(lo)
                 r['maxaddr'] = hi
+                r['maxaddrlo'] = utils.addr_lo(hi)
+                r['maxaddrhi'] = utils.addr_hi(hi)
                 r['substagenum'] = num
                 r.append()
         table.flush()
+
 
 def close():
     global _singletons

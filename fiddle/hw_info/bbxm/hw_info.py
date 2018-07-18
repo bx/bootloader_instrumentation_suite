@@ -1,7 +1,7 @@
 def get_relocation(Main, stage, name, RelocDescriptor, utils):
     infos = []
     elf = stage.elf
-    cc = Main.cc    
+    cc = Main.cc
     r = RelocDescriptor("clk_code", None, None, None, None,
                         None, stage, True, "go_to_speed")
     dstaddr = r.dstaddr
@@ -13,14 +13,14 @@ def get_relocation(Main, stage, name, RelocDescriptor, utils):
     output = Main.shell.run_multiline_cmd(cmd)
     output = output[0].strip()
     output = output.split(';')[1].strip()
-    dstaddr = int(output, 16)
+    dstaddr = long(output, 16)
     # now get value at this address
     cmd = "%sgdb --cd=%s " \
           "-ex 'x/wx 0x%x' --batch --nh --nx  %s" % (cc, srcdir,
                                                      dstaddr, elf)
     output = Main.shell.run_multiline_cmd(cmd)
     output = output[0].strip()
-    dstaddr = int(output.split(':')[1].strip(), 0)
+    dstaddr = long(output.split(':')[1].strip(), 0)
 
     r.set_reloffset(dstaddr - r.cpystartaddr)
     if name == "clk_code":
@@ -49,4 +49,3 @@ def get_relocation(Main, stage, name, RelocDescriptor, utils):
                             stage, False, name)
         r.set_reloffset(-1*reloffset)
         return r.get_row_information()
-
