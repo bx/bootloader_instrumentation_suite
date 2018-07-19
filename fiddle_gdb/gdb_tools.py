@@ -66,6 +66,7 @@ class TargetStageData(gdb.Command):
         self.policy_file = None
         self.regions_files = None
         self.substages_entrypoints = []
+        self.entry_break = None
 
     def init_with_test_instance(self, enable_policy):
         # update stage start/end info now that it has been calculated
@@ -331,6 +332,7 @@ class GDBTargetController(object):
         for i in range(0, len(substages)):
             self.gdb_print("Inserting beakpoint for substage '%s' (%s)\n" % (substages[i], i))
             SubstageEntryBreak(substages[i], i, self, stage)
+
     def insert_longwrites_breakpoints(self, stage):
         if any(map(lambda x: x == "LongwriteBreak", self.disabled_breakpoints)):
             return
@@ -478,7 +480,7 @@ class GDBTargetController(object):
     def prepare_stage(self, stage, cont=False):
         self.current_stage = stage
         s = StageStartBreak(self, stage)
-        if cont:
+        if cont and s.cont:
             self.disable_breakpoint(s, delete=False)
             s.continue_stage()
         return s
@@ -613,22 +615,27 @@ class GDBTargetController(object):
     def update_path(self, args):
         self._do_import()
 
-
     def go(self, args):
         if self.gone:
             return
         self.gone = True
+        gdb.events.exited.connect(self.gdb_exit)
         self.finalize(args)
         stage = self.stage_order[0]
-        gdb.events.exited.connect(self.gdb_exit)
         s = self.prepare_stage(stage, False)
         self.set_mode()
+        stage_entered = False
         try:
             if self.get_reg_value('pc', True) == s.breakpoint.companion.addr:
                 self.gdb_print("First stage already entered\n")
-                s.continue_stage()
+                stage_entered = True
         except gdb.error:
             pass
+        if stage_entered:
+            print "Calling breakpoint hook"
+            s.stop()
+            s.continue_stage()
+
         self.gdb_print("ready to go\n")
         if not args.prepare_only:
             if args.run_not_cont:
@@ -839,6 +846,7 @@ class StageStartBreak(TargetBreak):
         else:
             spec = realstart
         TargetBreak.__init__(self, spec, controller, True, stage)
+        self.cont = True
 
     def continue_stage(self):
         cont = self.controller

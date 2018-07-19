@@ -1207,12 +1207,12 @@ class WriteSearch():
                 srcr['mne'] = mne
                 srcr.append()
                 ws = self.writestable.row
-                r['thumb'] = thumb
-                r['pc'] = pc
-                r['pclo'] = utils.addr_lo(pc)
-                r['pchi'] = utils.addr_hi(pc)
-                r['writesize'] = w['reportedsize']
-                r['halt'] = False
+                ws['thumb'] = thumb
+                ws['pc'] = pc
+                ws['pclo'] = utils.addr_lo(pc)
+                ws['pchi'] = utils.addr_hi(pc)
+                ws['writesize'] = w['reportedsize']
+                ws['halt'] = False
                 ws.append
         self.srcstable.flush()
         self.srcstable.reindex()
