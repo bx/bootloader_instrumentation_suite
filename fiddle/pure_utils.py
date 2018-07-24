@@ -36,7 +36,12 @@ def file_md5(filename):
 
 
 def get_entrypoint(elf):
+    try:
+        return r2.entrypoint(elf)
+    except KeyError:
+        r2.gets(elf, "s")
     return r2.entrypoint(elf)
+
 
 def get_image_size(image):
     cmd = "/usr/bin/wc -c %s" % (image)

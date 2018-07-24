@@ -163,6 +163,7 @@ class GDBTargetController(object):
         self._setup = False
         self.calculate_write_dst = False
         self.isbaremetal = False
+        self.run_standalone = False
         self._kill = False
         self.bp_hooks = {}
         self.f_hooks = []
@@ -203,6 +204,8 @@ class GDBTargetController(object):
         p.add_argument('module', nargs='*')
         p = self.add_subcommand_parser("is_bare_metal")
         p.add_argument('baremetal', nargs='?', default=False)
+        p = self.add_subcommand_parser("standalone")
+        p.add_argument('run_standalone', nargs='?', default=True)
 
         self.hw = None
 
@@ -248,6 +251,14 @@ class GDBTargetController(object):
         else:
             self.isbaremetal = True
 
+    def standalone(self, args):
+        if args.run_standalone is not True:
+            self.run_standalone = False
+            print "NO STANDALONE"
+        else:
+            print "RUN STANDALONE"
+            self.run_standalone = True
+
     def setup_target(self, args):
         self._do_import()
 
@@ -263,6 +274,8 @@ class GDBTargetController(object):
             self._kill = False
 
     def set_mode(self):
+        if self.run_standalone:
+            return
         if self.isbaremetal:
             addr = self.get_reg_value('pc')
             (ts, arms, ds) = getattr(Main.raw.runtime.thumb_ranges, self.current_stage.stagename)()
@@ -314,6 +327,8 @@ class GDBTargetController(object):
         self.insert_stageend_breakpoints(stage)
 
     def insert_stageend_breakpoints(self, stage):
+        if self.run_standalone:
+            return
         s_info = self._stages[stage.stagename]
         end = s_info.stoppoint
         if end:
@@ -322,6 +337,8 @@ class GDBTargetController(object):
             s_info.endbreaks.append(StageEndBreak(addr, self, stage, success))
 
     def insert_substagestart_breakpoints(self, stage):
+        if self.run_standalone:
+            return
         if any(map(lambda x: "SubstageEntryBreak" == x, self.disabled_breakpoints)):
             return
         sname = stage.stagename
@@ -334,6 +351,8 @@ class GDBTargetController(object):
             SubstageEntryBreak(substages[i], i, self, stage)
 
     def insert_longwrites_breakpoints(self, stage):
+        if self.run_standalone:
+            return
         if any(map(lambda x: x == "LongwriteBreak", self.disabled_breakpoints)):
             return
 
@@ -341,18 +360,24 @@ class GDBTargetController(object):
             LongwriteBreak(self, r, stage)
 
     def insert_reloc_breakpoints(self, stage):
+        if self.run_standalone:
+            return
         if any(map(lambda x: x == "RelocBreak", self.disabled_breakpoints)):
             return
         for r in db_info.get(stage).reloc_info():
             RelocBreak(self, stage, r)
 
     def enable_write_breaks(self, stage, enable=True):
+        if self.run_standalone:
+            return
         for bp in self.breakpoints:
             b = bp.companion
             if isinstance(b, WriteBreak) or isinstance(b, LongwriteBreak):
                 self.disable_breakpoint(b, disable=not enable, delete=False)
 
     def insert_write_breakpoints(self, stage):
+        if self.run_standalone:
+            return
         if any(map(lambda x: x == "WriteBreak", list(self.disabled_breakpoints))):
             return
         i = 0
@@ -426,7 +451,10 @@ class GDBTargetController(object):
         gdb.flush()
 
     def stages(self, args):
-        self.stage_order = [Main.stage_from_name(s) for s in args.stage_name]
+        if self.run_standalone:
+            self.stage_order = []
+        else:
+            self.stage_order = [Main.stage_from_name(s) for s in args.stage_name]
 
     def startat(self, args):
         stagename = args.stage
@@ -486,24 +514,25 @@ class GDBTargetController(object):
         return s
 
     def finalize(self, args):
-        if len(self.stage_order) == 0:
-            self.stage_order = [Main.stage_from_name(s) for s in self._stages.keys()]
-         # substage_names = {s.stagename: self._stages[s.stagename].substages
-         #                  for s in self.stage_order
-         #                  if self._stages[s.stagename].substages is not None}
-        stages = [s.stagename for s in self.stage_order]
-        doit_manager.TaskManager(doit_manager.cmds.hook,
-                                 self.test_instance_name,
-                                 self.test_trace_name,
-                                 None, [], [], {}, [])
+        if self.run_standalone:
+            self.stage_order == []
+            self._stages = {}
+        else:
+            if len(self.stage_order) == 0:
+                self.stage_order = [Main.stage_from_name(s) for s in self._stages.keys()]
+            stages = [s.stagename for s in self.stage_order]
+            doit_manager.TaskManager(doit_manager.cmds.hook,
+                                     self.test_instance_name,
+                                     self.test_trace_name,
+                                     None, [], [], {}, [])
 
-        tmpdir = Main.raw.runtime.temp_target_src_dir
-        gdb.execute("dir %s" % tmpdir)
-        gdb.execute("set substitute-path %s %s" % (Main.target_software.root, tmpdir))
-        self.hw = Main.raw.runtime.trace.hw
-        for stage in self.stage_order:
-            s = self._stages[stage.stagename]
-            s.init_with_test_instance(True if s.stage.stagename in self.stages_with_policies else False)
+            tmpdir = Main.raw.runtime.temp_target_src_dir
+            gdb.execute("dir %s" % tmpdir)
+            gdb.execute("set substitute-path %s %s" % (Main.target_software.root, tmpdir))
+            self.hw = Main.raw.runtime.trace.hw
+            for stage in self.stage_order:
+                s = self._stages[stage.stagename]
+                s.init_with_test_instance(True if s.stage.stagename in self.stages_with_policies else False)
         for f in self.f_hooks:
             f(args)
 
@@ -584,7 +613,8 @@ class GDBTargetController(object):
         if not self._import_done:
             self._import_done = True
             global Main
-            from config import Main
+            if not self.run_standalone:
+                from config import Main
             global substage
             global doit_manager
             global substage
@@ -606,11 +636,16 @@ class GDBTargetController(object):
             import substage, staticanalysis, pure_utils, doit_manager, db_info
             import testsuite_utils as utils
             import unicorn_utils
-            self.cc = Main.cc
+            if not self.run_standalone:
+                self.cc = Main.cc
+                self.stage_order = [Main.stages[0]]  # default is first stage only
+                self._stages = {s.stagename: TargetStageData(s, self.bp_hooks)
+                                for s in Main.stages}
+            else:
+                self.cc = "gcc"
+                self.stages = {}
+                self.stage_order = []
             self.ia = staticanalysis.InstructionAnalyzer()
-            self.stage_order = [Main.stages[0]]  # default is first stage only
-            self._stages = {s.stagename: TargetStageData(s, self.bp_hooks)
-                            for s in Main.stages}
 
     def update_path(self, args):
         self._do_import()
@@ -621,7 +656,16 @@ class GDBTargetController(object):
         self.gone = True
         gdb.events.exited.connect(self.gdb_exit)
         self.finalize(args)
-        stage = self.stage_order[0]
+        if not self.run_standalone:
+            stage = self.stage_order[0]
+        else:
+            class LocalStage():
+                def __init__(self, elf):
+                    self.elf = elf
+                    self.entrypoint = pure_utils.get_entrypoint(elf)
+                    self.exitpc = -1
+                    self.stagename = "local"
+            stage = LocalStage(gdb.current_progspace().filename)
         s = self.prepare_stage(stage, False)
         self.set_mode()
         stage_entered = False
@@ -631,7 +675,7 @@ class GDBTargetController(object):
                 stage_entered = True
         except gdb.error:
             pass
-        if stage_entered:
+        if stage_entered and not self.run_standalone:
             print "Calling breakpoint hook"
             s.stop()
             s.continue_stage()
@@ -660,6 +704,8 @@ class TargetBreak(object):
     __metaclass__ = BreakpointRegistrar
 
     def __init__(self, spec, controller, needs_relocation, stage, **kwargs):
+        #if controller.run_standalone:
+        #else:
         self.stage = stage
         self.relocated = 0
         self.needs_relocation = needs_relocation
@@ -733,7 +779,7 @@ class TargetFinishBreakpoint(gdb.FinishBreakpoint, TargetBreak):
         self.final_events = []
         for (k, v) in kwargs.iteritems():
             setattr(self, k, v)
-        if controller.isbaremetal:
+        if controller.isbaremetal and not controller.run_standalone:
             pc = controller.get_reg_value("lr")
             (ts, arms, ds) = getattr(Main.raw.runtime.thumbranges, stage.stagename)()
             if not (ts.search(pc) or arms.search(pc)):
@@ -840,7 +886,10 @@ class StageStartBreak(TargetBreak):
         return realstart
 
     def __init__(self, controller, stage):
-        realstart = self.get_addr(controller, stage)
+        if controller.run_standalone:
+            realstart = stage.entrypoint
+        else:
+            realstart = self.get_addr(controller, stage)
         if not isinstance(realstart, str):
             spec = "*(0x%x)" % realstart
         else:

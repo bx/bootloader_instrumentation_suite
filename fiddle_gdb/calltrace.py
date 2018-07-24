@@ -224,7 +224,6 @@ class CallTrace(gdb_tools.GDBPlugin):
                                           ],
                                      parser_args=parser_options)
 
-
     def no_recursion(self, args):
         self.no_rec_funs.extend(args.recfns)
 
@@ -251,7 +250,6 @@ class CallTrace(gdb_tools.GDBPlugin):
                 nextstage = True
             else:
                 self.stage_logs[current] = l
-
 
     def blacklist(self, args):
         current = None

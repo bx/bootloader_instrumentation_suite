@@ -300,13 +300,13 @@ class Unicorn(gdb_tools.GDBPlugin):
             emu.emu_stop()
             return False
         pc = emu.reg_read(self.machine.pc)
-
+        print "syscall @ 0x%x" % pc
         orig_pc = pc
         # make sure PC points to syscall instruction
         r2.gets(self.stage.elf, "s 0x%x" % pc)
         i = r2.get(self.stage.elf, "pdj 1")[0]
         dis = i['disasm'].split()[0].lower()
-        if not dis in self.machine.syscall_mnus:
+        if dis not in self.machine.syscall_mnus:
             # try previous
             i2 = r2.get(self.stage.elf, "pdj -1")[0]
             dis = i2['disasm'].split()[0].lower()
@@ -315,13 +315,20 @@ class Unicorn(gdb_tools.GDBPlugin):
                 print (map(lambda x: "%s %x" % (x, emu.reg_read(self.machine.get_reg_id(x))),
                            ["ip0", "ip1", "lr"]))
                 # emu.reg_write(self.machine.pc, pc)
-                emu.reg_write(self.machine.pc, pc + i["size"])
-                return True
-            else:
-                pc = i["offset"]
-                emu.reg_write(self.machine.pc, pc + i["size"])
+                # emu.reg_write(self.machine.pc, pc)
+                # i3 = r2.get(self.stage.elf, "pdj 2")[1]
+                # emu.reg_write(self.machine.pc, orig_pc + i["size"])
+                #exit(1)
+                #emu.reg_write(self.machine.pc, i3["offset"])
 
+                # there seems to be a bug in unicorn where
+                # the pc read at this point doesn't point to the svc instr
+                exit(1)
+                return False
+            else:
+                pc = i2["offset"]
         (stack_top, stack_bottom) = self.machine.get_stack_position(emu)
+
         # if stack_bottom is not properly set, just copy in a page of the stack
         if stack_bottom <= stack_top:
             stack_bottom = stack_top + 1024
@@ -342,6 +349,7 @@ class Unicorn(gdb_tools.GDBPlugin):
 
         # instruct gdb to exec instruction at pc
         gdb.execute("set $%s = 0x%x" % (self.machine.pc_name, pc), to_string=True)
+        gdb.execute("x/2i $pc")
         gdb.execute("si")
 
         # copy reg values (results) from gdb to emu
@@ -352,6 +360,7 @@ class Unicorn(gdb_tools.GDBPlugin):
         # copy stack frame from gdb to emu
         frame = self.machine.read_memory(stack_top, stack_bottom - stack_top)
         emu.mem_write(stack_top, frame)
+
         return True
 
     def i_hook(self, emu, addr, size, u):
