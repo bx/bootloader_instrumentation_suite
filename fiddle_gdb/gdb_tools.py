@@ -619,6 +619,7 @@ class GDBTargetController(object):
             global doit_manager
             global substage
             global staticanalysis
+            global ia
             global pure_utils
             global db_info
             global utils
@@ -633,6 +634,7 @@ class GDBTargetController(object):
             import capstone
             import capstone.arm as caparm
             import r2_keeper as r2
+            import ia
             if not self.run_standalone:
                 import substage, staticanalysis, pure_utils, doit_manager, db_info
                 import testsuite_utils as utils
@@ -646,7 +648,7 @@ class GDBTargetController(object):
                 self.cc = "gcc"
                 self.stages = {}
                 self.stage_order = ["local"]
-            self.ia = staticanalysis.InstructionAnalyzer()
+            self.ia = ia.InstructionAnalyzer()
 
     def update_path(self, args):
         self._do_import()
