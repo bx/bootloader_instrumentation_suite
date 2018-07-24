@@ -636,8 +636,9 @@ class GDBTargetController(object):
             import r2_keeper as r2
             import ia
             if not self.run_standalone:
-                import substage, staticanalysis, pure_utils, doit_manager, db_info
+                import substage, staticanalysis, doit_manager, db_info
                 import testsuite_utils as utils
+            import pure_utils
             import unicorn_utils
             if not self.run_standalone:
                 self.cc = Main.cc
