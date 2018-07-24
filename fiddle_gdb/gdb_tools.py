@@ -633,8 +633,9 @@ class GDBTargetController(object):
             import capstone
             import capstone.arm as caparm
             import r2_keeper as r2
-            import substage, staticanalysis, pure_utils, doit_manager, db_info
-            import testsuite_utils as utils
+            if not self.run_standalone:
+                import substage, staticanalysis, pure_utils, doit_manager, db_info
+                import testsuite_utils as utils
             import unicorn_utils
             if not self.run_standalone:
                 self.cc = Main.cc
@@ -644,7 +645,7 @@ class GDBTargetController(object):
             else:
                 self.cc = "gcc"
                 self.stages = {}
-                self.stage_order = []
+                self.stage_order = ["local"]
             self.ia = staticanalysis.InstructionAnalyzer()
 
     def update_path(self, args):
