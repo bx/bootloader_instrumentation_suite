@@ -25,7 +25,7 @@ import os
 import re
 import sys
 # sys.path.append(os.path.join(sys.prefix, "lib/python2.7/site-packages"))
-import testsuite_utils as utils
+import pure_utils
 import gdb_tools
 
 open_log = None
@@ -159,8 +159,8 @@ class CallEntryBreak(gdb_tools.TargetBreak):
         spec = "*(0x%x)" % self.fnloc
         self.line = re.sub(":",
                            "::",
-                           utils.addr2line(self.fnloc,
-                                           stage)) if self.plugin._sourceinfo else ""
+                           pure_utils.addr2line(self.fnloc,
+                                                stage.elf)) if self.plugin._sourceinfo else ""
         gdb_tools.TargetBreak.__init__(self, spec, controller, True, stage)
 
     def _stop(self, bp, ret):
@@ -277,7 +277,7 @@ class CallTrace(gdb_tools.GDBPlugin):
             open_log = open(self.stage_logs[sname], 'w')
 
         self.results_written = False
-        functions = utils.get_c_function_names(stage)
+        functions = pure_utils.get_c_function_names(stage.elf)
         sname = stage.stagename
         hasblacklist = sname in self.blacklisted.iterkeys()
         for (name, addr) in functions:

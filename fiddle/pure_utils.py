@@ -43,6 +43,21 @@ def get_entrypoint(elf):
     return r2.entrypoint(elf)
 
 
+def get_c_function_names(elf, cc="/usr/bin/"):
+    cmd = '%sreadelf -W -s %s | grep FUNC 2>/dev/null' % (cc, elf)
+    output = shell.run_multiline_cmd(cmd)
+
+    results = []
+    for l in output:
+        cols = l.split()
+        if len(cols) > 7:
+            addr = cols[1]
+            name = cols[7]
+            results.append((name, long(addr, 16)))
+
+    return results
+
+
 def get_image_size(image):
     cmd = "/usr/bin/wc -c %s" % (image)
     output = shell.run_cmd(cmd)
@@ -108,3 +123,42 @@ def get_symbol_location(elf, name, debug=False):
                 print i
             return i["vaddr"]
     return -1
+
+
+def addr2functionname(addr, elf, debug=False):
+    old = r2.gets(elf, "s")
+    r2.get(elf, "s 0x%x" % addr)
+    s = r2.get(elf, "afi")
+    r2.get(elf, "s %s" % old)
+    def getname(i):
+        name = i["name"]
+        if i.name.startswith("sym."):
+            name = name[4:]
+    #print "addr2fn %x " % (addr)
+    for i in s:
+        if len(i) > 1:
+            print s
+            print "%x addr func" % addr
+            raise Exception
+        name = getname(i)
+
+        return name
+    return ""
+
+
+def addr2line(addr, elf, debug=False, fn=None):
+    if fn is None:
+        fn = addr2functionname(addr, elf, debug)
+    addr = get_symbol_location(elf, fn, debug)
+    old = r2.gets(elf, "s")
+    r2.get(elf, "s 0x%x" % addr)
+    s = r2.gets(elf, "CL")
+    r2.get(elf, "s %s" % old)
+    res = s.split()
+    d = r2.gets(elf, "pwd")
+    if debug and res:
+        print "addr2line %s%s:%s" % (d, res[1][2:], res[3])
+    if res:
+        return "%s%s:%s" % (d, res[1][2:], res[3])
+    else:
+        return ""

@@ -29,6 +29,7 @@ import db_info
 import r2_keeper as r2
 import json
 
+
 def addr2functionname(addr, stage, debug=False):
     elf = stage.elf
     old = r2.gets(elf, "s")
@@ -50,26 +51,32 @@ def addr2functionname(addr, stage, debug=False):
         return name
     return ""
 
+
 def get_symbol_location(name, stage, debug=False):
     elf = stage.elf
     return pure_utils.get_symbol_location(elf, name, debug)
 
+
 def addr2line(addr, stage, debug=False):
-    fn = db_info.get(stage).addr2functionname(addr)
-    addr = get_symbol_location(fn, stage)
     elf = stage.elf
-    old = r2.gets(elf, "s")
-    r2.get(elf, "s 0x%x" % addr)
-    s = r2.gets(elf, "CL")
-    r2.get(elf, "s %s" % old)
-    res = s.split()
-    d = r2.gets(elf, "pwd")
-    if debug and res:
-        print "addr2line %s%s:%s" % (d, res[1][2:], res[3])
-    if res:
-        return "%s%s:%s" % (d, res[1][2:], res[3])
-    else:
-        return ""
+    cc = Main.cc
+    fn = db_info.get(stage).addr2functionname(addr)
+    return pure_utils.addr2line(addr, elf, cc, fn, debug)
+    #
+    # addr = get_symbol_location(fn, stage)
+    # elf = stage.elf
+    # old = r2.gets(elf, "s")
+    # r2.get(elf, "s 0x%x" % addr)
+    # s = r2.gets(elf, "CL")
+    # r2.get(elf, "s %s" % old)
+    # res = s.split()
+    # d = r2.gets(elf, "pwd")
+    # if debug and res:
+    #     print "addr2line %s%s:%s" % (d, res[1][2:], res[3])
+    # if res:
+    #     return "%s%s:%s" % (d, res[1][2:], res[3])
+    # else:
+    #     return ""
 
 def line2addrs(line, stage):
     srcdir = Main.raw.runtime.temp_target_src_dir
@@ -137,22 +144,8 @@ def addr2disasmobjdump(addr, sz, stage, thumb=True, debug=False):
     return (i['bytes'], i['disasm'], fn)
 
 
-
 def get_c_function_names(stage):
-    cc = Main.cc
-    elf = stage.elf
-    cmd = '%sreadelf -W -s %s | grep FUNC 2>/dev/null' % (cc, elf)
-    output = Main.shell.run_multiline_cmd(cmd)
-
-    results = []
-    for l in output:
-        cols = l.split()
-        if len(cols) > 7:
-            addr = cols[1]
-            name = cols[7]
-            results.append((name, long(addr, 16)))
-
-    return results
+    return pure_utils.get_c_function_names(stage.elf, Main.cc)
 
 
 def get_section_headers(stage):
