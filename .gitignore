@@ -28,6 +28,7 @@ META.frama-c*
 .ropeproject
 .doit.db
 *.csv
+!am37x_base_memory_map.csv
 *.img
 *.pdf
 *.egg-info
