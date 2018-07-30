@@ -3,6 +3,7 @@
 \#*
 \**
 trace-*
+!trace-events
 *.h5
 *.cmi
 *.cmt
