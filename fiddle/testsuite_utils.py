@@ -61,7 +61,7 @@ def addr2line(addr, stage, debug=False):
     elf = stage.elf
     cc = Main.cc
     fn = db_info.get(stage).addr2functionname(addr)
-    return pure_utils.addr2line(addr, elf, cc, fn, debug)
+    return pure_utils.addr2line(addr, elf, debug, fn)
     #
     # addr = get_symbol_location(fn, stage)
     # elf = stage.elf
