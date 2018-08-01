@@ -259,14 +259,8 @@ class DBInfo():
 
     def smcs_info(self):
         fields = self._sdb.db.smcstable.colnames
-
-        def smcs_dict(r):
-            d = {}
-            for f in fields:
-                d[f] = r[f]
-            return d
-        return [smcs_dict(r)
-                for r in self._sdb.db.smcstable.iterrows()]
+        for r in self._sdb.db.smcstable.iterrows():
+            yield {f: r[f] for f in fields}                
 
     def is_smc(self, pc):
         query = "pc == 0x%x" % pc
@@ -326,30 +320,21 @@ class DBInfo():
 
     def stepper_write_info(self, pc):
         fields = self._sdb.db.writestable.colnames
-
-        def writes_dict(r):
-            d = {}
-            for f in fields:
-                d[f] = r[f]
-            return d
         query = "(pclo == 0x%x) & (pchi == 0x%x)" % \
             (utils.addr_lo(pc),
              utils.addr_hi(pc))
-
-        return [writes_dict(r) for r in pytable_utils.query(self._sdb.db.writestable, query)]
+        for r in pytable_utils.query(self._sdb.db.writestable, query):
+            yield {f: r[f] for f in fields}
 
     def src_write_info(self, pc):
         fields = self._sdb.db.srcstable.colnames
-        def srcss_dict(r):
-            d = {}
-            for f in fields:
-                d[f] = r[f]
-            return d
         query = "(addrlo == 0x%x) & (addrhi == 0x%x)" % \
             (utils.addr_lo(pc),
              utils.addr_hi(pc))
         # query = "addr == 0x%x" % pc
-        return [srcs_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
+        r = pytable_utils.get_unique_result(self._sdb.db.srcstable, query)
+        return {f: r[f] for f in fields}
+
 
     def add_trace_write_entry(self, time, pid, size,
                               dest, pc, lr, cpsr, index=0,
@@ -379,14 +364,10 @@ class DBInfo():
 
     def get_substage_writes(self, substage):
         fields = self._tdb.db.writestable.colnames
-
-        def writes_dict(r):
-            d = {}
-            for f in fields:
-                d[f] = r[f]
-            return d
         query = "substage == %s" % substage
-        return [writes_dict(r) for r in pytable_utils.query(self._tdb.db.writestable, query)]
+        for r in pytable_utils.query(self._tdb.db.writestable, query):
+            yield {f: r[f] for f in fields}
+
 
     def trace_histogram(self):
         self._sdb._reopen(True)
