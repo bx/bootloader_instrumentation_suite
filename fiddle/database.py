@@ -366,6 +366,7 @@ class TraceWriteEntry(tables.IsDescription):
     reportedsize = tables.Int64Col()
     cpsr = tables.UInt64Col()
     substage = tables.UInt8Col()
+    callindex = tables.UInt32Col()
 
 
 class TraceWriteRange(tables.IsDescription):
@@ -408,17 +409,18 @@ class TraceTable():
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         self.outname = outfile
         self.create = create
+        self.writestable = None        
         if create:
-            m = "a"
-        self.writestable = None
-        if not create:
+            m = "w"
+        else:
             self.h5file = tables.open_file(self.outname, mode="a",
                                            title="QEMU tracing information")
             try:
                 self.writestable = self.get_group().writes
+                m = "a"                
             except tables.exceptions.NoSuchNodeError:
                 # go ahead and create table
-                m = "a"
+                m = "w"
                 self.h5file.close()
 
         if self.writestable is None:
@@ -436,6 +438,7 @@ class TraceTable():
             self.writestable.cols.destlo.create_index(kind='full')
             self.writestable.cols.desthi.create_index(kind='full')
             self.writestable.cols.index.create_index(kind='full')
+            self.writestable.cols.callindex.create_index(kind='full')            
             self.writestable.flush()
             self.hisotable = None
         if self.has_histogram():
@@ -822,7 +825,8 @@ class TraceTable():
         self.h5file.flush()
 
     def add_write_entry(self, time, pid, size,
-                        dest, pc, lr, cpsr, index=0, num=None):
+                        dest, pc, lr, cpsr, index=0,
+                        callindex=0, num=None):
         #if self.pcmin > self.pcmax:
         #    print "PC not in range %x %x (%x)" % (self.pcmin, self.pcmax, pc)
             # traceback.print_stack()
@@ -839,6 +843,7 @@ class TraceTable():
         r['relocatedlrhi'] = utils.addr_hi(lr)
         r['time'] = time
         r['reportedsize'] = size
+        r['callindex'] = callindex
         if index > 0:
             r['index'] = index
         else:

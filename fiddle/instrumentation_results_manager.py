@@ -66,7 +66,6 @@ import yaml
 import db_info
 from doit import exceptions
 
-
 class DelTargetAction(PythonInteractiveAction):
     def execute(self, out, err):
         ret = super(DelTargetAction, self).execute(sys.stdout, err)
@@ -534,25 +533,14 @@ class ResultsLoader(object):
         else:
             r = ""
         attr = r + attr
-        self._update_config(attr, value)
+        self._update_config(attr, value)        
 
     def _update_config(self, attr, value):
         Main._plain_update_raw(attr, value)
 
 
 class PostTraceLoader(ResultsLoader):
-    _processes_types = {'consolidate_writes': {'fn':
-                                               "_histogram"},
-                        'policy_check': {'fn':
-                                         "_policy_check"},
-                        'noop': {'fn': "_noop"},
-                        'browse_db': {'fn':
-                                      "_browse_db"},
-                        'process_watchpoints': {"fn":
-                                                "_watchpoints",
-                                                "traces": ["watchpoint"]}}
-    supported_types = _processes_types.iterkeys()
-
+    supported_types = Main.raw.PostProcess.keys()
     def __init__(self, processes, run):
         instance_id = Main.test_instance_id
         super(PostTraceLoader, self).__init__(instance_id, "post_trace", run)
@@ -561,7 +549,10 @@ class PostTraceLoader(ResultsLoader):
         self.stages = Main.raw.runtime.enabled_stages
         self.hw = Main.raw.runtime.trace.host
         self.tracenames = [t.name for t in Main.raw.runtime.enabled_traces]
-        self.processes = list(set(processes))
+        if processes:
+            self.processes = list(set(processes))
+        else:
+            self.processes = []
         self.task_adders = [self._setup_tasks,
                             self._process_tasks]
         self._add_tasks()
@@ -576,12 +567,11 @@ class PostTraceLoader(ResultsLoader):
         tasks = []
         targets = []
         tasks.append(self._mkdir(self._test_path()))
-        for (k, v) in self._processes_types.iteritems():
-            if "traces" in v.iterkeys() and not all(map(lambda t: t in v["traces"],
-                                                        self.tracenames)):
+        for v in Main.object_config_lookup("PostProcess"):
+            if not all(map(lambda t: t in v.supported_traces,
+                           self.tracenames)):
                 continue
-
-            tasks.append(self._mkdir(self._process_path(k)))
+            tasks.append(self._mkdir(self._process_path(v.name)))
         return tasks
 
     def _process_tasks(self):
@@ -682,24 +672,59 @@ class PostTraceLoader(ResultsLoader):
         tasks.append(PythonInteractiveAction(Do(stage, events, raw_output)))
         return tasks
 
-    def _browse_db(self, name, enabled):
+    def _browse_db(self, name, enabled, stage):
         tasks = []
-
+        
         class Do():
-            def __init__(self):
+            def __init__(self, db_objname=""):
+                #self.db_objname
                 pass
 
             def __call__(self):
                 rwe = self
+                #print "DB object: %s" % self.db_objname
+                print "-----instance config----"
+                with open(Main.raw.runtime.instance_config_file,'r') as f:
+                    sys.stdout.write(f.read())
+                print "---testcase config----"
+                with open(Main.raw.runtime.test_config_file,'r') as f:
+                    sys.stdout.write(f.read())                
+                print "PostTraceLoader object named rwe"
+                print "-----------"
                 IPython.embed()
-        a = ActionListTask([PythonInteractiveAction(Do())],
-                           [], [], name)
+        
+        a = PythonInteractiveAction(Do())
         tasks.append(a)
         return tasks
 
+    def _ordered_set(self, name, enabled, stage):
+        tasks = []
+        
+        class Do():
+            def __init__(self, db_objname=""):
+                #self.db_objname
+                pass
+
+            def __call__(self):
+                rwe = self
+                #print "DB object: %s" % self.db_objname
+                print "-----instance config----"
+                with open(Main.raw.runtime.instance_config_file,'r') as f:
+                    sys.stdout.write(f.read())
+                print "---testcase config----"
+                with open(Main.raw.runtime.test_config_file,'r') as f:
+                    sys.stdout.write(f.read())                
+                print "PostTraceLoader object named rwe"
+                print "-----------"
+                IPython.embed()
+        
+        a = PythonInteractiveAction(Do())
+        tasks.append(a)
+        return tasks
+
+    
     def _histogram(self, name, enabled, stage):
         tasks = []
-        deps = []
 
         class Do():
             def __init__(self, s, o, o2, done, tracename):
@@ -734,7 +759,6 @@ class PostTraceLoader(ResultsLoader):
 
     def _policy_check(self, name, enabled, stage):
         tasks = []
-        deps = []
         class Do():
             def __init__(self, s):
                 self.s = s
@@ -906,13 +930,15 @@ class TraceTaskPrepLoader(ResultsLoader):
     def __init__(self, trace_name, create, run_tasks,
                  print_cmds, stages=None, trace_list=[], host=None, hook=False):
         self.print_cmds = print_cmds
+
         instance_id = Main.test_instance_id
         super(TraceTaskPrepLoader, self).__init__(instance_id, "trace_prep", run_tasks)
         self.test_root = Main.test_instance_root
         self.create = create
         self.trace_id = trace_name
-        self._update_config("runtime.trace.id", self.trace_id)
+        self._update_config("runtime.trace.id", self.trace_id)        
         self.config_path = self._test_path("config.yml")
+        self._update_runtime_config("test_config_file", self.config_path)
         if self.create:
             self.stagenames = [s.stagename for s in stages]
             self.hwname = Main.hardwareclass
@@ -1081,7 +1107,6 @@ host: {}
                 filecontents = contents.format(", ".join(stagenames), hwname,
                                                ", ".join(tracenames), host)
                 fconfig.write(filecontents)
-        Main.set_runtime_config("test_config_file", self.config_path)
         a = ActionListTask([(write, [self.config_path,
                                      self.stagenames, self.hwname, self.tracenames, self.hostname])],
                            [], [self.config_path], "test_config_file")
@@ -1232,7 +1257,6 @@ class InstrumentationTaskLoader(ResultsLoader):
             class get_thumb_ranges():
                 def __init__(self, stage):
                     self.stage = stage
-
                 def __call__(self):
                     v = staticanalysis.ThumbRanges.find_thumb_ranges(self.stage,
                                                                      not staticanalysis.WriteSearch._is_arm(self.stage.elf))
@@ -1243,7 +1267,7 @@ class InstrumentationTaskLoader(ResultsLoader):
         # calculate labels on demand
         def get_labels():
             try:
-                v = Main.get_runtime_config("labels_internal")
+                v =  Main.get_runtime_config("labels_internal")
             except AttributeError:
                 tmpdir = Main.raw.runtime.temp_target_src_dir
                 olddir = os.getcwd()

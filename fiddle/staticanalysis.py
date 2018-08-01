@@ -49,6 +49,7 @@ intervaltree.Interval.__repr__ = int_repr
 
 class LongWriteInfo():
     def __init__(self, elf, start, end, thumb):
+        r2.run_aab(elf) # run basic block analysis         
         self.valid = True
         self.start_ins = None
         self.start_ins_addr = None
@@ -634,6 +635,7 @@ class WriteSearch():
 
     def setup_missing_tables(self):
         print "setting up tables for stage %s" % self.stage.stagename
+
         try:
             self.funcstable = self.group.funcs
         except tables.exceptions.NoSuchNodeError:
@@ -773,6 +775,7 @@ class WriteSearch():
         skips = []
         if not self.is_arm():
             return
+        r2.run_aab(self.stage.elf) # run basic block analysis        
         for r in self.stage.longwrites:
             skips.append(LongWriteDescriptorGenerator(r.name,
                                                       r.inplace,

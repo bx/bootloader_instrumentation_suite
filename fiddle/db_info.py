@@ -352,9 +352,15 @@ class DBInfo():
         return [srcs_dict(r) for r in pytable_utils.query(self._sdb.db.srcstable, query)]
 
     def add_trace_write_entry(self, time, pid, size,
-                              dest, pc, lr, cpsr, index=0, num=None):
+                              dest, pc, lr, cpsr, index=0,
+                              callindex=0, num=None):
         self._tdb.db.add_write_entry(time, pid, size, dest, pc,
-                                     lr, cpsr, index, num)
+                                     lr, cpsr, index, callindex, num)
+
+    def trace_write_by_callindex(self):
+        fields = self._tdb.db.writestable.colnames
+        for r in pytable_utils.get_sorted(self._tdb.db.writestable, "callindex"):
+            yield {f: r[f] for f in fields}
 
     def get_write_pc_or_zero_from_dstinfo(self, dstinfo):
         return self._sdb.db._get_write_pc_or_zero(dstinfo)
@@ -362,6 +368,9 @@ class DBInfo():
     def add_range_dsts_entry(self, dstinfo):
         self._tdb.db.writerangetable.add_dsts_entry(dstinfo)
 
+    def read_tracedb(self):
+        self._tdb._reopen(append=True)
+        
     def print_range_dsts_info(self):
         self._tdb.db.writerangetable.print_dsts_info()
 
@@ -382,6 +391,7 @@ class DBInfo():
     def trace_histogram(self):
         self._sdb._reopen(True)
         self._tdb.db.histogram()
+        
 
     def generate_write_range_file(self, out, out2):
         self._tdb._reopen(append=True)
@@ -448,8 +458,8 @@ class DBInfo():
         rs = pytable_utils.get_rows(self._sdb.db.funcstable,
                                     ("(startaddrlo <= 0x%x) & (startaddrhi <= 0x%x) & (0x%x < endaddrlo) & (0x%x <= endaddrhi)" %
                                      (utils.addr_lo(addr),
-                                      utils.addr_lo(addr),
                                       utils.addr_hi(addr),
+                                      utils.addr_lo(addr),
                                       utils.addr_hi(addr))))
 
         if rs:

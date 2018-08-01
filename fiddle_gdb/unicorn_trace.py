@@ -39,8 +39,6 @@ stepnum = 0
 start = time.time()
 
 
-
-
 class Mapping():
     def __init__(self, start, end, size=None, s=""):
         self.start = start
@@ -102,19 +100,37 @@ class Emulator():
 
     def is_exit_syscall(self, emu):
         return False
-
+    
     def get_mappings(self):
-        th = gdb.selected_thread()
-        (tpid, pid, id3) = th.ptid
-        maps = "/proc/%d/maps" % pid
         mlist = []
-        with open(maps, "r") as mmap:
-            for m in mmap:
-                fields = m.split()
-                (lo, hi) = fields[0].split("-")
-                s = fields[-1]
-                mlist.append(Mapping(long(lo, 16), long(hi, 16), s=s))
-        return mlist
+        mappings = gdb.execute("info proc mappings", to_string=True)
+        mappings = mappings.split("\n")
+        if len(mappings) == 1: # then try to get gdb target's mappings
+            th = gdb.selected_thread()
+            (tpid, pid, id3) = th.ptid
+            if pid > 1:
+                maps = "/proc/%d/maps" % pid
+                mlist = []
+                with open(maps, "r") as mmap:
+                    for m in mmap:
+                        fields = m.split()
+                        (lo, hi) = fields[0].split("-")
+                        s = fields[-1]
+                        mlist.append(Mapping(long(lo, 16), long(hi, 16), s=s))
+                return mlist
+            else:
+                raise Exception("Unicorn does not support this setup")
+        else: # get mappings directly from gdb
+            for m in mappings:
+                m = m.strip()
+                if not m.startswith("0x"):
+                    continue
+                m = m.split()
+                start = long(m[0], 0)
+                end = long(m[1], 0)
+                size = long(m[2], 0)
+                mlist.append(Mapping(start, end, size, m[3]))
+            return mlist
 
 
 class X86Emulator(Emulator):
@@ -172,20 +188,6 @@ class X86_64Emulator(Emulator):
     def is_exit_syscall(self, emu):
         return emu.reg_read(self.get_reg_id("rax")) in [60, 231]
 
-    def get_mappings(self):
-        mlist = []
-        mappings = gdb.execute("info proc mappings", to_string=True)
-        for m in mappings.split("\n"):
-            m = m.strip()
-            if not m.startswith("0x"):
-                continue
-            m = m.split()
-            start = long(m[0], 0)
-            end = long(m[1], 0)
-            size = long(m[2], 0)
-            mlist.append(Mapping(start, end, size, m[3]))
-        return mlist
-
 
 class Aarch64Emulator(Emulator):
     def __init__(self):
@@ -195,16 +197,18 @@ class Aarch64Emulator(Emulator):
                           "pc",
                           64,
                           ["sp", "cpsr"])
-        self.syscall_regnames = map(lambda x: "x%d" % x, range(0, 8)) + ["x8", "pc"]
+        self.syscall_regnames = map(lambda x: "x%d" % x, range(0, 8)) + ["x8",
+                                                                         "pc"]
         self.stackbot = "fp"
         self.stacktop = "sp"
+        self.syscall_reg = "x8"
 
     def _syscall_wrapper(self, emu, callnum, user=None):
         if self.syscall_hook:
             return self.syscall_hook(emu, user)
 
     def is_exit_syscall(self, emu):
-        return emu.reg_read(self.get_reg_id("x8")) in [93, 94]
+        return emu.reg_read(self.get_reg_id(self.syscall_reg)) in [93, 94]
 
     def get_reg_id(self, name):
         if name == "cpsr":
@@ -213,7 +217,7 @@ class Aarch64Emulator(Emulator):
             return self.val_info.get_reg_name_val(name)
 
 
-class ArmEmulator(Emulator):
+class ArmEmulator(Aarch64Emulator):
     def __init__(self):
         Emulator.__init__(self, "ARM",
                           unicorn.UC_ARCH_ARM,
@@ -221,6 +225,11 @@ class ArmEmulator(Emulator):
                           "pc",
                           32,
                           ["sp", "cpsr"])
+        self.syscall_regnames = map(lambda x: "x%d" % x, range(0, 8)) + ["x7",
+                                                                         "pc"]
+        self.stackbot = "fp"
+        self.stacktop = "sp"
+        self.syscall_reg = "x7"
 
 
 class Unicorn(gdb_tools.GDBPlugin):
@@ -229,15 +238,18 @@ class Unicorn(gdb_tools.GDBPlugin):
         parser_options = [
             gdb_tools.GDBPluginParser("enforce",
                                       [gdb_tools.GDBPluginParserArg("disabled",
-                                                                    nargs="?", default=False)]),
+                                                                    nargs="?",
+                                                                    default=False)]),
             gdb_tools.GDBPluginParser("no_run",
                                       [gdb_tools.GDBPluginParserArg("disabled",
-                                                                    nargs="?", default=True)])
+                                                                    nargs="?",
+                                                                    default=True)])
 
 
         ]
         disabled = ["LongwriteBreak", "WriteBreak", "TargetFinishBreakpoint",
-                    "ReturnBreak", "SubstageEntryBreak", "SubstageStartBreak", "StageEndBreak"]
+                    "ReturnBreak", "SubstageEntryBreak", "SubstageStartBreak",
+                    "StageEndBreak"]
 
         bp_hooks = {'StageStartBreak': self.stage_start_hook}
         gdb_tools.GDBPlugin.__init__(self, "unicorn", bp_hooks,
@@ -260,7 +272,8 @@ class Unicorn(gdb_tools.GDBPlugin):
             self._no_run = True
 
     def create_emulator(self):
-        o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc, self.stage.elf))
+        o = Main.shell.run_cmd("%sreadelf -h %s| grep Machine" % (Main.cc,
+                                                                  self.stage.elf))
         machine = o.split(" ", 2)[-1].strip()
         ms = {
             "ARM": ArmEmulator(),
@@ -318,8 +331,8 @@ class Unicorn(gdb_tools.GDBPlugin):
                 # emu.reg_write(self.machine.pc, pc)
                 # i3 = r2.get(self.stage.elf, "pdj 2")[1]
                 # emu.reg_write(self.machine.pc, orig_pc + i["size"])
-                #exit(1)
-                #emu.reg_write(self.machine.pc, i3["offset"])
+                # exit(1)
+                # emu.reg_write(self.machine.pc, i3["offset"])
 
                 # there seems to be a bug in unicorn where
                 # the pc read at this point doesn't point to the svc instr
@@ -415,7 +428,7 @@ class Unicorn(gdb_tools.GDBPlugin):
                                                 True))
         stepnum += 1
 
-    def init(self):
+    def init(self):        
         self.stage = self.controller.stage_order[0]
         self.substage_num = 0
         self.substage_entries = [utils.get_symbol_location(sub, self.stage)
@@ -443,6 +456,7 @@ class Unicorn(gdb_tools.GDBPlugin):
         bp.cont = False
         if not self._no_run:
             self.init()
+            print "init"
         return False
 
 

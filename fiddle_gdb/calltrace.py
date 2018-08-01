@@ -52,12 +52,13 @@ class CloseLog():
 
 
 class WriteResults():
-    def __init__(self, depth, name, kind, pc, line, minimal=False):
+    def __init__(self, depth, name, kind, pc, line, count, minimal=False):
         self.line = line
         self.depth = depth
         self.name = name
         self.kind = kind
         self.pc = pc
+        self.call_count = count
         self.entry = True if kind == "entry" else False
         self.minimal = minimal
         global now
@@ -75,7 +76,7 @@ class WriteResults():
             outstr += "@0x%x" % self.pc
         if self.line:
             outstr += " [[%s]]" % self.line
-        outstr += "\n"
+        outstr += "(%d)\n" % self.call_count
         if open_log:
             open_log.write(outstr)
         else:
@@ -119,10 +120,10 @@ class CallExitBreak(gdb_tools.TargetFinishBreakpoint):
         #if c.depth == self.depth:
         gdb.post_event(WriteResults(self.depth,
                                     self.name, "exit", c.pc(),
-                                    "",
+                                    "", self.controller.call_count,
                                     c._minimal))
         c.depth = self.depth - 1
-
+        self.controller.call_count += 1
         if self.entry.no_rec:
             self.controller.disable_breakpoint(self.entry, disable=False)
         return False
@@ -176,7 +177,9 @@ class CallEntryBreak(gdb_tools.TargetBreak):
         gdb.post_event(WriteResults(self.depth,
                                     self.name, "entry", self.fnloc,
                                     self.line,
+                                    self.controller.call_count,
                                     c._minimal))
+        self.controller.call_count += 1        
         if self.no_rec and self.breakpoint:
             self.controller.disable_breakpoint(self, delete=False)
         return False
@@ -269,6 +272,7 @@ class CallTrace(gdb_tools.GDBPlugin):
 
     def setup_breakpoints(self, startbreak, stage):
         c = self.controller
+        c.call_count = 1        
         if not gdb.current_progspace().filename:
             gdb.execute("file %s" % stage.elf)
         sname = stage.stagename

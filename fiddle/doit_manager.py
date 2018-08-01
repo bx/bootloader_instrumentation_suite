@@ -35,10 +35,7 @@ import difflib
 import yaml
 from datetime import datetime
 from enum import Enum
-
-cmds = Enum("CmdTyp", ["print_build_commands", "build_software", "create", "list_policies", "import_policy",
-                       "setup_trace", "run_new_trace", "do_trace", "list_test_runs", "print_trace_commands",
-                       "postprocess_trace", "hook", "list_instances"])
+from run_cmds import cmds
 
 
 class ManagerException(Exception):
@@ -162,7 +159,7 @@ class TaskManager():
                                                                   run_trace,
                                                                   command == cmds.print_trace_commands,
                                                                   quick)
-        if command == cmds.postprocess_trace:
+        if command in [cmds.postprocess_trace, cmds.hook]:
             self.ppt = instrumentation_results_manager.PostTraceLoader(post_trace_processes,
                                                                        command==cmds.postprocess_trace)
         else:

@@ -76,7 +76,8 @@ class FlushDatabase():
 
 class WriteDatabase():
     def __init__(self, time, pid, size, dest, pc, lr, cpsr, step,
-                 origpc, stage, substage, substage_name, doit=False):
+                 origpc, stage, substage, substage_name,
+                 call_index=0, doit=False):
         self.time = time
         self.pid = pid
         self.size = size
@@ -89,6 +90,7 @@ class WriteDatabase():
         self.num = substage
         self.substage_name = substage_name
         self.stage = stage
+        self.cc = call_index
         global now
         if now or doit:
             self.do()
@@ -98,6 +100,7 @@ class WriteDatabase():
                                                       self.size, self.dest,
                                                       self.pc, self.lr,
                                                       self.cpsr, self.step,
+                                                      self.cc,
                                                       self.num)
         if self.size < 0:
             end = self.dest
@@ -201,13 +204,19 @@ class HookWrite(gdb_tools.GDBPlugin):
         self.dowriteinfo(dst, size, pc, lr, cpsr, pid, pc - relocated,
                          stage, substage, name)
 
-    def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc, stage, substage, name):
+    def dowriteinfo(self, writedst, size, pc, lr, cpsr, pid, origpc,
+                    stage, substage, name):
+        if hasattr(self.controller, "call_count"):
+            ccount = self.controller.call_count
+        else:
+            ccount = 0
+        
         global stepnum
-        stepnum += 1
+        stepnum += 1 
         gdb.post_event(WriteDatabase(time.time(),
                                      pid, size, writedst, pc, lr,
                                      cpsr, stepnum, origpc, stage, substage,
-                                     name))
+                                     name, ccount))
 
 
 plugin_config = HookWrite()

@@ -65,7 +65,12 @@ def _raw_field_name(obj, attr):
     name = ""
     if (not classname in ["Main", "Target"]) and hasattr(obj, "name"):
         name = obj.name + "."
-    return "%s.%s%s" % (classname, name, attr)
+    if name and classname in "Main":
+        classname = ""
+    else:
+        classname = classname + "."
+    key = "%s%s%s" % (classname, name, attr)
+    return key
 
 def _get_raw_config(obj, attr):
     b = Main.raw
@@ -76,11 +81,11 @@ def _get_raw_config(obj, attr):
 
 
 
-def _update_raw_config(obj, attr, value):
+def _update_raw_config(obj, attr, value, debug=False):
     b = Main.raw
     if not b:
         b = Main.default_raw
-    attr = _raw_field_name(obj, attr)
+    attr = _raw_field_name(obj, attr)    
     def _dotted_str_to_dict(s, d):
         dot = s.rfind(".")
         if dot < 0:
@@ -88,6 +93,8 @@ def _update_raw_config(obj, attr, value):
         else:
             (substr, value) = s.rsplit(".", 1)
             return _dotted_str_to_dict(str(substr), {str(value): d})
+    if debug:
+        print attr
     new = _dotted_str_to_dict(attr, value)
     _merge_into_munch(b, new)
 
@@ -225,7 +232,9 @@ class ConfigObject(object):
     def setup(self):
         pass
 
-    def __init__(self, kw, name=None, default=False):
+    def __init__(self, kw, name=None, default=False, update_raw=False):
+        global registry
+        global defaults        
         self.default = default
         v = None
         if name is not None:
@@ -237,7 +246,10 @@ class ConfigObject(object):
                 del kw["name"]
                 if "name" in self.required_fields:
                     self.required_fields.remove("name")
+        if update_raw:
+            registry[self.__class__.__name__].append(self)
         self._update_raw("name", self.name)
+
         fields = kw.keys()
 
         for f in self.required_fields:
@@ -265,8 +277,6 @@ class ConfigObject(object):
                 setattr(self, k, v)
                 self._update_raw(k, v)
         cls = self.__class__.__name__
-        global registry
-        global defaults
         if self.default:
             if cls not in defaults:
                 defaults[cls] = []
@@ -277,8 +287,12 @@ class ConfigObject(object):
             registry[cls].append(self)
         self.shell = run_cmd.Cmd()
 
-    def _update_raw(self, attr, value):
-        _update_raw_config(self, attr, value)
+    #def add_to_raw(self):
+    #    pass
+        
+
+    def _update_raw(self, attr, value, debug=False):
+        _update_raw_config(self, attr, value, debug)
 
     def _get_raw(self, attr):
         return _get_raw_config(self, attr)

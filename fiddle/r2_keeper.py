@@ -3,7 +3,7 @@ import json
 
 files = {}
 entry = {}
-
+bba = []
 
 def gets(f, cmd):
     if f in files.keys():
@@ -13,11 +13,19 @@ def gets(f, cmd):
         files[f] = handle
         entry[f] = handle.cmd("s")
         handle.cmd('e anal.bb.maxsize=10000')
-        handle.cmd('aas')
+        handle.cmd('aac*')
 
     out = handle.cmd(cmd)
     return out
 
+
+def run_aab(f):    
+    if f in bba:
+        return
+    else:
+        gets(f, "aab") # run basic block analysis
+        bba.append(f)
+    return
 
 def get(f, cmd):
     out = gets(f, cmd)

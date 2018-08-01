@@ -167,6 +167,7 @@ class GDBTargetController(object):
         self._kill = False
         self.bp_hooks = {}
         self.f_hooks = []
+        #self.global_data = {}
         self.stage_hooks = []
         self.exit_hooks = []
         global breakpoint_classes
@@ -254,9 +255,7 @@ class GDBTargetController(object):
     def standalone(self, args):
         if args.run_standalone is not True:
             self.run_standalone = False
-            print "NO STANDALONE"
         else:
-            print "RUN STANDALONE"
             self.run_standalone = True
 
     def setup_target(self, args):
@@ -680,7 +679,7 @@ class GDBTargetController(object):
         except gdb.error:
             pass
         if stage_entered and not self.run_standalone:
-            print "Calling breakpoint hook"
+            self.gdb_print("Calling breakpoint hook\n")
             s.stop()
             s.continue_stage()
 
@@ -965,7 +964,7 @@ class EndLongwriteBreak(TargetBreak):
 
 class LongwriteBreak(TargetBreak):
     def __init__(self, controller, r, stage):
-        # print "creating longwrite break"
+        # controller.gdb_print("creating longwrite break\n")
         self.emptywrite = {'start': None,
                            'end': None,
                            'pc': None}
