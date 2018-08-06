@@ -29,10 +29,11 @@ import run_cmd
 import sys
 import process_args
 
+
 def go():
     parser = process_args.FiddleArgParser("Fiddle test suite")
     args = parser.args
-    shell = run_cmd.Cmd()    
+    shell = run_cmd.Cmd()
     task_mgr = parser.task_manager()
 
     if args.create:
@@ -61,7 +62,6 @@ def go():
                             print "cd %s" % task.root_dir
                             print action.expand_action()
                     print "\n"
-
 
 
 if __name__ == '__main__':

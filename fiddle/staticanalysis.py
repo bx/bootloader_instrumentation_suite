@@ -26,7 +26,7 @@ import subprocess
 import re
 import sys
 import os
-import intervaltree
+from memory_tree import intervaltree
 import testsuite_utils as utils
 import labeltool
 import pytable_utils
@@ -38,18 +38,18 @@ from ia import InstructionAnalyzer
 import r2_keeper as r2
 
 
-def int_repr(self):
-    return "({0:08X}, {1:08X})".format(self.begin, self.end)
+# def int_repr(self):
+#     return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
 
-intervaltree.Interval.__str__ = int_repr
-intervaltree.Interval.__repr__ = int_repr
+# intervaltree.Interval.__str__ = int_repr
+# intervaltree.Interval.__repr__ = int_repr
 
 
 
 class LongWriteInfo():
     def __init__(self, elf, start, end, thumb):
-        r2.run_aab(elf) # run basic block analysis         
+        r2.run_aab(elf) # run basic block analysis
         self.valid = True
         self.start_ins = None
         self.start_ins_addr = None
@@ -775,7 +775,7 @@ class WriteSearch():
         skips = []
         if not self.is_arm():
             return
-        r2.run_aab(self.stage.elf) # run basic block analysis        
+        r2.run_aab(self.stage.elf) # run basic block analysis
         for r in self.stage.longwrites:
             skips.append(LongWriteDescriptorGenerator(r.name,
                                                       r.inplace,

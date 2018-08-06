@@ -260,7 +260,7 @@ class DBInfo():
     def smcs_info(self):
         fields = self._sdb.db.smcstable.colnames
         for r in self._sdb.db.smcstable.iterrows():
-            yield {f: r[f] for f in fields}                
+            yield {f: r[f] for f in fields}
 
     def is_smc(self, pc):
         query = "pc == 0x%x" % pc
@@ -335,12 +335,17 @@ class DBInfo():
         r = pytable_utils.get_unique_result(self._sdb.db.srcstable, query)
         return {f: r[f] for f in fields}
 
-
     def add_trace_write_entry(self, time, pid, size,
                               dest, pc, lr, cpsr, index=0,
                               callindex=0, num=None):
         self._tdb.db.add_write_entry(time, pid, size, dest, pc,
                                      lr, cpsr, index, callindex, num)
+
+    def callindex_to_fnname(self, idx):
+        rs = pytable_utils.query(self._tdb.db.writestable,
+                                 "callindex == %d" % idx)
+        write = next(rs)
+        return self.addr2functionname(write['relocatedpc'])
 
     def trace_write_by_callindex(self):
         fields = self._tdb.db.writestable.colnames
@@ -355,7 +360,7 @@ class DBInfo():
 
     def read_tracedb(self):
         self._tdb._reopen(append=True)
-        
+
     def print_range_dsts_info(self):
         self._tdb.db.writerangetable.print_dsts_info()
 
@@ -372,7 +377,7 @@ class DBInfo():
     def trace_histogram(self):
         self._sdb._reopen(True)
         self._tdb.db.histogram()
-        
+
 
     def generate_write_range_file(self, out, out2):
         self._tdb._reopen(append=True)
@@ -447,7 +452,6 @@ class DBInfo():
             return rs[0]['fname']
         else:
             return ''
-
 
     def disasm_and_src_from_pc(self, pc):
         r = pytable_utils.query(self._sdb.db.srcstable, "(addrlo == 0x%x) & (addrhi == 0x%x)" %

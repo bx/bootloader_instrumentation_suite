@@ -58,18 +58,23 @@ from doit.tools import create_folder
 import tempfile
 
 import addr_space
-import staticanalysis
+from staticanalysis import WriteSearch as WS
+from staticanalysis import ThumbRanges as TR
 import labeltool
 import traceback
 import substage
+from substage import SubstagesInfo as SI
 import yaml
 import db_info
 from doit import exceptions
 
+
 class DelTargetAction(PythonInteractiveAction):
     def execute(self, out, err):
         ret = super(DelTargetAction, self).execute(sys.stdout, err)
-        if isinstance(ret, exceptions.CatchedException) or isinstance(ret, Exception):
+        if isinstance(ret,
+                      exceptions.CatchedException) or isinstance(ret,
+                                                                 Exception):
             if self.task:
                 for f in self.task.targets:
                     cmd = "rm -rf %s" % f
@@ -165,9 +170,9 @@ def task_manager(instance_id=None, verbose=False):
                         del r['file_dep']
                         del r['task_dep']
                     else:
-                        #print "enable :--:%s %s -> %s" % (self.task_name(inst,
-                        #                                                   subgroup),
-                        #                                  r['file_dep'], r['targets'])
+                        # print "enable :--:%s %s -> %s" % (self.task_name(inst,
+                        #                                                    subgroup),
+                        #                                   r['file_dep'], r['targets'])
                         yield r
 
         def task_name(self, task, subgroup):
@@ -215,15 +220,12 @@ class TestTask(object):
                 setattr(self, i, val)
 
 
-
-
 class CopyFileTask(TestTask):
     dsts = set()
 
     @classmethod
     def exists(cls, d):
         return d in cls.dsts
-
 
     def __init__(self, src, dst):
         super(CopyFileTask, self).__init__("%s->%s" % (src, dst), True)
@@ -265,6 +267,7 @@ class CmdTask(TestTask):
         self.targets = tgts
         self.actions = cmds
         self.file_dep = self.fdeps
+
 
 class LazyCmdTask(TestTask):
     def __init__(self, cmds, file_deps, tgts, name):
@@ -316,13 +319,17 @@ class ActionListTask(TestTask):
 
 
 class ResultsLoader(object):
-    def __init__(self, instance_id, subgroup, run_task=True):
+    def __init__(self, instance_id, subgroup,
+                 run_task=True, hook=False,
+                 plugin=None):
         self.instance_id = instance_id
         self.subgroup = subgroup
         self.task_adders = []
         self.task_manager = task_manager(instance_id)
         self.task_manager.grouporder.append(self.subgroup)
         self.run_task = run_task
+        self.hook = hook
+        self.plugin = plugin
         if self.run_task:
             self.enable()
 
@@ -344,7 +351,7 @@ class ResultsLoader(object):
             cs = []
             for sn in substages:
                 cs.append(c.replace(sub,
-                                 sn.stagename))
+                                    sn.stagename))
             return cs
         else:
             return [c]
@@ -359,11 +366,13 @@ class ResultsLoader(object):
 
     def noop(self, soft, i, dstdir, deps):
         return []
+        new_args = map(lambda x: x.parser_info(),
+                       filter(lambda x: x.from_arg,
+                              fs))
 
     def import_files(self, obj, rawobj, dstdir, mmap=False,
                      output_files=False, set_cfg=""):
         tasks = [] if MkdirTask.exists(dstdir) else [self._mkdir(dstdir)]
-
         if not hasattr(rawobj, "Files"):
             return []
         raw_files = rawobj.Files
@@ -384,7 +393,6 @@ class ResultsLoader(object):
                     base = os.path.basename(p)
                     dst = os.path.join(dstdir, base)
                     # print "cp %s to %s" % (p, dst)
-                    #if file_raw.cache:
                     try:
                         tasks.append(self._copy_file(p,
                                                      dst))
@@ -394,9 +402,9 @@ class ResultsLoader(object):
                         pass
                     v.path = dst
                     file_raw.path = dst
-                    #else:
-                    #    v.path = p
-                    #    file_raw.path = p
+                    # else:
+                    #     v.path = p
+                    #     file_raw.path = p
 
                 else:
                     basename = os.path.basename(file_raw.relative_path)
@@ -410,11 +418,10 @@ class ResultsLoader(object):
                     target = [target_location]
                     v._update_raw("path", target_location)
 
-
                     if file_raw.type == "image":
                         # nothing left to do, file will be generated at runime
                         continue
-                    #elif file_raw.type == "target":
+
                     if hasattr(file_raw, "command"):
                         cmd = file_raw.command
                         n = "%s_%s" % (v.software.name, f)
@@ -428,22 +435,36 @@ class ResultsLoader(object):
                         if gen and callable(gen):
                             tasks.extend(gen(v.software, v, dstdir, deps))
                         else:
-                            raise Exception("I do not know how to generate file '%s' (%s), no such generator named '%s'" % (file_raw.name, v.software.name, file_raw.generator))
+                            raise Exception("I do not know how to generate "
+                                            "file '%s' (%s), no such "
+                                            "generator named '%s'" %
+                                            (file_raw.name,
+                                             v.software.name,
+                                             file_raw.generator))
                     else:
                         rel = file_raw.relative_path
                         if self.stage_dependent(file_raw):
+                            paths = {}
+                            setattr(file_raw, "path", Munch({}))
                             for s in Main.stages:
                                 p = self.sub_stage(rel, s)[0]
                                 p = Main.populate_from_config(p)
                                 base = os.path.basename(p)
-                                dst = os.path.join(dstdir, s.stagename, base)
+                                stage_dstdir = os.path.join(dstdir,
+                                                            s.stagename)
+                                dst = os.path.join(stage_dstdir, base)
+                                if not MkdirTask.exists(stage_dstdir):
+                                    tasks.append(self._mkdir(stage_dstdir))
                                 setattr(file_raw, s.stagename, dst)
+                                setattr(getattr(file_raw, "path"),
+                                        s.stagename, dst)
                                 if set_cfg:
-                                    self._update_runtime_config("%s.%s.files.%s.%s" % (set_cfg,
-                                                                               obj.name,
-                                                                               s.stagename,
-                                                                               f),
-                                                        dst)
+                                    self._update_runtime_config("%s.%s.files.%s.%s" %
+                                                                (set_cfg,
+                                                                 obj.name,
+                                                                 s.stagename,
+                                                                 f),
+                                                                dst)
                                 if hasattr(file_raw, "global_name"):
                                     n = file_raw.global_name
                                     if "{runtime.stage}" in n:
@@ -453,7 +474,8 @@ class ResultsLoader(object):
                                                             dst)
                                     else:
                                         n = Main.populate_from_config(n)
-                                        self._update_config("%s.%s" % (n, s.stagename),
+                                        self._update_config("%s.%s" %
+                                                            (n, s.stagename),
                                                             dst)
 
                         else:
@@ -465,21 +487,24 @@ class ResultsLoader(object):
                                 file_raw.path = dst
                             else:
                                 for s in Main.stages:
-                                    dst = os.path.join(dstdir, base, s.stagename)
+                                    dst = os.path.join(dstdir, base,
+                                                       s.stagename)
                                     setattr(file_raw.path, s.stagename, dst)
                     stage_dep = self.stage_dependent(file_raw)
                     if set_cfg and not stage_dep:
                         if not output_files:
-                            self._update_runtime_config("%s.%s.files.%s" % (set_cfg,
-                                                                            obj.name,
-                                                                            f),
+                            self._update_runtime_config("%s.%s.files.%s" %
+                                                        (set_cfg,
+                                                         obj.name,
+                                                         f),
                                                         dst)
                         else:
                             for s in Main.stages:
-                                self._update_runtime_config("%s.%s.files.%s.%s" % (set_cfg,
-                                                                                   obj.name,
-                                                                                   s.stagename,
-                                                                                   f),
+                                self._update_runtime_config("%s.%s.files.%s.%s"
+                                                            % (set_cfg,
+                                                               obj.name,
+                                                               s.stagename,
+                                                               f),
                                                             dst)
 
                     if hasattr(file_raw, "global_name") and not stage_dep:
@@ -494,10 +519,6 @@ class ResultsLoader(object):
                                 n = Main.populate_from_config(n)
                                 self._update_config("%s.%s" % (n, s.stagename),
                                                     dst)
-
-
-        #del Main.raw.runtime.current_stage
-        #del Main.raw.runtime.current_host
         return tasks
 
     def get_build_name(self):
@@ -520,6 +541,7 @@ class ResultsLoader(object):
 
     def save_config(self, k, v):
         Main.set_config(k,  v)
+
         def save():
             return {k: v}
         return ActionListTask([(save,)], [], [], "save_%s" % k)
@@ -533,7 +555,7 @@ class ResultsLoader(object):
         else:
             r = ""
         attr = r + attr
-        self._update_config(attr, value)        
+        self._update_config(attr, value)
 
     def _update_config(self, attr, value):
         Main._plain_update_raw(attr, value)
@@ -541,9 +563,11 @@ class ResultsLoader(object):
 
 class PostTraceLoader(ResultsLoader):
     supported_types = Main.raw.PostProcess.keys()
-    def __init__(self, processes, run):
+
+    def __init__(self, processes, run, hook, plugin):
         instance_id = Main.test_instance_id
-        super(PostTraceLoader, self).__init__(instance_id, "post_trace", run)
+        super(PostTraceLoader, self).__init__(instance_id, "post_trace",
+                                              run, hook, plugin)
         self.trace_id = Main.raw.runtime.trace.id
         self.data_dir = Main.raw.runtime.trace.data_dir
         self.stages = Main.raw.runtime.enabled_stages
@@ -552,8 +576,12 @@ class PostTraceLoader(ResultsLoader):
         if processes:
             self.processes = list(set(processes))
         else:
-            self.processes = []
+            if self.plugin:
+                self.processes = [self.plugin.name]
+            else:
+                self.processes = []
         self.task_adders = [self._setup_tasks,
+                            self._setup_plugin,
                             self._process_tasks]
         self._add_tasks()
 
@@ -574,17 +602,26 @@ class PostTraceLoader(ResultsLoader):
             tasks.append(self._mkdir(self._process_path(v.name)))
         return tasks
 
+    def _setup_plugin(self):
+        if not self.plugin:
+            return []
+        self.plugin.setup_config_obj()
+        # tasks =
+        # tasks.append(PythonInteractiveAction(self.plugin))
+        return self.plugin.get_setup_tasks(self)
+
     def _process_tasks(self):
         tasks = []
         uptodate = {"uptodate": [True]}
         not_uptodate = {"uptodate": [False]}
         pps = Main.object_config_lookup("PostProcess")
-        exabled = False
+        enabled = False
         for k in pps:
             if k.name not in self.processes:
                 enabled = False
             else:
                 enabled = True
+
             for stage in self.stages:
                 ts = self._get_postprocess_tasks(enabled, k, stage)
                 for t in ts:
@@ -602,7 +639,10 @@ class PostTraceLoader(ResultsLoader):
         targets = []
         task_name = task.name
         dstdir = self._process_path(task_name)
+
         for (name, f) in task._files.iteritems():
+            if f.imported:
+                continue
             if not hasattr(f, "path"):
                 f.path = {}
             else:
@@ -613,15 +653,18 @@ class PostTraceLoader(ResultsLoader):
                     p = self.sub_stage(p, s)[0]
                     p = Main.populate_from_config(p)
                     f.path[s.stagename] = p
+
         stagedir = os.path.join(dstdir, stage.stagename)
+
         tasks.append(self._mkdir(stagedir))
+
         for (name, f) in task._files.iteritems():
-            if hasattr(f, "relative_path"):
+            if hasattr(f, "relative_path") and not f.imported:
                 rel_path = Main.populate_from_config(f.relative_path)
                 path = os.path.join(stagedir, rel_path)
                 self._update_config("postprocess.%s.files.%s.%s" %
                                     (task_name, name, stage.stagename),
-                path)
+                                    path)
                 f.path[stage.stagename] = path
             if f.type in ["target", "log", "output"]:
                 path = f.path
@@ -630,13 +673,16 @@ class PostTraceLoader(ResultsLoader):
                 else:
                     targets.append(path)
         done_file = os.path.join(stagedir, "postprocess-done")
-        self._update_config("postprocess.%s.files.done.%s" % (task_name, stage.stagename),
+        self._update_config("postprocess.%s.files.done.%s" % (task_name,
+                                                              stage.stagename),
                             done_file)
         targets.append(done_file)
-
-        if hasattr(task, "function"):
-            proc = getattr(self, task.function)
-            actions = proc(task.name, enabled, stage)
+        if hasattr(task, "function") or self.plugin:
+            if self.plugin:
+                actions = [PythonInteractiveAction(self.plugin)]
+            else:
+                proc = getattr(self, task.function)
+                actions = proc(task.name, enabled, stage)
             tasks.append(ActionListTask(actions,
                                         file_deps,
                                         targets,
@@ -654,7 +700,7 @@ class PostTraceLoader(ResultsLoader):
         d = Main.raw.PostProcess.process_watchpoints.Files.db.path
         d = self.sub_stage(d, stage)[0]
         d = os.path.dirname(Main.populate_from_config(d))
-        tasks.append(CmdAction("mkdir -p %s" %d))
+        tasks.append(CmdAction("mkdir -p %s" % d))
         raw_output = getattr(Main.raw.TraceMethod.watchpoint.Files.trace_output, stage.stagename)
         target = []
 
@@ -674,55 +720,54 @@ class PostTraceLoader(ResultsLoader):
 
     def _browse_db(self, name, enabled, stage):
         tasks = []
-        
+
         class Do():
             def __init__(self, db_objname=""):
-                #self.db_objname
+                # self.db_objname = db_objname
                 pass
 
             def __call__(self):
                 rwe = self
-                #print "DB object: %s" % self.db_objname
+                # print "DB object: %s" % self.db_objname
                 print "-----instance config----"
-                with open(Main.raw.runtime.instance_config_file,'r') as f:
+                with open(Main.raw.runtime.instance_config_file, 'r') as f:
                     sys.stdout.write(f.read())
                 print "---testcase config----"
-                with open(Main.raw.runtime.test_config_file,'r') as f:
-                    sys.stdout.write(f.read())                
+                with open(Main.raw.runtime.test_config_file, 'r') as f:
+                    sys.stdout.write(f.read())
                 print "PostTraceLoader object named rwe"
                 print "-----------"
                 IPython.embed()
-        
+
         a = PythonInteractiveAction(Do())
         tasks.append(a)
         return tasks
 
     def _ordered_set(self, name, enabled, stage):
         tasks = []
-        
+
         class Do():
             def __init__(self, db_objname=""):
-                #self.db_objname
+                # self.db_objname
                 pass
 
             def __call__(self):
                 rwe = self
-                #print "DB object: %s" % self.db_objname
+                # print "DB object: %s" % self.db_objname
                 print "-----instance config----"
-                with open(Main.raw.runtime.instance_config_file,'r') as f:
+                with open(Main.raw.runtime.instance_config_file, 'r') as f:
                     sys.stdout.write(f.read())
                 print "---testcase config----"
-                with open(Main.raw.runtime.test_config_file,'r') as f:
-                    sys.stdout.write(f.read())                
+                with open(Main.raw.runtime.test_config_file, 'r') as f:
+                    sys.stdout.write(f.read())
                 print "PostTraceLoader object named rwe"
                 print "-----------"
                 IPython.embed()
-        
+
         a = PythonInteractiveAction(Do())
         tasks.append(a)
         return tasks
 
-    
     def _histogram(self, name, enabled, stage):
         tasks = []
 
@@ -746,11 +791,14 @@ class PostTraceLoader(ResultsLoader):
                 self.finished = True
         tasks = []
         for t in self.tracenames:
-            #if t not in Main.object_config_lookup("PostProcess", name).supported_traces:
-            #    continue
-            o = getattr(getattr(Main.raw.postprocess, name).files.range_txt, stage.stagename)
-            o2 = getattr(getattr(Main.raw.postprocess, name).files.range_csv, stage.stagename)
-            done = getattr(getattr(Main.raw.postprocess, name).files.done, stage.stagename)
+            # if t not in Main.object_config_lookup("PostProcess", name).supported_traces:
+            #     continue
+            o = getattr(getattr(Main.raw.postprocess, name).files.range_txt,
+                        stage.stagename)
+            o2 = getattr(getattr(Main.raw.postprocess, name).files.range_csv,
+                         stage.stagename)
+            done = getattr(getattr(Main.raw.postprocess, name).files.done,
+                           stage.stagename)
             tasks.append(PythonInteractiveAction(Do(stage, o, o2, done, t)))
         return tasks
 
@@ -759,6 +807,7 @@ class PostTraceLoader(ResultsLoader):
 
     def _policy_check(self, name, enabled, stage):
         tasks = []
+
         class Do():
             def __init__(self, s):
                 self.s = s
@@ -828,10 +877,8 @@ class TraceTaskLoader(ResultsLoader):
 
         for tracename in self.tracenames:
             trace_dstdir = os.path.join(traceroot, tracename)
-            #tasks.append(self._mkdir(trace_dstdir))
+
             self._update_runtime_config("trace.%s.dir" % (tracename), trace_dstdir)
-            for s in Main.raw.runtime.enabled_stages:
-                tasks.append(self._mkdir(os.path.join(trace_dstdir, s.stagename)))
 
             trace = Main.object_config_lookup("TraceMethod", tracename)
             rawtrace = getattr(Main.raw.TraceMethod, tracename)
@@ -895,13 +942,10 @@ class TraceTaskLoader(ResultsLoader):
                     cs = [Main.populate_from_config(i) for i in cs]
                     gdb_cmds.extend(cs)
 
-
         Main.raw.TraceMethod.gdb_commands = " ".join(map(lambda x: "-ex '%s'" % x,
                                                          gdb_cmds))
-        done_file = os.path.join(trace_dstdir,"trace-done")
+        done_file = os.path.join(trace_dstdir, "trace-done")
         self._update_runtime_config("trace.done", done_file)
-        # print Main.raw.Software.reg_parser.keys()
-        # print "_______________________________"
         r = self.sub_host(trace.run)
         r = self.sub_stage(r)[0]
 
@@ -928,15 +972,17 @@ class TraceTaskLoader(ResultsLoader):
 
 class TraceTaskPrepLoader(ResultsLoader):
     def __init__(self, trace_name, create, run_tasks,
-                 print_cmds, stages=None, trace_list=[], host=None, hook=False):
+                 print_cmds, stages=None, trace_list=[],
+                 host=None, hook=False):
         self.print_cmds = print_cmds
 
         instance_id = Main.test_instance_id
-        super(TraceTaskPrepLoader, self).__init__(instance_id, "trace_prep", run_tasks)
+        super(TraceTaskPrepLoader, self).__init__(instance_id,
+                                                  "trace_prep", run_tasks)
         self.test_root = Main.test_instance_root
         self.create = create
         self.trace_id = trace_name
-        self._update_config("runtime.trace.id", self.trace_id)        
+        self._update_config("runtime.trace.id", self.trace_id)
         self.config_path = self._test_path("config.yml")
         self._update_runtime_config("test_config_file", self.config_path)
         if self.create:
@@ -956,29 +1002,37 @@ class TraceTaskPrepLoader(ResultsLoader):
         self.hw = Main.object_config_lookup("HardwareClass", self.hwname)
         self.host = Main.object_config_lookup("HostConfig", self.hostname)
         self.stages = [Main.stage_from_name(s) for s in self.stagenames]
-        self._update_runtime_config("trace.host", getattr(Main.raw.HostConfig, self.hostname))
+        self._update_runtime_config("trace.host", getattr(Main.raw.HostConfig,
+                                                          self.hostname))
         self._update_runtime_config("trace.host_name", self.host.name)
         for k in self.host._GDB_configs:
             for (name, v) in k.__dict__.iteritems():
-                if isinstance(v, str) and not v in ["name", "kind", "typ", "type"]:
-                    self._update_runtime_config("trace.host_configs.%s" % name, v)
+                if isinstance(v, str) and v not in ["name", "kind",
+                                                    "typ", "type"]:
+                    self._update_runtime_config("trace.host_configs.%s" %
+                                                name, v)
         self._update_runtime_config("trace.hw", self.hw)
         active_stages = [Main.stage_from_name(s) for s in self.stagenames]
         self._update_runtime_config("enabled_stages", active_stages)
 
-        self._update_runtime_config("enabled_stagenames", " ".join(self.stagenames))
+        self._update_runtime_config("enabled_stagenames",
+                                    " ".join(self.stagenames))
         active_traces = [t for t in Main.traces if t.name in self.tracenames]
         self._update_runtime_config("enabled_traces", active_traces)
 
         self.name = "%s.%s.%s" % (self.hostname,
-                                  "-".join(self.tracenames), "-".join(self.stagenames))
+                                  "-".join(self.tracenames),
+                                  "-".join(self.stagenames))
         self.namefile = self._test_path(self.name)
-        self.task_adders = [self._setup_tasks, self._logfile_tasks, self._trace_backup_tasks]
+        self.task_adders = [self._setup_tasks, self._logfile_tasks,
+                            self._trace_backup_tasks]
         self._add_tasks()
 
     @classmethod
     def _existing_trace_ids(cls, instance_id, list_times=False):
-        for f in glob.glob("%s/*" % os.path.join(cls.instance_root(instance_id),  "trace_data")):
+        for f in glob.glob("%s/*" %
+                           os.path.join(cls.instance_root(instance_id),
+                                        "trace_data")):
             if os.path.isdir(f) and not os.path.basename(f) == "trace_data-by_name":
                 if not list_times:
                     yield (os.path.basename(f))
@@ -988,7 +1042,8 @@ class TraceTaskPrepLoader(ResultsLoader):
                     yield (timestr, os.path.basename(f), "unknown")
 
     @classmethod
-    def get_trace_name(cls, instance_id, trace_id=None, create=False, hook=False):
+    def get_trace_name(cls, instance_id, trace_id=None,
+                       create=False, hook=False):
         if create:
             trace_id = cls.create_new_id(instance_id)
         elif trace_id is None:  # get last id
@@ -1020,7 +1075,8 @@ class TraceTaskPrepLoader(ResultsLoader):
 
     @classmethod
     def test_path(cls, instance_id, trace_id):
-        return os.path.join(cls.instance_root(instance_id), "trace_data", trace_id)
+        return os.path.join(cls.instance_root(instance_id),
+                            "trace_data", trace_id)
 
     @classmethod
     def _format_id(cls, num):
@@ -1087,12 +1143,14 @@ class TraceTaskPrepLoader(ResultsLoader):
         tasks = []
         deps = []
         tasks.append(self._mkdir(self._test_path()))
-        symlink_dir = os.path.join(self._dest_dir_root_path(), "trace_data-by_name")
+        symlink_dir = os.path.join(self._dest_dir_root_path(),
+                                   "trace_data-by_name")
         tasks.append(self._mkdir(symlink_dir))
         target_dir = os.path.join(symlink_dir, os.path.basename(self.namefile))
         tasks.append(self._mkdir(target_dir))
         target_file = os.path.join(target_dir, self.trace_id)
-        tasks.append(CmdTask(["ln -s -f %s %s" % (self._test_path(), target_file)],
+        tasks.append(CmdTask(["ln -s -f %s %s" % (self._test_path(),
+                                                  target_file)],
                              [], [target_file], "symlink-%s" % target_file))
         self._update_config("runtime.trace.data_dir", self._test_path())
 
@@ -1108,7 +1166,8 @@ host: {}
                                                ", ".join(tracenames), host)
                 fconfig.write(filecontents)
         a = ActionListTask([(write, [self.config_path,
-                                     self.stagenames, self.hwname, self.tracenames, self.hostname])],
+                                     self.stagenames, self.hwname,
+                                     self.tracenames, self.hostname])],
                            [], [self.config_path], "test_config_file")
         try:
             os.makedirs(self._test_path())
@@ -1139,7 +1198,8 @@ class InstrumentationTaskLoader(ResultsLoader):
                  gitinfo={"local": "n/a", "sha1": "none"},
                  rm_tmp=True,
                  testonly=False):
-        super(InstrumentationTaskLoader, self).__init__(instance_id, "instance", True)
+        super(InstrumentationTaskLoader, self).__init__(instance_id,
+                                                        "instance", True)
         self.testonly = testonly
         self.create = create
         self.gitinfo = gitinfo
@@ -1157,7 +1217,8 @@ class InstrumentationTaskLoader(ResultsLoader):
         Main.test_instance_id = self.instance_id
         self._update_runtime_config("instance_id", self.instance_id)
 
-        self._update_runtime_config("hardware_data_target_dir",  os.path.join(hdir, targetname))
+        self._update_runtime_config("hardware_data_target_dir",
+                                    os.path.join(hdir, targetname))
 
         self.task_adders = [
             self._mkdir_tasks,
@@ -1199,20 +1260,20 @@ class InstrumentationTaskLoader(ResultsLoader):
         actions = []
         tasks.append(self._mkdir(dstdir))
         self._update_config("static_analysis.mmap.dir", dstdir)
-        tasks.extend(self.import_files(hwclass, config_data, Main.raw.hw_cache, True))
-        # print Main.raw.HardwareClass.bbxm.Files.reference.path
-        # print Main.raw.HardwareClass.bbxm.Files.keys()
-        # print Main.raw.HardwareClass.bbxm.Files.mmap.path
+        tasks.extend(self.import_files(hwclass, config_data,
+                                       Main.raw.hw_cache,
+                                       True))
         mmapdb_path = os.path.join(dstdir, "mmap.h5")
         self._update_config("static_analysis.mmap.db", mmapdb_path)
-        self._update_config("static_analysis.mmap.db_done", mmapdb_path+"-completed")
+        self._update_config("static_analysis.mmap.db_done",
+                            mmapdb_path+"-completed")
 
         class addr_space_setup():
             def __call__(self):
                 done_target = Main.raw.static_analysis.mmap.db_done
                 target = Main.raw.static_analysis.mmap.db
                 if os.path.exists(target) and not os.path.exists(done_target):
-                    #creation must have failed, try again
+                    # creation must have failed, try again
                     os.remove(target)
                 db_info.create("any", "mmapdb")
                 return os.system("touch %s" % done_target) == 0
@@ -1248,26 +1309,31 @@ class InstrumentationTaskLoader(ResultsLoader):
         for s in Main.stages:
             n = s.stagename
             d = os.path.join(dstdir, n)
-            self._update_config("static_analysis.db.%s" % n, os.path.join(d,
-                                                                          "static-analysis.h5"))
-            self._update_config("static_analysis.db_done.%s" % n, os.path.join(d,
-                                                                               "static-analysis.h5-completed"))
+            self._update_config("static_analysis.db.%s" % n,
+                                os.path.join(d,
+                                             "static-analysis.h5"))
+            self._update_config("static_analysis.db_done.%s" % n,
+                                os.path.join(d,
+                                             "static-analysis.h5-completed"))
 
             # calculate thumb ranges on demand
             class get_thumb_ranges():
                 def __init__(self, stage):
                     self.stage = stage
+
                 def __call__(self):
-                    v = staticanalysis.ThumbRanges.find_thumb_ranges(self.stage,
-                                                                     not staticanalysis.WriteSearch._is_arm(self.stage.elf))
-                    Main.set_runtime_config("thumb_ranges.%s" % self.stage.stagename, v)
+                    v = TR.find_thumb_ranges(self.stage,
+                                             not WS._is_arm(self.stage.elf))
+                    Main.set_runtime_config("thumb_ranges.%s" %
+                                            self.stage.stagename, v)
                     return v
-            self._update_config("runtime.thumb_ranges.%s" % n, get_thumb_ranges(s))
+            self._update_config("runtime.thumb_ranges.%s" % n,
+                                get_thumb_ranges(s))
 
         # calculate labels on demand
         def get_labels():
             try:
-                v =  Main.get_runtime_config("labels_internal")
+                v = Main.get_runtime_config("labels_internal")
             except AttributeError:
                 tmpdir = Main.raw.runtime.temp_target_src_dir
                 olddir = os.getcwd()
@@ -1284,11 +1350,13 @@ class InstrumentationTaskLoader(ResultsLoader):
                     self.stage = stage
 
                 def __call__(self):
-                    done_target = Main.get_static_analysis_config("db_done", self.stage)
+                    done_target = Main.get_static_analysis_config("db_done",
+                                                                  self.stage)
                     target = Main.get_static_analysis_config("db", self.stage)
                     if not os.path.exists(done_target):
                         if os.path.exists(target):
-                            # if done doesnt existb but target does, probably means
+                            # if done doesnt existb but target does,
+                            # probably means
                             # target db was not sucessfully created
                             os.remove(target)
                         db_info.create(self.stage, "staticdb")
@@ -1300,7 +1368,8 @@ class InstrumentationTaskLoader(ResultsLoader):
             actions = [a]
             rtask = ActionListTask(actions,
                                    [s.elf],
-                                   [target, done_target], "staticanalysis_%s" % n)
+                                   [target, done_target],
+                                   "staticanalysis_%s" % n)
             tasks.append(rtask)
         return tasks
 
@@ -1321,7 +1390,6 @@ class InstrumentationTaskLoader(ResultsLoader):
         self._update_config("instance_image_cache", dstdir)
         self.config_path = self._full_path("config.yml")
         self._update_runtime_config("instance_config_file", self.config_path)
-
 
         if os.path.exists(self.config_path):
             with open(self.config_path, 'r') as f:
@@ -1358,7 +1426,6 @@ sha1: {}
             print "closing databases"
             for s in Main.stages:
                 db_info.get(s)._closeall()
-
 
         if self.rm_tmp:
             atexit.register(rm_src_dir)
@@ -1407,9 +1474,12 @@ sha1: {}
             i.image = Main._populate_from_config(i.image)
             elfdst[i.stagename] = os.path.join(dstdir, os.path.basename(i.elf))
 
-            imagedst[i.stagename] = os.path.join(dstdir, os.path.basename(i.image))
-            self._update_config("target.file.elf.%s" % i.stagename, elfdst[i.stagename])
-            self._update_config("target.file.image.%s" % i.stagename, imagedst[i.stagename])
+            imagedst[i.stagename] = os.path.join(dstdir,
+                                                 os.path.basename(i.image))
+            self._update_config("target.file.elf.%s" % i.stagename,
+                                elfdst[i.stagename])
+            self._update_config("target.file.image.%s" % i.stagename,
+                                imagedst[i.stagename])
 
         targetelfs = elfdst.values()
         targetimage = imagedst.values()
@@ -1417,7 +1487,8 @@ sha1: {}
         targets.extend(tocpy)
 
         if not has_all_images:
-            builder = self.manager.build([Main.target_software.basename], False)[0]
+            builder = self.manager.build([Main.target_software.basename],
+                                         False)[0]
             build_cmds = []
             for t in builder.tasks:
                 for action in t.list_tasks()['actions']:
@@ -1427,9 +1498,10 @@ sha1: {}
             build_cmds.append("mkdir -p %s && true" % dstdir)
             for i in Main.stages:
                 for t in ["elf", "image"]:
-                    build_cmds.append("cp %s %s" % (os.path.join(tmpdir,
-                                                                 getattr(i, t)),
-                                                    dstdir))
+                    build_cmds.append("cp %s %s" %
+                                      (os.path.join(tmpdir,
+                                                    getattr(i, t)),
+                                       dstdir))
             for b in build_cmds:
                 if not self.testonly:
                     os.system(b)
@@ -1485,15 +1557,11 @@ sha1: {}
                                            cache,
                                            output_files=True))
 
-
-        # print Main.raw.Software.reg_parser.binary
-        # print Main.raw.Software.reg_parser.root
-
-
         for tm in Main.object_config_lookup("TraceMethod"):
             raw = getattr(Main.raw.TraceMethod, tm.name)
             cache = os.path.join(trace_cache, tm.name)
-            self._update_config("runtime.TraceMethod.%s.cache" % tm.name, cache)
+            self._update_config("runtime.TraceMethod.%s.cache" % tm.name,
+                                cache)
             tasks.extend(self.import_files(tm, raw, cache))
 
         for stage in Main.stages:
@@ -1572,14 +1640,15 @@ sha1: {}
 class PolicyTaskLoader(ResultsLoader):
     def __init__(self, import_policy, policies):
         instance_id = Main.test_instance_id
-        super(PolicyTaskLoader, self).__init__(instance_id, "policy", import_policy)
+        super(PolicyTaskLoader, self).__init__(instance_id, "policy",
+                                               import_policy)
         self.policy_files = {}
         self.import_policy = {}
         self.policies = {}
         if import_policy:
             self.import_policy = policies
-            self.policies = {k: substage.SubstagesInfo.calculate_name_from_files(sub,
-                                                                                 reg)
+            self.policies = {k: SI.calculate_name_from_files(sub,
+                                                             reg)
                              for (k,
                                   (sub, reg)) in policies.iteritems()}
         else:
@@ -1692,7 +1761,8 @@ class PolicyTaskLoader(ResultsLoader):
 
                 a = ActionListTask(actions,
                                    [mmapdb_done, mmapdb, staticdb_done,
-                                    staticdb, self._policy_stage_substage_file(stage),
+                                    staticdb,
+                                    self._policy_stage_substage_file(stage),
                                     self._policy_stage_region_file(stage)],
                                    targets,
                                    "create_%s_policy_db" % stage)

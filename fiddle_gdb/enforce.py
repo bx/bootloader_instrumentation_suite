@@ -24,18 +24,18 @@ import gdb
 import sys
 import os
 import signal
-import intervaltree
+from fiddle.memory_tree import intervaltree
 import gdb_tools
 import substage
 import db_info
 
 
-def int_repr(self):
-    return "({0:08X}, {1:08X})".format(self.begin, self.end)
+# def int_repr(self):
+#     return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
 
-intervaltree.Interval.__str__ = int_repr
-intervaltree.Interval.__repr__ = int_repr
+# intervaltree.Interval.__str__ = int_repr
+# intervaltree.Interval.__repr__ = int_repr
 do_halt = False
 allowed_writes = {}
 now = True

@@ -34,7 +34,7 @@ from capstone.arm import *
 import staticanalysis
 import traceback
 import pytable_utils
-import intervaltree
+from memory_tree import intervaltree
 import db_info
 import substage
 import sys
@@ -43,13 +43,6 @@ from capstone import *
 import os
 l = logging.getLogger("")
 
-
-def int_repr(self):
-    return "({0:08X}, {1:08X})".format(self.begin, self.end)
-
-
-intervaltree.Interval.__str__ = int_repr
-intervaltree.Interval.__repr__ = int_repr
 
 class FramaCDstEntry(tables.IsDescription):
     line = tables.StringCol(512)  # file/lineno
@@ -409,7 +402,7 @@ class TraceTable():
         (self._thumbranges, self._armranges, self._dataranges) = (None, None, None)
         self.outname = outfile
         self.create = create
-        self.writestable = None        
+        self.writestable = None
         if create:
             m = "w"
         else:
@@ -417,7 +410,7 @@ class TraceTable():
                                            title="QEMU tracing information")
             try:
                 self.writestable = self.get_group().writes
-                m = "a"                
+                m = "a"
             except tables.exceptions.NoSuchNodeError:
                 # go ahead and create table
                 m = "w"
@@ -438,7 +431,7 @@ class TraceTable():
             self.writestable.cols.destlo.create_index(kind='full')
             self.writestable.cols.desthi.create_index(kind='full')
             self.writestable.cols.index.create_index(kind='full')
-            self.writestable.cols.callindex.create_index(kind='full')            
+            self.writestable.cols.callindex.create_index(kind='full')
             self.writestable.flush()
             self.hisotable = None
         if self.has_histogram():

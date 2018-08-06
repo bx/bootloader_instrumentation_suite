@@ -27,7 +27,7 @@ import re
 import glob
 import numpy
 import tables
-import intervaltree
+from memory_tree import intervaltree
 import pytable_utils
 import run_cmd
 import StringIO
@@ -41,12 +41,7 @@ import db_info
 from fiddle_extra import pymacs_request
 import testsuite_utils as utils
 import addr_space
-def int_repr(self):
-    return "({0:08X}, {1:08X})".format(self.begin, self.end)
 
-
-intervaltree.Interval.__str__ = int_repr
-intervaltree.Interval.__repr__ = int_repr
 BOOKKEEPING = "bookkeeping"
 substage_types = tables.Enum([BOOKKEEPING,
                               "loading", "patching"])

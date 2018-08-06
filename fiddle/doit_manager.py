@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 import external_source_manager
-import instrumentation_results_manager
+import instrumentation_results_manager as manager
 from doit.cmd_base import ModuleTaskLoader, TaskLoader
 from doit.doit_cmd import DoitMain
 from doit.cmd_base import Command
@@ -49,7 +49,8 @@ class TaskManager():
     def __init__(self, command, instance, trace, host=None,
                  trace_list=[], stages=[],
                  policies={}, post_trace_processes=[],
-                 rm_dir=True, quick=False, args=None, verbose=False):
+                 rm_dir=True, quick=False, args=None,
+                 verbose=False, plugin=None):
         self.verbose = verbose
         if command == cmds.list_instances:
             print "Test instances"
@@ -94,45 +95,45 @@ class TaskManager():
                     instance_id = instance
             if command == cmds.list_test_runs:
                 print "-- Test traces for instance '%s' --" % instance_id
-                for (time, name, ran) in instrumentation_results_manager.TraceTaskPrepLoader._existing_trace_ids(instance_id, True):
+                for (time, name, ran) in manager.TraceTaskPrepLoader._existing_trace_ids(instance_id, True):
                     print "%s\t%s (data collected: %s)" % (time, name, ran)
                 return
             if command in [cmds.run_new_trace, cmds.setup_trace]:
                 # create a new trace
                 create_trace = True
                 trace = []
-            elif command in [cmds.list_policies, cmds.import_policy, cmds.do_trace, cmds.print_trace_commands,
+            elif command in [cmds.list_policies, cmds.import_policy,
+                             cmds.do_trace, cmds.print_trace_commands,
                              cmds.postprocess_trace, cmds.hook]:
                 create_trace = False
             # lookup existing trace
-            trace_id = instrumentation_results_manager.TraceTaskPrepLoader.get_trace_name(instance_id,
-                                                                                          trace,
-                                                                                          create=create_trace)
+            trace_id = manager.TraceTaskPrepLoader.get_trace_name(instance_id,
+                                                                  trace,
+                                                                  create=create_trace)
             run_trace = False
             if command in [cmds.run_new_trace, cmds.do_trace]:
                 run_trace = True
             if not policies:
-                policies = instrumentation_results_manager.PolicyTaskLoader.default_policies(instance_id, stages)
+                policies = manager.PolicyTaskLoader.default_policies(instance_id, stages)
 
-        self.ti = instrumentation_results_manager.InstrumentationTaskLoader(self.target_task,
-                                                                            instance_id,
-                                                                            self,
-                                                                            command == cmds.create,
-                                                                            gitinfo,
-                                                                            rm_dir)
+        self.ti = manager.InstrumentationTaskLoader(self.target_task,
+                                                    instance_id,
+                                                    self,
+                                                    command == cmds.create,
+                                                    gitinfo,
+                                                    rm_dir)
 
         if command == cmds.create:
-            self.pt = instrumentation_results_manager.PolicyTaskLoader(False, policies)
-            self.loaders.append(instrumentation_results_manager.task_manager(verbose))
+            self.pt = manager.PolicyTaskLoader(False, policies)
+            self.loaders.append(manager.task_manager(verbose))
             return
 
-
         if command in [cmds.list_policies, cmds.import_policy]:
-            self.pt = instrumentation_results_manager.PolicyTaskLoader(command == cmds.import_policy,
-                                                                       policies)
+            self.pt = manager.PolicyTaskLoader(command == cmds.import_policy,
+                                               policies)
             if cmds.import_policy:
-               self.loaders.append(instrumentation_results_manager.task_manager(verbose))
-               return
+                self.loaders.append(manager.task_manager(verbose))
+                return
             print "-- Avilable policies for instance '%s' --" % instance_id
             for s in Main.stages:
                 print "Stage %s:" % s.stagename
@@ -144,27 +145,29 @@ class TaskManager():
                         print "%s\t%s" % (timestr, os.path.basename(f))
             return
 
-        self.tp = instrumentation_results_manager.TraceTaskPrepLoader(trace_id,
-                                                                      create_trace,
-                                                                      run_trace,
-                                                                      command == cmds.print_trace_commands,
-                                                                      stages,
-                                                                      trace_list,
-                                                                      host,
-                                                                      False)
-        self.pt = instrumentation_results_manager.PolicyTaskLoader(command == cmds.import_policy,
-                                                                   policies)
+        self.tp = manager.TraceTaskPrepLoader(trace_id,
+                                              create_trace,
+                                              run_trace,
+                                              command == cmds.print_trace_commands,
+                                              stages,
+                                              trace_list,
+                                              host,
+                                              False)
+        self.pt = manager.PolicyTaskLoader(command == cmds.import_policy,
+                                           policies)
 
-        self.rt = instrumentation_results_manager.TraceTaskLoader(create_trace,
-                                                                  run_trace,
-                                                                  command == cmds.print_trace_commands,
-                                                                  quick)
+        self.rt = manager.TraceTaskLoader(create_trace,
+                                          run_trace,
+                                          command == cmds.print_trace_commands,
+                                          quick)
         if command in [cmds.postprocess_trace, cmds.hook]:
-            self.ppt = instrumentation_results_manager.PostTraceLoader(post_trace_processes,
-                                                                       command==cmds.postprocess_trace)
+            self.ppt = manager.PostTraceLoader(post_trace_processes,
+                                               True,
+                                               command is cmds.hook,
+                                               plugin)
         else:
             self.ppt = None
-        self.loaders.append(instrumentation_results_manager.task_manager(verbose))
+        self.loaders.append(manager.task_manager(verbose))
 
     def _get_all_ids(self):
         root = Main.test_data_path
@@ -245,7 +248,6 @@ class TaskManager():
         print "about to run %s" % nm
         ret = self.run([ti, tp, ip, nm])
         return ret
-
 
     def postprocess_trace(self):
         nm = self.ppt.get_build_name()

@@ -27,16 +27,8 @@ import toml
 import git_mgr
 import run_cmd
 import pure_utils
-import intervaltree
+from memory_tree import intervaltree
 from munch import munchify, Munch
-
-
-def int_repr(self):
-    return "({0:08X}, {1:08X})".format(self.begin, self.end)
-
-
-intervaltree.Interval.__str__ = int_repr
-intervaltree.Interval.__repr__ = int_repr
 
 import collections
 
@@ -85,7 +77,7 @@ def _update_raw_config(obj, attr, value, debug=False):
     b = Main.raw
     if not b:
         b = Main.default_raw
-    attr = _raw_field_name(obj, attr)    
+    attr = _raw_field_name(obj, attr)
     def _dotted_str_to_dict(s, d):
         dot = s.rfind(".")
         if dot < 0:
@@ -232,9 +224,9 @@ class ConfigObject(object):
     def setup(self):
         pass
 
-    def __init__(self, kw, name=None, default=False, update_raw=False):
+    def __init__(self, kw, name=None, default=False):
         global registry
-        global defaults        
+        global defaults
         self.default = default
         v = None
         if name is not None:
@@ -246,8 +238,6 @@ class ConfigObject(object):
                 del kw["name"]
                 if "name" in self.required_fields:
                     self.required_fields.remove("name")
-        if update_raw:
-            registry[self.__class__.__name__].append(self)
         self._update_raw("name", self.name)
 
         fields = kw.keys()
@@ -289,7 +279,7 @@ class ConfigObject(object):
 
     #def add_to_raw(self):
     #    pass
-        
+
 
     def _update_raw(self, attr, value, debug=False):
         _update_raw_config(self, attr, value, debug)

@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 import yaml
-import intervaltree
+from memory_tree import intervaltree
 import os
 import config
 import re
@@ -31,14 +31,6 @@ from fiddle_extra import parse_am37x_register_tables
 from config import Main
 from collections import OrderedDict
 import db_info
-
-
-def int_repr(self):
-    return "({0:08X}, {1:08X})".format(self.begin, self.end)
-
-
-intervaltree.Interval.__str__ = int_repr
-intervaltree.Interval.__repr__ = int_repr
 
 
 class OrderedDictYAMLLoader(yaml.Loader):
