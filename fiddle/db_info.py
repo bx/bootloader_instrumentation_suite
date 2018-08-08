@@ -336,10 +336,12 @@ class DBInfo():
         return {f: r[f] for f in fields}
 
     def add_trace_write_entry(self, time, pid, size,
-                              dest, pc, lr, cpsr, index=0,
-                              callindex=0, num=None):
+                              dest, pc, lr, cpsr,
+                              callindex=0,
+                              substagenum=None):
         self._tdb.db.add_write_entry(time, pid, size, dest, pc,
-                                     lr, cpsr, index, callindex, num)
+                                     lr, cpsr, callindex,
+                                     substagenum)
 
     def callindex_to_fnname(self, idx):
         rs = pytable_utils.query(self._tdb.db.writestable,
@@ -350,6 +352,24 @@ class DBInfo():
     def trace_write_by_callindex(self):
         fields = self._tdb.db.writestable.colnames
         for r in pytable_utils.get_sorted(self._tdb.db.writestable, "callindex"):
+            yield {f: r[f] for f in fields}
+
+    def trace_write_by_index(self):
+        fields = self._tdb.db.writestable.colnames
+        for r in pytable_utils.get_sorted(self._tdb.db.writestable, "index"):
+            yield {f: r[f] for f in fields}
+
+    def trace_write_min_max(self):
+        r = pytable_utils.get_sorted(self._tdb.db.writestable,
+                                     "index", "index")
+        return (min(r), max(r))
+
+    def index_to_trace_write(self, start, end=None):
+        if end is None:
+            end = start + 1
+        fields = self._tdb.db.writestable.colnames
+        for r in pytable_utils.query(self._tdb.db.writestable,
+                                     "(index >= %d) & (index < %d)" % (start, end)):
             yield {f: r[f] for f in fields}
 
     def get_write_pc_or_zero_from_dstinfo(self, dstinfo):

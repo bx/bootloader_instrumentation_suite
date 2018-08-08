@@ -43,8 +43,8 @@ def has_results(table, query):
         return False
 
 
-def get_sorted(table, col):
-    return table.read_sorted(col)
+def get_sorted(table, col, field=None):
+    return table.read_sorted(col, field=field)
 
 
 def get_unique_result(table, query):

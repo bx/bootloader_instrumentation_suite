@@ -411,6 +411,7 @@ class TraceTable():
             try:
                 self.writestable = self.get_group().writes
                 m = "a"
+                self.trace_count = self.writestable.nrows + 1
             except tables.exceptions.NoSuchNodeError:
                 # go ahead and create table
                 m = "w"
@@ -424,6 +425,7 @@ class TraceTable():
             self.writestable = self.h5file.create_table(group, TraceTable.h5tablename,
                                                         TraceWriteEntry,
                                                         "memory write information")
+            self.trace_count = 1
             self.writestable.cols.relocatedpclo.create_index(kind='full')
             self.writestable.cols.relocatedpchi.create_index(kind='full')
             self.writestable.cols.pclo.create_index(kind='full')
@@ -818,13 +820,14 @@ class TraceTable():
         self.h5file.flush()
 
     def add_write_entry(self, time, pid, size,
-                        dest, pc, lr, cpsr, index=0,
-                        callindex=0, num=None):
+                        dest, pc, lr, cpsr,
+                        callindex=0, substagenum=None):
         #if self.pcmin > self.pcmax:
         #    print "PC not in range %x %x (%x)" % (self.pcmin, self.pcmax, pc)
             # traceback.print_stack()
         #if (pc <= self.pcmax) and (pc >= self.pcmin):
             # get relocation info from writesearch database
+        #index = self.trace_count
         r = self.writestable.row
         r['pid'] = pid
         r['dest'] = dest
@@ -837,10 +840,7 @@ class TraceTable():
         r['time'] = time
         r['reportedsize'] = size
         r['callindex'] = callindex
-        if index > 0:
-            r['index'] = index
-        else:
-            r['index'] = self.writestable.nrows
+        r['index'] = self.trace_count
         r['cpsr'] = cpsr
         r['pc'] = pc
         r['pclo'] = utils.addr_lo(pc)
@@ -848,8 +848,8 @@ class TraceTable():
         r['lr'] = lr
         r['lrlo'] = utils.addr_lo(lr)
         r['lrhi'] = utils.addr_hi(lr)
-        if num is not None:
-            r['substage'] = num
+        if substagenum is not None:
+            r['substage'] = substagenum
         for rinfo in self.rinfos:
             offset = rinfo['reloffset']
             start = (rinfo['startaddr']+offset)
@@ -863,4 +863,5 @@ class TraceTable():
                 r['lrlo'] = utils.addr_lo(long(r['lr']))
                 r['lrhi'] = utils.addr_hi(long(r['lr']))
                 break
+        self.trace_count += 1
         r.append()

@@ -35,7 +35,6 @@ import binascii
 import testsuite_utils as utils
 import r2_keeper as r2
 now = True
-stepnum = 0
 start = time.time()
 
 
@@ -411,7 +410,6 @@ class Unicorn(gdb_tools.GDBPlugin):
         cspr = 0
         lr = 0
         pc = emu.reg_read(self.machine.pc)
-        global stepnum
         t = time.time()
         gdb.post_event(hook_write.WriteDatabase(t,
                                                 0,
@@ -420,13 +418,11 @@ class Unicorn(gdb_tools.GDBPlugin):
                                                 pc,
                                                 lr,
                                                 cspr,
-                                                stepnum,
                                                 pc,
                                                 self.stage,
                                                 self.substage_num,
                                                 "",
                                                 True))
-        stepnum += 1
 
     def init(self):        
         self.stage = self.controller.stage_order[0]

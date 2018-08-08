@@ -28,7 +28,6 @@ import gdb_tools
 from gdb_tools import *
 import db_info
 
-stepnum = 0
 now = False
 db_written = False
 start = time.time()
@@ -75,7 +74,7 @@ class FlushDatabase():
 
 
 class WriteDatabase():
-    def __init__(self, time, pid, size, dest, pc, lr, cpsr, step,
+    def __init__(self, time, pid, size, dest, pc, lr, cpsr,
                  origpc, stage, substage, substage_name,
                  call_index=0, doit=False):
         self.time = time
@@ -85,7 +84,6 @@ class WriteDatabase():
         self.pc = pc
         self.lr = lr
         self.cpsr = cpsr
-        self.step = step
         self.origpc = origpc
         self.num = substage
         self.substage_name = substage_name
@@ -99,7 +97,7 @@ class WriteDatabase():
         db_info.get(self.stage).add_trace_write_entry(self.time, self.pid,
                                                       self.size, self.dest,
                                                       self.pc, self.lr,
-                                                      self.cpsr, self.step,
+                                                      self.cpsr,
                                                       self.cc,
                                                       self.num)
         if self.size < 0:
@@ -138,8 +136,6 @@ class HookWrite(gdb_tools.GDBPlugin):
             db_info.create(s, "tracedb")
 
     def write_stophook(self, bp, ret):
-        global stepnum
-        stepnum = stepnum + 1
         self.process_write(bp.writeinfo,
                            bp.relocated,
                            bp.stage,
@@ -149,7 +145,6 @@ class HookWrite(gdb_tools.GDBPlugin):
 
     def longwrite_stophook(self, bp, ret):
         # plugin = bp.controller.get_plugin(self.name)
-        global stepnum
         # calculate first and last write addresses
         start = bp.writeinfo['start']
         end = bp.writeinfo['end']
@@ -211,11 +206,9 @@ class HookWrite(gdb_tools.GDBPlugin):
         else:
             ccount = 0
         
-        global stepnum
-        stepnum += 1 
         gdb.post_event(WriteDatabase(time.time(),
                                      pid, size, writedst, pc, lr,
-                                     cpsr, stepnum, origpc, stage, substage,
+                                     cpsr, origpc, stage, substage,
                                      name, ccount))
 
 

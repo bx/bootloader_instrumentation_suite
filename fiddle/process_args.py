@@ -144,7 +144,7 @@ class FiddleArgParser(argparse.ArgumentParser):
         cmd = None
         for c in list(run_cmds.cmds):
             n = c._name_
-            if (plugin is not None) and getattr(args, n, None):
+            if (plugin is None) and getattr(args, n, None):
                 cmd = c
                 break
             else:
@@ -163,6 +163,7 @@ class FiddleArgParser(argparse.ArgumentParser):
             policy = args.import_policy
         if not args.trace_methods:
              args.trace_methods = host.default_tracing
+        
         self.parser = parser
         self.args = args
         self.other = other
