@@ -41,6 +41,7 @@ import db_info
 from fiddle_extra import pymacs_request
 import testsuite_utils as utils
 import addr_space
+import logging
 
 BOOKKEEPING = "bookkeeping"
 substage_types = tables.Enum([BOOKKEEPING,
@@ -186,7 +187,7 @@ class SubstagesInfo():
             self.populate_contents_table()
             self.populate_write_interval_table()
         if self.valid and not self.use_old:
-            print "-----------imported following policy ---------"
+            logging.info("-----------imported following policy ---------")
             try:
                 self.print_substage_tables()
             except IndexError:
@@ -194,7 +195,7 @@ class SubstagesInfo():
                 # give up
                 pass
 
-            print "-------------------------------------------"
+            logging.info("-------------------------------------------")
 
     def _create_var_table(self, substage=-1):
         fields = ["startaddr", "size", "kind", "name"]
@@ -234,12 +235,12 @@ class SubstagesInfo():
         for r in self.var_table.iterrows():
             perms = addr_space.var_perms(r['perms'])
             kind = addr_space.var_type(r['kind'])
-            print "VAR: %s (0x%x -- 0x%x) (%s, %s, %s) at substage %d" % (r['name'],
-                                                                          r['startaddr'],
-                                                                          r['endaddr'],
-                                                                          perms, kind,
-                                                                          r['rawkind'],
-                                                                          r['substage'])
+            logging.info("VAR: %s (0x%x -- 0x%x) (%s, %s, %s) at substage %d" % (r['name'],
+                                                                                 r['startaddr'],
+                                                                                 r['endaddr'],
+                                                                                 perms, kind,
+                                                                                 r['rawkind'],
+                                                                                 r['substage']))
 
     def get_intervals_for_substage(self, substage, intervals):
         stage_intervals = intervals[substage]
@@ -339,7 +340,7 @@ class SubstagesInfo():
                         try:
                             n = self.get_function_lineno(s, calltrace_path)
                         except subprocess.CalledProcessError:
-                            print "Did not find %s in %s" % (s, calltrace_path)
+                            logging.info("Did not find %s in %s" % (s, calltrace_path))
                             failed = True
                             n = self.get_function_lineno(s, calltrace_path, True)
                 substage_linenos.append(n)
@@ -373,13 +374,12 @@ class SubstagesInfo():
                 if os.path.exists(substageresultsdir):
                     return {}
                 try:
-                    print pymacs_request.__file__
                     pymacs_request.ask_emacs('(create-substage-calltraces "%s" "%s" "%s")' %
                                              (calltrace_path,
                                               el_path,
                                               substageresultsdir))
                 except Exception as e:
-                    print "Emacs data gathering not setup (%s, %s)\n" % (e, e.args)
+                    logging.debug("Emacs data gathering not setup (%s, %s)\n" % (e, e.args))
                     return {}
             origdir = os.getcwd()
             os.chdir(substageresultsdir)
@@ -396,10 +396,11 @@ class SubstagesInfo():
         tracename = self.process_trace
         if not self.valid:
             return
-        if self.contents_table.nrows > 0:
+        if self.contents_table and self.contents_table.nrows > 0:
             return
+
         if 'framac' == tracename:
-            tracefile = etattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
+            tracefile = getattr(Main.raw.runtime.trace.framac.files.callstack, self.stage.stagename)
             if os.path.exists(tracefile):
                 results = self.parse_frama_c_call_trace_stages(tracefile, self.substage_file_path)
                 row = self.contents_table.row
@@ -478,7 +479,7 @@ class SubstagesInfo():
     def populate_write_interval_table(self):
         substages = self._substage_numbers()
         if len(substages) < 1:
-            print "No substages defined, not populating write interval table for %s" % (self.stage)
+            logging.debug("No substages defined, not populating write interval table for %s" % (self.stage))
             return
         intervals = self.calculate_intervals(substages)
         db_info.get(self.stage).write_trace_intervals(intervals,
@@ -520,26 +521,26 @@ class SubstagesInfo():
 
         lines.sort()
         for l in lines:
-            print l
+            logging.info(l)
 
     def print_substage_tables(self):
         self.h5mmap.flush()
-        print '----------regions----------'
+        logging.info('----------regions----------')
         self.print_regions()
 
-        print '----------substages----------'
+        logging.info('----------substages----------')
         substages = self._substage_numbers()
         self.substage_info_table.flush_rows_to_index()
 
         for num in substages:
             for s in pytable_utils.get_rows(self.substage_info_table,
                                          'substagenum == %s' % num):
-                print 'Substage %s (%s)  (name=%s) stack=%s type=%s' % \
-                    (s['substagenum'], s['functionname'],
-                     s['name'], s['stack'], substage_types(s['substage_type']))
-        print '----------policies----------'
+                logging.info('Substage %s (%s)  (name=%s) stack=%s type=%s' % \
+                             (s['substagenum'], s['functionname'],
+                              s['name'], s['stack'], substage_types(s['substage_type'])))
+        logging.info('----------policies----------')
         for num in substages:
-            print '-----for substage %s (%s) ----' % (num, self._substage_names()[num])
+            logging.info('-----for substage %s (%s) ----' % (num, self._substage_names()[num]))
 
             new = set()
             defined = set()
@@ -563,8 +564,8 @@ class SubstagesInfo():
                         undefined.add(name)
             used = new | defined | writable | reclassified
             unusedregions = allregions - used
-            print '%s total regions: %s new, %s defined -> %s writable | %s not writable' % \
-                (len(allregions), len(new), len(defined), len(writable), len(unusedregions))
+            logging.info('%s total regions: %s new, %s defined -> %s writable | %s not writable' % \
+                         (len(allregions), len(new), len(defined), len(writable), len(unusedregions)))
             rowinfo = {}
             for s in pytable_utils.get_rows(self.substage_region_policy_table,
                                             'substagenum == %s' % (num)):
@@ -583,15 +584,15 @@ class SubstagesInfo():
             ws = ws if ws else "[]"
             cs = cs if ds else "[]"
             if ds:
-                print 'defined regions: %s' % ds
+                logging.info('defined regions: %s' % ds)
             if ns:
-                print 'new regions: %s' % ns
+                logging.info('new regions: %s' % ns)
             if us:
-                print 'undefined regions: %s' % us
+                logging.info('undefined regions: %s' % us)
             if cs:
-                print 'reclassified regions: %s' % cs
+                logging.info('reclassified regions: %s' % cs)
             if ws:
-                print 'writable regions: %s' % ws
+                logging.info('writable regions: %s' % ws)
 
     def populate_policy_table(self, ss_info, mmap_info):
         regions = list(mmap_info.regions.iterkeys())
@@ -746,15 +747,15 @@ class SubstagesInfo():
         names = self._substage_names()
         for num in substages:
             name = names[num]
-            print "%s intervals for substage %d" % (name, num)
+            logging.info("%s intervals for substage %d" % (name, num))
             num = 0
             for a in [r for r in table.read_sorted('minaddrlo') if r['substagenum'] == num]:
-                print '(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr'])
+                logging.info('(0x%x, 0x%x)' % (a['minaddr'], a['maxaddr']))
                 if num > 10:
-                    print "..."
+                    logging.info("...")
                     break
                 num += 1
-            print '---------------------------'
+            logging.info('---------------------------')
 
     def open_dbs(self, trace):
         self.process_trace = trace
@@ -762,15 +763,11 @@ class SubstagesInfo():
             trace_db = getattr(Main.raw.runtime.trace.db, self.stage.stagename)
             trace_db_done = Main.raw.runtime.trace.done
             if not (os.path.exists(trace_db_done) and os.path.exists(trace_db)):
-                trace_db = None
+                self.process_trace = None
         else:
             trace_db = None
-        if not trace_db or not trace or not os.path.exists(trace_db):
-            self.h5file = None
-            self.h5group = None
-            self.trace_intervals_table = None
-            self.contents_table = None
-        else:
+            self.process_trace = None
+        if self.process_trace:
             self.h5file = tables.open_file(trace_db, mode="a",
                                            title="%s substage info" %
                                            self.stage.stagename)
@@ -779,10 +776,17 @@ class SubstagesInfo():
                 self.h5group = self.h5file.create_group("/", groupname, "")
             except tables.exceptions.NodeError:
                 self.h5group = self.h5file.get_node('/%s' % groupname)
+        else:
+            self.h5file = None
+            self.h5group = None
 
+        if self.h5file is None:
+            self.trace_intervals_table = None
+            self.contents_table = None
+        else:
             if not hasattr(self.h5group, 'substagecontents'):
                 self.contents_table = self.h5file.create_table(
-                    self.h5group, 'substagecontents', SubstageContents, "substage contents")
+                        self.h5group, 'substagecontents', SubstageContents, "substage contents")
             else:
                 self.contents_table = self.h5group.substagecontents
             if not hasattr(self.h5group, 'writeintervals'):
@@ -910,7 +914,7 @@ class SubstagesInfo():
     def check_trace(self, table):
         violation = False
         snums = self._substage_numbers()
-        print "---- CHECKING TRACE FOR WRITE VIOLATIONS -----"
+        logging.info("---- CHECKING TRACE FOR WRITE VIOLATIONS -----")
         for n in snums:
             allowed_writes = self.allowed_writes(n)
             for r in db_info.get(self.stage).get_substage_writes(n):
@@ -927,15 +931,17 @@ class SubstagesInfo():
                     res = allowed_writes.search(start, end)
                 if not len(res) == 1:
                     write = long(r['relocatedpc'])
-                    print "Substage %d: invalid write by pc 0x%x to addr (%x,%x)" % (n,
-                                                                                     write,
-                                                                                     start,
-                                                                                     end)
+                    logging.info("Substage %d: invalid write by pc 0x%x to addr (%x,%x)" % (n,
+                                                                                            write,
+                                                                                            start,
+                                                                                            end))
                     violation = True
-        if not violation:
-            print "Policy was not violated :)"
-            print "-------------------------------------------"
+        if violation:
+#            print "Policy was not violated :)"
+            logging.info("Policy VIOLATED!!!1one :(")
+            logging.info("-------------------------------------------")
             return True
         else:
-            print "-------------------------------------------"
+            logging.info("Policy not violated")
+            logging.info("-------------------------------------------")
             return False

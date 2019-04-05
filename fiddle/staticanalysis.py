@@ -292,7 +292,6 @@ class LongWriteDescriptor():
                                    self.thumb,
                                    self.info.write_ins["offset"])
         self.write_size = self.table.ia.calculate_store_size(ins)
-        print self.info
         self.breakaddr = self.info.start_ins_addr
         self.writeaddr = self.info.write_ins_addr
         self.contaddr = self.info.finish_ins_addr

@@ -540,6 +540,7 @@ class TraceTable():
             rs = rangetable.read_sorted('index')
         i = 0
         for rangerow in rs:
+            # print "%x" % rangerow['pc']
             (sdisasm, ssrc) = db_info.get(self.stage).disasm_and_src_from_pc(rangerow['pc'])
             pcfname = ''
             lrfname = ''

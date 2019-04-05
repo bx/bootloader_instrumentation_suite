@@ -86,6 +86,12 @@ def get_section_headers(elf):
     ds = r2.get(elf, "iSj")
     index = 0
     headers = []
+    if len(ds) > 0:
+        # flags key differs between r2 versions
+        if "flags" in ds[0]:
+            flags = "flags"
+        else:
+            flags = "perm"
     for d in ds:
         h = {
             "number": index,
@@ -94,7 +100,7 @@ def get_section_headers(elf):
             "offset": d["paddr"],
             "size": d['vsize'],
             "filesize": d['size'],
-            "flags": d['flags']
+            "flags": d[flags]
         }
         headers.append(h)
         index += 1

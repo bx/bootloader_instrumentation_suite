@@ -36,6 +36,9 @@ import yaml
 from datetime import datetime
 from enum import Enum
 from run_cmds import cmds
+import reporter
+import logging
+
 
 
 class ManagerException(Exception):
@@ -45,20 +48,43 @@ class ManagerException(Exception):
 class TaskManager():
     loaders = []
     tasks = {}
-
     def __init__(self, command, instance, trace, host=None,
                  trace_list=[], stages=[],
                  policies={}, post_trace_processes=[],
                  rm_dir=True, quick=False, args=None,
                  verbose=False, plugin=None):
         self.verbose = verbose
+        self.DOIT_CONFIG = {'reporter': reporter.FiddleReporter}
+        Main.verbose = self.verbose
+        # shd = logging.StreamHandler()
+        # shd.setLevel(logging.DEBUG)
+        # shi = logging.StreamHandler()
+        # shi.setLevel(logging.INFO)
+        # formatter = logging.Formatter('%(message)s')
+        # shd.setFormatter(formatter)
+        # shi.setFormatter(formatter)
+        # import sys
+        # shd.stream = sys.stderr
+        # shi.stream = sys.stdout
+        # logging.getLogger().addHandler(shd)
+        # logging.getLogger().addHandler(shi)
+
+        if Main.verbose:
+            logging.basicConfig(level=logging.DEBUG)
+            v = 2
+        else:
+            logging.basicConfig(level=logging.INFO)
+            v = 0
+        Main.verbosity = v
+        # self.DOIT_CONFIG['verbosity'] = v
+
         if command == cmds.list_instances:
-            print "Test instances"
+            logging.info("Test instances")
             for i in self._get_all_ids():
                 path = os.path.join(Main.test_data_path, i)
                 time = os.stat(i).st_ctime
                 timestr = datetime.fromtimestamp(time).strftime('%Y-%m-%d %H:%M:%S')
-                print "%s\t%s" % (timestr, i)
+                logging.info("%s\t%s" % (timestr, i))
             return
 
         stages = [Main.stage_from_name(s) for s in stages]
@@ -94,9 +120,9 @@ class TaskManager():
                 else:
                     instance_id = instance
             if command == cmds.list_test_runs:
-                print "-- Test traces for instance '%s' --" % instance_id
+                logging.info("-- Test traces for instance '%s' --" % instance_id)
                 for (time, name, ran) in manager.TraceTaskPrepLoader._existing_trace_ids(instance_id, True):
-                    print "%s\t%s (data collected: %s)" % (time, name, ran)
+                    logging.info("%s\t%s (data collected: %s)" % (time, name, ran))
                 return
             if command in [cmds.run_new_trace, cmds.setup_trace]:
                 # create a new trace
@@ -115,7 +141,6 @@ class TaskManager():
                 run_trace = True
             if not policies:
                 policies = manager.PolicyTaskLoader.default_policies(instance_id, stages)
-
         self.ti = manager.InstrumentationTaskLoader(self.target_task,
                                                     instance_id,
                                                     self,
@@ -134,15 +159,15 @@ class TaskManager():
             if cmds.import_policy:
                 self.loaders.append(manager.task_manager(verbose))
                 return
-            print "-- Avilable policies for instance '%s' --" % instance_id
+            logging.info("-- Avilable policies for instance '%s' --" % instance_id)
             for s in Main.stages:
-                print "Stage %s:" % s.stagename
+                logging.info("Stage %s:" % s.stagename)
                 rt = self.pt._policy_root(s)
                 for f in glob.glob("%s/*" % rt):
                     if os.path.isdir(f):
                         t = os.stat(f).st_ctime
                         timestr = datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M:%S')
-                        print "%s\t%s" % (timestr, os.path.basename(f))
+                        logging.info("%s\t%s" % (timestr, os.path.basename(f)))
             return
 
         self.tp = manager.TraceTaskPrepLoader(trace_id,
@@ -155,7 +180,6 @@ class TaskManager():
                                               False)
         self.pt = manager.PolicyTaskLoader(command == cmds.import_policy,
                                            policies)
-
         self.rt = manager.TraceTaskLoader(create_trace,
                                           run_trace,
                                           command == cmds.print_trace_commands,
@@ -165,9 +189,11 @@ class TaskManager():
                                                True,
                                                command is cmds.hook,
                                                plugin)
+
         else:
             self.ppt = None
-        self.loaders.append(manager.task_manager(verbose))
+
+        self.loaders.append(manager.task_manager(instance_id))
 
     def _get_all_ids(self):
         root = Main.test_data_path
@@ -222,6 +248,8 @@ class TaskManager():
             for name, l in v.list_tasks():
                 f = l
                 tasks[name] = f
+
+        tasks['DOIT_CONFIG'] = self.DOIT_CONFIG
         ml = ModuleTaskLoader(tasks)
         main = DoitMain(ml)
         main.config['default_tasks'] = cmds
@@ -229,14 +257,14 @@ class TaskManager():
 
     def create_test_instance(self):
         nm = self.ti.get_build_name()
-        print "about to run %s" % nm
+        logging.debug("about to run %s" % nm)
         ret = self.run([nm])
         return ret
 
     def import_policy(self):
         #tp = self.tp.get_build_name()
         nm = self.pt.get_build_name()
-        print "about to run %s" % nm
+        logging.debug("about to run %s" % nm)
         ret = self.run([nm])
         return ret
 
@@ -245,12 +273,12 @@ class TaskManager():
         tp = self.tp.get_build_name()
         nm = self.rt.get_build_name()
         ip = self.pt.get_build_name()
-        print "about to run %s" % nm
+        logging.debug("about to run %s" % nm)
         ret = self.run([ti, tp, ip, nm])
         return ret
 
     def postprocess_trace(self):
         nm = self.ppt.get_build_name()
-        print "about to run %s" % nm
+        logging.debug("about to run %s" % nm)
         ret = self.run([nm])
         return ret

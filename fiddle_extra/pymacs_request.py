@@ -23,7 +23,6 @@
 from __future__ import unicode_literals
 import os, atexit, time, signal, subprocess
 
-
 class Emacs():
     # Requests towards Emacs are written to file "_request", while
     # replies from Emacs are read from file "_reply".  We call Emacs
@@ -43,8 +42,9 @@ class Emacs():
         emacs = '/usr/bin/emacsclient'
         if not os.path.exists(emacs):
             self.command = None
-        self.command = (emacs, "-s", "default")
-        self.command = self.command + ('--eval', '(pymacs-run-one-request "%s")' % self.comm_dir)
+        else:
+            self.command = (emacs, "-s", "default")
+            self.command = self.command + ('--eval', '(pymacs-run-one-request "%s")' % self.comm_dir)
 
     def cleanup(self):
         if self.popen is not None:
@@ -94,15 +94,6 @@ def ask_emacs(text, printer="prin1", execbuffer=""):
         return repl
     else:
         return None
-
-
-def get_emacs_var(name):
-    res = ask_emacs(name)[1: -1]  # strip off quotation marks
-    if res == "nil":
-        return None
-    else:
-        return res
-
 
 def ask_emacs_in_buffer(cmd, bufname):
     return ask_emacs('(with-current-buffer (get-buffer-create %s) %s)'

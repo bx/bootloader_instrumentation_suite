@@ -99,7 +99,7 @@ class Emulator():
 
     def is_exit_syscall(self, emu):
         return False
-    
+
     def get_mappings(self):
         mlist = []
         mappings = gdb.execute("info proc mappings", to_string=True)
@@ -411,6 +411,11 @@ class Unicorn(gdb_tools.GDBPlugin):
         lr = 0
         pc = emu.reg_read(self.machine.pc)
         t = time.time()
+        if (pc == 0x408125):
+            print locals()
+            print self.emu.__dict__
+            print dir(self.emu)
+            raise Exception
         gdb.post_event(hook_write.WriteDatabase(t,
                                                 0,
                                                 size,
@@ -424,7 +429,7 @@ class Unicorn(gdb_tools.GDBPlugin):
                                                 "",
                                                 True))
 
-    def init(self):        
+    def init(self):
         self.stage = self.controller.stage_order[0]
         self.substage_num = 0
         self.substage_entries = [utils.get_symbol_location(sub, self.stage)

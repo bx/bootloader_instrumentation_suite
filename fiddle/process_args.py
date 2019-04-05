@@ -91,7 +91,7 @@ class FiddleArgParser(argparse.ArgumentParser):
                               action="append", default=[])
             cmds.add_argument('-b', '--print_build_commands',
                               help="Print build commands for software",
-                              default=[], action="append")
+                              action="append")
             cmds.add_argument('-S', '--setup_trace', action="store_true",
                               default=False)
             cmds.add_argument('-R', '--run_new_trace', action="store_true",
@@ -156,6 +156,11 @@ class FiddleArgParser(argparse.ArgumentParser):
         elif not args.stages:
             args.stages = [s.stagename for s in Main.default_stages]
         if args.print_build_commands or args.build_software:
+            print args.print_build_commands
+            if args.print_build_commands is None:
+                args.print_build_commands = []
+            if args.build_software  is None:
+                args.build_software = []
             other = args.print_build_commands + args.build_software
         if args.import_policy:
             policy = args.import_policy
@@ -163,7 +168,7 @@ class FiddleArgParser(argparse.ArgumentParser):
             policy = args.import_policy
         if not args.trace_methods:
              args.trace_methods = host.default_tracing
-        
+
         self.parser = parser
         self.args = args
         self.other = other

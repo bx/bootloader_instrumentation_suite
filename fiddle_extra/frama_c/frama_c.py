@@ -634,7 +634,8 @@ if __name__ == "__main__":
         d = doit_manager.TaskManager([], [], False, [args.stage],
                                      {args.stage: args.policy_id},
                                      False, {}, args.test_id, False, [],
-                                     hook=True, rm_dir=not args.keep_temp)
+                                     hook=True, rm_dir=not args.keep_temp,
+                                     verbose=args.verbose)
         labels = Main.get_config("labels")
         l = labels
         root = Main.get_config("temp_target_src_dir")

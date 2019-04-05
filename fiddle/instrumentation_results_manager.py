@@ -21,6 +21,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import config
+import logging
 from config import Main
 from doit import loader
 from doit.task import dict_to_task
@@ -39,7 +40,7 @@ try:
 except ImportError:
     class NoIPython:
         def embed():
-            print "IPython is not installed, embedded console is not supported"
+            logging.warning("IPython is not installed, embedded console is not supported")
     IPython = NoIPython()
 import os
 import re
@@ -67,7 +68,7 @@ from substage import SubstagesInfo as SI
 import yaml
 import db_info
 from doit import exceptions
-
+import logging
 
 class DelTargetAction(PythonInteractiveAction):
     def execute(self, out, err):
@@ -87,14 +88,13 @@ _manager_singleton = None
 
 def task_manager(instance_id=None, verbose=False):
     class TestTaskManager(object):
-        def __init__(self, instance_id):
+        def __init__(self, instance_id, verbose):
             self.ALL_GROUPS = 0
             self.instance_id = instance_id
             self.tasks = {}
             self.enabled = [self.ALL_GROUPS]
             self.taskmanagers = {}
             self.grouporder = []
-            self.verbose = verbose
 
         def enable(self, subgroup):
             self.enabled.append(subgroup)
@@ -105,12 +105,6 @@ def task_manager(instance_id=None, verbose=False):
         def add_tasks(self, task_list, subgroup):
             l = self.tasks.get(subgroup, [])
             l.extend(task_list)
-            # print subgroup
-            for t in task_list:
-                # print t.__dict__
-                if not self.verbose:
-                    t.verbosity = 0
-            # print "---"
             self.tasks[subgroup] = l
 
         def list_tasks(self):
@@ -159,7 +153,7 @@ def task_manager(instance_id=None, verbose=False):
                         'actions': inst.actions,
                         'targets': inst.targets,
                         'file_dep': inst.file_dep,
-                        'task_dep': inst.task_dep
+                        'task_dep': inst.task_dep,
                     }
                     r['basename'] = inst.name
                     r['name'] = self.build_name(subgroup)
@@ -188,7 +182,7 @@ def task_manager(instance_id=None, verbose=False):
     if not _manager_singleton:
         if instance_id is None:
             raise Exception("instance_id must be defined")
-        _manager_singleton = TestTaskManager(instance_id)
+        _manager_singleton = TestTaskManager(instance_id, verbose)
     return _manager_singleton
 
 
@@ -218,7 +212,6 @@ class TestTask(object):
                 else:
                     val = getattr(self, listname)() if hasattr(self, listname) else default
                 setattr(self, i, val)
-
 
 class CopyFileTask(TestTask):
     dsts = set()
@@ -539,12 +532,12 @@ class ResultsLoader(object):
     def _mkdir(self, path):
         return MkdirTask(path)
 
-    def save_config(self, k, v):
-        Main.set_config(k,  v)
+    # def save_config(self, k, v):
+    #     Main.set_config(k,  v)
 
-        def save():
-            return {k: v}
-        return ActionListTask([(save,)], [], [], "save_%s" % k)
+    #     def save():
+    #         return {k: v}
+    #     return ActionListTask([(save,)], [], [], "save_%s" % k)
 
     def _backup_config_file_task(self, from_path, to_path):
         return self._copy_file(from_path, to_path)
@@ -729,14 +722,14 @@ class PostTraceLoader(ResultsLoader):
             def __call__(self):
                 rwe = self
                 # print "DB object: %s" % self.db_objname
-                print "-----instance config----"
+                logging.info("-----instance config----")
                 with open(Main.raw.runtime.instance_config_file, 'r') as f:
                     sys.stdout.write(f.read())
-                print "---testcase config----"
+                logging.info("---testcase config----")
                 with open(Main.raw.runtime.test_config_file, 'r') as f:
                     sys.stdout.write(f.read())
-                print "PostTraceLoader object named rwe"
-                print "-----------"
+                logging.info("PostTraceLoader object named rwe")
+                logging.info("-----------")
                 IPython.embed()
 
         a = PythonInteractiveAction(Do())
@@ -754,14 +747,14 @@ class PostTraceLoader(ResultsLoader):
             def __call__(self):
                 rwe = self
                 # print "DB object: %s" % self.db_objname
-                print "-----instance config----"
+                logging.info("-----instance config----")
                 with open(Main.raw.runtime.instance_config_file, 'r') as f:
                     sys.stdout.write(f.read())
-                print "---testcase config----"
+                logging.info("---testcase config----")
                 with open(Main.raw.runtime.test_config_file, 'r') as f:
                     sys.stdout.write(f.read())
-                print "PostTraceLoader object named rwe"
-                print "-----------"
+                logging.info("PostTraceLoader object named rwe")
+                logging.info("-----------")
                 IPython.embed()
 
         a = PythonInteractiveAction(Do())
@@ -964,10 +957,10 @@ class TraceTaskLoader(ResultsLoader):
     def do_print_cmds(self):
         if not self.toprint:
             return
-        print "----------------------------------------"
+        logging.info("----------------------------------------")
         for a in self.toprint:
-            print a
-        print "----------------------------------------"
+            logging.info(a)
+        logging.info("----------------------------------------")
 
 
 class TraceTaskPrepLoader(ResultsLoader):
@@ -1419,11 +1412,11 @@ sha1: {}
             self._update_runtime_config("temp_target_src_dir", tmpdir)
 
         def rm_src_dir():
-            print "removing temporary copy of target source code at %s" % tmpdir
+            logging.info("removing temporary copy of target source code at %s" % tmpdir)
             os.system("rm -rf %s" % tmpdir)
 
         def close_dbs():
-            print "closing databases"
+            logging.debug("closing databases")
             for s in Main.stages:
                 db_info.get(s)._closeall()
 
